@@ -52,10 +52,10 @@ a { color: var(--accent); }
 /* ---- header ---- */
 header.app-header { background: var(--surface); border-bottom: 1px solid var(--hairline); padding: 12px 16px 0; position: sticky; top: 0; z-index: 40; }
 .header-row { display: flex; align-items: center; gap: 12px; flex-wrap: wrap; max-width: 1320px; margin: 0 auto; }
-h1 { font-size: 1.1rem; font-weight: 650; display: inline-flex; align-items: center; gap: 7px; }
+h1 { font-size: 1.5rem; font-weight: 650; display: inline-flex; align-items: center; gap: 9px; }
 h1 .icon-lg { color: var(--accent); }
 .header-row .spacer { flex: 1; }
-.icon-btn { border: 1px solid var(--border); background: var(--surface); color: var(--ink-2); border-radius: 8px; width: 32px; height: 32px; display: inline-flex; align-items: center; justify-content: center; cursor: pointer; transition: transform 120ms ease, box-shadow 120ms ease, color 120ms ease; }
+.icon-btn { border: 1px solid var(--border); background: var(--surface); color: var(--ink-2); border-radius: 9px; width: 42px; height: 42px; font-size: 1.2em; display: inline-flex; align-items: center; justify-content: center; cursor: pointer; transition: transform 120ms ease, box-shadow 120ms ease, color 120ms ease; }
 .icon-btn:hover { color: var(--accent); box-shadow: var(--shadow); transform: translateY(-1px); }
 .drawer-toggle { display: none; }
 @media (max-width: 900px) { .drawer-toggle { display: inline-flex; } }
@@ -63,7 +63,7 @@ nav.tabs { display: flex; gap: 2px; max-width: 1320px; margin: 10px auto 0; over
 nav.tabs button { appearance: none; border: none; background: none; cursor: pointer; font: inherit; font-size: 0.88rem; color: var(--ink-2); padding: 8px 14px; border-radius: 8px 8px 0 0; border-bottom: 2px solid transparent; white-space: nowrap; }
 nav.tabs button.active { color: var(--ink); font-weight: 600; border-bottom-color: var(--accent); }
 nav.tabs button:hover:not(.active) { color: var(--ink); }
-.user-info { font-size: 0.72rem; color: var(--muted); text-align: right; }
+.user-info { font-size: 0.92rem; color: var(--muted); text-align: right; }
 .user-info a { color: var(--accent); cursor: pointer; }
 
 main { max-width: 1320px; margin: 0 auto; padding: 16px; }
@@ -135,7 +135,10 @@ h3 { font-size: 0.85rem; font-weight: 600; margin-bottom: 6px; }
 .grid-block.done { opacity: var(--done-op); text-decoration: line-through; }
 .grid-block .gb-time { font-size: 0.62rem; opacity: 0.8; }
 .grid-block.gcal-event { background: var(--page); border-style: dashed; color: var(--ink-2); cursor: default; border-left-width: 3px; }
-.gcal-allday-row { display: flex; flex-wrap: wrap; gap: 6px; margin: -4px 0 10px; }
+.gcal-allday-row:not(:empty) { border-bottom: 1px solid var(--hairline); }
+.allday-line { display: flex; align-items: center; min-height: 34px; }
+.allday-line + .allday-line { border-top: 1px solid var(--hairline); }
+.allday-bar { flex: 1; margin: 5px 8px 5px 0; padding: 5px 12px; border-radius: 6px; border-left: 4px solid var(--accent); background: var(--page); font-size: 0.78rem; color: var(--ink-2); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .gcal-allday-chip { font-size: 0.72rem; padding: 4px 9px; border-radius: 8px; background: var(--page); border: 1px dashed var(--border); color: var(--ink-2); border-left-width: 3px; }
 .evt-dot { width: 8px; height: 8px; border-radius: 50%; display: inline-block; flex: none; margin-right: 4px; }
 
@@ -342,8 +345,8 @@ footer button { font: inherit; font-size: 0.72rem; border: none; background: non
             <button onclick="quickAddToday()">Add</button>
           </div>
         </div>
-        <div class="gcal-allday-row" id="gcal-allday-row"></div>
         <div class="hour-grid-wrap">
+          <div class="gcal-allday-row" id="gcal-allday-row"></div>
           <div class="hour-grid" id="hour-grid"></div>
         </div>
       </section>
@@ -932,7 +935,7 @@ function renderDay(){
   attachRowDrag(listEl, untimed);
 
   const alldayEl = document.getElementById('gcal-allday-row');
-  alldayEl.innerHTML = gcalAllDay.map(e => `<span class="gcal-allday-chip" style="border-left-color:${calColor(e.cal.slot)}">${esc(e.title)}</span>`).join('');
+  alldayEl.innerHTML = gcalAllDay.map((e,i) => `<div class="allday-line"><span class="hour-label">${i===0?'all day':''}</span><div class="allday-bar" style="border-left-color:${calColor(e.cal.slot)}">${esc(e.title)}</div></div>`).join('');
 
   renderHourGrid(timed, gcalTimed);
   paintIcons(listEl);
