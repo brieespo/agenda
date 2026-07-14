@@ -219,6 +219,27 @@ button.danger-ghost { cursor: pointer; border: 1px solid var(--critical); backgr
 .auth-toggle { font-size: 0.78rem; color: var(--ink-2); margin-top: 10px; }
 .auth-toggle a { cursor: pointer; }
 
+/* ---- quick-add bar (assistant-parsed, day view) ---- */
+.quick-add-bar { display: flex; gap: 8px; margin-bottom: 14px; }
+.quick-add-bar input { flex: 1; font: inherit; font-size: 0.9rem; padding: 10px 14px; border-radius: 10px; border: 1px solid var(--border); background: var(--surface); color: var(--ink); }
+.quick-add-bar button { flex: none; }
+
+/* ---- chat drawer ---- */
+.chat-scrim { display: none; position: fixed; inset: 0; background: rgba(0,0,0,0.35); z-index: 390; }
+.chat-scrim.open { display: block; }
+.chat-drawer { position: fixed; top: 0; right: 0; bottom: 0; width: min(380px, 92vw); background: var(--page); z-index: 400; transform: translateX(100%); transition: transform 200ms ease; display: flex; flex-direction: column; box-shadow: -8px 0 24px rgba(0,0,0,0.18); }
+.chat-drawer.open { transform: translateX(0); }
+.chat-head { display: flex; align-items: center; gap: 8px; padding: 14px 16px; border-bottom: 1px solid var(--hairline); flex: none; }
+.chat-head button { margin-left: auto; }
+.chat-messages { flex: 1; overflow-y: auto; padding: 14px 16px; display: flex; flex-direction: column; gap: 10px; }
+.chat-bubble { max-width: 85%; padding: 8px 12px; border-radius: 12px; font-size: 0.85rem; line-height: 1.4; white-space: pre-wrap; overflow-wrap: anywhere; }
+.chat-bubble.user { align-self: flex-end; background: var(--accent); color: #fff; border-bottom-right-radius: 4px; }
+.chat-bubble.assistant { align-self: flex-start; background: var(--surface); border: 1px solid var(--border); border-bottom-left-radius: 4px; }
+.chat-bubble.error { align-self: flex-start; background: var(--warning); color: #4a3400; border-bottom-left-radius: 4px; }
+.chat-input-row { display: flex; gap: 8px; padding: 12px 16px; border-top: 1px solid var(--hairline); flex: none; }
+.chat-input-row input { flex: 1; font: inherit; font-size: 0.85rem; padding: 8px 10px; border-radius: 8px; border: 1px solid var(--border); background: var(--surface); color: var(--ink); }
+.chat-input-row button:disabled { opacity: 0.5; cursor: default; }
+
 footer { max-width: 1320px; margin: 24px auto 0; padding: 0 16px; font-size: 0.72rem; color: var(--muted); display: flex; gap: 14px; flex-wrap: wrap; }
 footer button { font: inherit; font-size: 0.72rem; border: none; background: none; color: var(--muted); text-decoration: underline; cursor: pointer; }
 </style>
@@ -255,6 +276,7 @@ footer button { font: inherit; font-size: 0.72rem; border: none; background: non
   <div class="header-row">
     <h1><svg class="icon-lg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="4" width="18" height="18" rx="2"/><line x1="16" y1="2" x2="16" y2="6"/><line x1="8" y1="2" x2="8" y2="6"/><line x1="3" y1="10" x2="21" y2="10"/></svg> Agenda</h1>
     <div class="spacer"></div>
+    <button class="icon-btn" title="Assistant" id="chat-toggle-btn" onclick="toggleChat(true)" data-ico="chat" style="display:none"></button>
     <button class="icon-btn" title="Routines & settings" onclick="openRoutinesModal()" data-ico="settings"></button>
     <button class="icon-btn drawer-toggle" title="This week" onclick="toggleSidebar(true)" data-ico="menu"></button>
     <div class="user-info" id="user-info" style="display:none">
@@ -269,6 +291,21 @@ footer button { font: inherit; font-size: 0.72rem; border: none; background: non
 
 <div class="sidebar-scrim" id="sidebar-scrim" onclick="toggleSidebar(false)"></div>
 
+<div class="chat-scrim" id="chat-scrim" onclick="toggleChat(false)"></div>
+<div class="chat-drawer" id="chat-drawer">
+  <div class="chat-head">
+    <strong>Assistant</strong>
+    <button class="icon-btn" onclick="toggleChat(false)" data-ico="x"></button>
+  </div>
+  <div class="chat-messages" id="chat-messages">
+    <div class="chat-bubble assistant">Tell me what's going on — "go to the bank Wednesday," "every Saturday I take my medication," "move the dentist to Friday at 2." I'll turn it into tasks.</div>
+  </div>
+  <div class="chat-input-row">
+    <input type="text" id="chat-input" placeholder="Message the assistant…" onkeydown="if(event.key==='Enter')sendChatMessage()">
+    <button class="icon-btn" id="chat-send-btn" onclick="sendChatMessage()" data-ico="send"></button>
+  </div>
+</div>
+
 <main>
   <div class="app-layout">
     <div>
@@ -279,6 +316,10 @@ footer button { font: inherit; font-size: 0.72rem; border: none; background: non
           <span class="day-title" id="day-title"></span>
           <button class="icon-btn" onclick="navDay(1)" data-ico="chevron-right"></button>
           <button class="ghost" onclick="goToday()">Today</button>
+        </div>
+        <div class="quick-add-bar" id="quick-add-bar" style="display:none">
+          <input type="text" id="quick-parse-input" placeholder="Tell the assistant what's happening… (e.g. &quot;dentist Friday 2pm&quot;)" onkeydown="if(event.key==='Enter')quickParseAdd()">
+          <button class="primary" onclick="quickParseAdd()">Add</button>
         </div>
         <div class="card headline-card" id="day-headline"></div>
         <div class="card">
@@ -412,7 +453,9 @@ const ICONS = {
   "trash": '<polyline points="3 6 5 6 21 6"/><path d="M19 6l-1 14a2 2 0 0 1-2 2H8a2 2 0 0 1-2-2L5 6"/><path d="M10 11v6"/><path d="M14 11v6"/><path d="M9 6V4a1 1 0 0 1 1-1h4a1 1 0 0 1 1 1v2"/>',
   "settings": '<circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 1 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 1 1-2.83-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 1 1 2.83-2.83l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 1 1 2.83 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z"/>',
   "repeat": '<polyline points="17 1 21 5 17 9"/><path d="M3 11V9a4 4 0 0 1 4-4h14"/><polyline points="7 23 3 19 7 15"/><path d="M21 13v2a4 4 0 0 1-4 4H3"/>',
-  "menu": '<line x1="3" y1="12" x2="21" y2="12"/><line x1="3" y1="6" x2="21" y2="6"/><line x1="3" y1="18" x2="21" y2="18"/>'
+  "menu": '<line x1="3" y1="12" x2="21" y2="12"/><line x1="3" y1="6" x2="21" y2="6"/><line x1="3" y1="18" x2="21" y2="18"/>',
+  "chat": '<path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/>',
+  "send": '<line x1="22" y1="2" x2="11" y2="13"/><polygon points="22 2 15 22 11 13 2 9 22 2"/>'
 };
 function ico(name){ return `<svg class="icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">${ICONS[name]||''}</svg>`; }
 function paintIcons(root){ (root||document).querySelectorAll('[data-ico]').forEach(el => { if(!el.querySelector('svg')) el.insertAdjacentHTML('afterbegin', ico(el.dataset.ico)); }); }
@@ -990,6 +1033,116 @@ function exportJson(){
 }
 
 /* =====================================================================
+   ASSISTANT (Supabase Edge Function `assistant` -> Anthropic Haiku)
+   Chat is session-scoped history only (a capture tool, not a record) and
+   is only offered to signed-in users, since the function requires a real
+   Supabase JWT tied to the allowed account — guest mode has no session to
+   send. Quick-add reuses the exact same parser for single-line, no-back-
+   and-forth capture.
+   ===================================================================== */
+let CHAT_HISTORY = [];
+function toggleChat(open){
+  document.getElementById('chat-drawer').classList.toggle('open', open);
+  document.getElementById('chat-scrim').classList.toggle('open', open);
+  if(open) document.getElementById('chat-input').focus();
+}
+function appendChatBubble(role, text){
+  CHAT_HISTORY.push({role, text});
+  const el = document.getElementById('chat-messages');
+  el.innerHTML = CHAT_HISTORY.map(m => `<div class="chat-bubble ${m.role}">${esc(m.text)}</div>`).join('');
+  el.scrollTop = el.scrollHeight;
+}
+// Gives the model something to resolve references against ("move the bank
+// thing to Friday") — every real + virtual item visible in the currently
+// browsed week, tagged with the same ids the drag system already uses.
+function currentWeekContext(){
+  const dates = weekDates(currentView==='week' ? weekAnchor : currentDate);
+  const out = [];
+  dates.forEach(d => itemsForDate(d).forEach(it => out.push({id: it.id, title: it.title, date: it.date, time: it.time})));
+  const wk = weekKeyForDate(currentView==='week' ? weekAnchor : currentDate);
+  TASKS.filter(t => t.date===null && t.week===wk).forEach(t => out.push({id: t.id, title: t.title, date: null, time: null}));
+  return out;
+}
+async function callAssistant(message){
+  const {data, error} = await sb.functions.invoke('assistant', {
+    body: {message, todayDate: todayStr(), weekTasks: currentWeekContext()}
+  });
+  if(error){
+    let msg = 'Something went wrong reaching the assistant.';
+    try{ const body = await error.context.json(); if(body && body.error) msg = body.error; }catch(e){}
+    throw new Error(msg);
+  }
+  if(data && data.error) throw new Error(data.error);
+  return data; // {reply, actions}
+}
+function resolveIdToItem(taskId){
+  if(taskId==null) return null;
+  const s = String(taskId);
+  const m = s.match(/^tpl-(\d+)-(.+)$/);
+  if(m) return itemByVirtual(Number(m[1]), m[2]);
+  return itemByRealId(Number(s));
+}
+function applyAssistantAction(action){
+  if(action.type==='add_task' || action.type==='add_timed_task'){
+    if(!action.title) return;
+    const date = action.date || null;
+    const time = action.type==='add_timed_task' ? (action.time||null) : null;
+    addTask({title: action.title, date, time, week: date ? null : weekKeyForDate(currentView==='week'?weekAnchor:currentDate)});
+  } else if(action.type==='add_template'){
+    if(!action.title || !action.recurrence) return;
+    TEMPLATES.push({id: nextId++, title: action.title, recurrence: action.recurrence, time: action.time||null, active:true});
+  } else if(action.type==='complete_task'){
+    const item = resolveIdToItem(action.task_id);
+    if(item) toggleItemDone(item);
+  } else if(action.type==='move_task'){
+    const item = resolveIdToItem(action.task_id);
+    if(!item) return;
+    const task = resolveDraggedTask(item);
+    if(task){
+      if(action.date!==undefined) task.date = action.date || null;
+      if(action.time!==undefined) task.time = action.time || null;
+    }
+  }
+}
+async function runAssistantMessage(message){
+  const result = await callAssistant(message);
+  (result.actions||[]).forEach(applyAssistantAction);
+  saveToStorage();
+  renderAll();
+  return result.reply || 'Done.';
+}
+async function sendChatMessage(){
+  const input = document.getElementById('chat-input');
+  const message = input.value.trim();
+  if(!message) return;
+  input.value = '';
+  appendChatBubble('user', message);
+  const btn = document.getElementById('chat-send-btn');
+  btn.disabled = true;
+  try{
+    const reply = await runAssistantMessage(message);
+    appendChatBubble('assistant', reply);
+  }catch(e){
+    appendChatBubble('error', e.message);
+  }
+  btn.disabled = false;
+}
+async function quickParseAdd(){
+  const input = document.getElementById('quick-parse-input');
+  const message = input.value.trim();
+  if(!message) return;
+  input.value = '';
+  input.disabled = true;
+  try{
+    const reply = await runAssistantMessage(message);
+    showNotice(reply, 'info');
+  }catch(e){
+    showNotice(e.message, 'warn');
+  }
+  input.disabled = false;
+}
+
+/* =====================================================================
    SUPABASE + PERSISTENCE (shared project; own table agenda_data)
    ===================================================================== */
 const SUPABASE_URL = 'https://zymvsdkwmdhrwjycxisr.supabase.co';
@@ -1037,6 +1190,10 @@ function showApp(){
   document.getElementById('auth-overlay').classList.add('hidden');
   document.getElementById('user-info').style.display='block';
   document.getElementById('user-email').textContent = _guestMode ? 'guest (data stays on this device)' : _currentUser.email;
+  // The assistant needs a real Supabase JWT for the edge function's
+  // allowlist check — guest mode has no session to send, so hide it there.
+  document.getElementById('chat-toggle-btn').style.display = _guestMode ? 'none' : '';
+  document.getElementById('quick-add-bar').style.display = _guestMode ? 'none' : '';
   renderAll();
 }
 let _sessionHandled = false;

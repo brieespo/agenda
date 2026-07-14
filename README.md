@@ -40,9 +40,19 @@ See `CLAUDE.md` for the full plan. Summary: a **task** is a one-time item (`date
 
 Pointer-events based (not native HTML5 drag/drop), so it works with both mouse and touch. A single pointerdown→move→up cycle on a draggable row does double duty: past a small movement threshold it's a drag (today-list reorder/retime, sidebar → day/grid assignment, week-view day-to-day moves); below the threshold, releasing counts as a tap and opens the edit modal instead.
 
+## Assistant (chat + quick-add)
+
+`supabase/functions/assistant/index.ts` proxies chat/quick-add messages to Anthropic (Haiku) using Claude's tool-use to force a structured `{reply, actions[]}` response — no raw-JSON parsing. The Anthropic key lives only in Supabase secrets and never reaches the client. The function also checks the caller's Supabase JWT email against an `ALLOWED_EMAIL` secret, since a valid JWT alone only proves "someone signed up on this shared project," not "Bri" — anyone could self-register via any sibling app's auth form. Both the chat drawer and quick-add box are hidden in guest mode since there's no JWT to send.
+
+Redeploy after editing the function:
+```
+supabase functions deploy assistant --project-ref zymvsdkwmdhrwjycxisr
+```
+Secrets (set once, never committed): `ANTHROPIC_API_KEY` (from console.anthropic.com / platform.claude.com) and `ALLOWED_EMAIL`.
+
 ## Build phases
 
-1. **Phase 1 (in progress):** auth, tasks CRUD, day view (untimed list + hour grid), week view, weekly sidebar with drag-assignment, completion gray-out, rollover, recurring templates + routines settings. Then: the Claude chat (edge function + chat drawer + quick-add).
+1. **Phase 1 (in progress):** auth, tasks CRUD, day view (untimed list + hour grid), week view, weekly sidebar with drag-assignment, completion gray-out, rollover, recurring templates + routines settings, the Claude chat (edge function + chat drawer + quick-add).
 2. **Phase 2:** Google Calendar (GIS silent-refresh read, calendar picker, grid rendering).
 3. **Phase 3:** suite sync — study blocks/LR checkpoints/restock items as `source:'suite'` background items; hub widget.
 4. **Phase 4:** polish — week-end sidebar rollover review, completion-streak stats, print view.
