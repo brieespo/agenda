@@ -52,7 +52,7 @@ Secrets (set once, never committed): `ANTHROPIC_API_KEY` (from console.anthropic
 
 ## Build phases
 
-1. **Phase 1 (in progress):** auth, tasks CRUD, day view (untimed list + hour grid), week view, weekly sidebar with drag-assignment, completion gray-out, rollover, recurring templates + routines settings, the Claude chat (edge function + chat drawer + quick-add).
+1. **Phase 1 (done):** auth, tasks CRUD, day view (untimed list + hour grid), week view, weekly sidebar with drag-assignment, completion gray-out, rollover, recurring templates + routines settings, the Claude chat (edge function + chat drawer + quick-add).
 2. **Phase 2:** Google Calendar (GIS silent-refresh read, calendar picker, grid rendering).
 3. **Phase 3:** suite sync — study blocks/LR checkpoints/restock items as `source:'suite'` background items; hub widget.
 4. **Phase 4:** polish — week-end sidebar rollover review, completion-streak stats, print view.
