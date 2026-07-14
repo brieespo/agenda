@@ -53,6 +53,6 @@ Secrets (set once, never committed): `ANTHROPIC_API_KEY` (from console.anthropic
 ## Build phases
 
 1. **Phase 1 (done):** auth, tasks CRUD, day view (untimed list + hour grid), week view, weekly sidebar with drag-assignment, completion gray-out, rollover, recurring templates + routines settings, the Claude chat (edge function + chat drawer + quick-add).
-2. **Phase 2:** Google Calendar (GIS silent-refresh read, calendar picker, grid rendering).
+2. **Phase 2 (done):** Google Calendar, read-only. No client ID is hardcoded — paste your own OAuth client ID into Settings → Google Calendar (same pattern as law-school-tracker); since GitHub Pages project sites share one origin per user, the same client ID already authorized for law-school-tracker works here with zero Google Cloud changes. Silent reconnect is attempted on every load once a client ID is saved (`prompt:''`), falling back to a one-click Connect button. Events render read-only on the day grid and week view (dashed, softer fill, no checkbox) and in an all-day strip; this app never writes to Google Calendar.
 3. **Phase 3:** suite sync — study blocks/LR checkpoints/restock items as `source:'suite'` background items; hub widget.
 4. **Phase 4:** polish — week-end sidebar rollover review, completion-streak stats, print view.

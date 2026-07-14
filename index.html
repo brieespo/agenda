@@ -5,6 +5,7 @@
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>Agenda</title>
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2/dist/umd/supabase.js"></script>
+<script src="https://accounts.google.com/gsi/client" async defer></script>
 <style>
 :root {
   --page: #f9f9f7;
@@ -133,7 +134,18 @@ h3 { font-size: 0.85rem; font-weight: 600; margin-bottom: 6px; }
 .grid-block:hover { transform: translateY(-1px); box-shadow: var(--shadow); }
 .grid-block.done { opacity: var(--done-op); text-decoration: line-through; }
 .grid-block .gb-time { font-size: 0.62rem; opacity: 0.8; }
-.grid-block.gcal-event { background: var(--page); border-style: dashed; color: var(--ink-2); cursor: default; }
+.grid-block.gcal-event { background: var(--page); border-style: dashed; color: var(--ink-2); cursor: default; border-left-width: 3px; }
+.gcal-allday-row { display: flex; flex-wrap: wrap; gap: 6px; margin: -4px 0 10px; }
+.gcal-allday-chip { font-size: 0.72rem; padding: 4px 9px; border-radius: 8px; background: var(--page); border: 1px dashed var(--border); color: var(--ink-2); border-left-width: 3px; }
+.evt-dot { width: 8px; height: 8px; border-radius: 50%; display: inline-block; flex: none; margin-right: 4px; }
+
+/* ---- google calendar settings ---- */
+.cal-toggle-list { display: flex; flex-direction: column; gap: 6px; margin: 8px 0; }
+.cal-toggle { display: flex; align-items: center; gap: 7px; font-size: 0.82rem; cursor: pointer; }
+.gcal-setup-steps { font-size: 0.78rem; color: var(--ink-2); margin: 8px 0; padding-left: 20px; display: flex; flex-direction: column; gap: 4px; }
+.gcal-setup-steps code { background: var(--page); border-radius: 4px; padding: 1px 5px; font-size: 0.76rem; }
+#gcal-client-id { width: 100%; font: inherit; font-size: 0.8rem; padding: 7px 9px; border-radius: 8px; border: 1px solid var(--border); background: var(--page); color: var(--ink); margin-bottom: 8px; }
+.gcal-status-line { font-size: 0.76rem; color: var(--muted); margin-top: 6px; }
 
 /* ---- week view ---- */
 .week-grid { display: grid; grid-template-columns: repeat(7, minmax(120px, 1fr)); gap: 8px; overflow-x: auto; }
@@ -330,6 +342,7 @@ footer button { font: inherit; font-size: 0.72rem; border: none; background: non
             <button onclick="quickAddToday()">Add</button>
           </div>
         </div>
+        <div class="gcal-allday-row" id="gcal-allday-row"></div>
         <div class="hour-grid-wrap">
           <div class="hour-grid" id="hour-grid"></div>
         </div>
@@ -406,6 +419,8 @@ footer button { font: inherit; font-size: 0.72rem; border: none; background: non
           <option value="mon">Monday</option>
         </select>
       </div>
+      <h3 style="margin-top:18px">Google Calendar</h3>
+      <div id="gcal-settings-body"></div>
     </div>
   </div>
 </div>
@@ -760,6 +775,7 @@ function toggleTemplateActive(id){
 function openRoutinesModal(){
   document.getElementById('setting-week-start').value = weekStartSetting();
   renderRoutinesList();
+  renderGcalSettings();
   openModal('routines-modal');
 }
 function renderRoutinesList(){
@@ -899,11 +915,15 @@ function renderDay(){
   const items = itemsForDate(currentDate);
   const untimed = items.filter(it => !it.time).sort((a,b) => (a.done===b.done)?0:(a.done?1:-1));
   const timed = items.filter(it => it.time);
+  const gcalToday = gcalEventsForDate(currentDate);
+  const gcalAllDay = gcalToday.filter(e => e.allDay);
+  const gcalTimed = gcalToday.filter(e => !e.allDay);
 
   const doneCount = items.filter(it=>it.done).length;
   const leftCount = items.length - doneCount;
-  document.getElementById('day-headline').innerHTML = items.length
-    ? `<strong>${leftCount}</strong> task${leftCount===1?'':'s'} left · <strong>${doneCount}</strong> done`
+  const evtCount = gcalToday.length;
+  document.getElementById('day-headline').innerHTML = (items.length || evtCount)
+    ? `<strong>${leftCount}</strong> task${leftCount===1?'':'s'} left · <strong>${doneCount}</strong> done${evtCount?` · <strong>${evtCount}</strong> event${evtCount===1?'':'s'}`:''}`
     : `Nothing on the books — add a task below.`;
 
   const listEl = document.getElementById('today-list');
@@ -911,25 +931,35 @@ function renderDay(){
   listEl.innerHTML = untimed.length ? untimed.map(taskRowHtml).join('') : '<p class="empty-note">No untimed tasks today.</p>';
   attachRowDrag(listEl, untimed);
 
-  renderHourGrid(timed);
+  const alldayEl = document.getElementById('gcal-allday-row');
+  alldayEl.innerHTML = gcalAllDay.map(e => `<span class="gcal-allday-chip" style="border-left-color:${calColor(e.cal.slot)}">${esc(e.title)}</span>`).join('');
+
+  renderHourGrid(timed, gcalTimed);
   paintIcons(listEl);
 }
-function renderHourGrid(timed){
-  const {start, end} = gridRangeFor(timed);
+function renderHourGrid(timed, gcalTimed){
+  gcalTimed = gcalTimed || [];
+  const {start, end} = gridRangeFor(timed.concat(gcalTimed));
   const grid = document.getElementById('hour-grid');
   let rows = '';
   for(let h=start; h<end; h++){
     const label = h===0?'12am':h<12?`${h}am`:h===12?'12pm':`${h-12}pm`;
     rows += `<div class="hour-row"><span class="hour-label">${label}</span><div class="hour-slot" data-drop="hour-slot" data-date="${currentDate}" data-time="${String(h).padStart(2,'0')}:00" onclick="onSlotClick(event)"></div></div>`;
   }
-  const blocks = timed.map(it => {
+  const taskBlocks = timed.map(it => {
     const [h,m] = it.time.split(':').map(Number);
     const top = ((h - start) * 60 + m) / 60 * HOUR_PX;
     const height = Math.max(20, (it.duration_min||30) / 60 * HOUR_PX);
     return `<div class="grid-block ${it.done?'done':''}" style="top:${top}px;height:${height}px" data-id="${it.id}" data-kind="${it.virtual?'v':'r'}"><div class="gb-time">${fmtTime(it.time)}${it.source==='template'?' '+ico('repeat'):''}</div>${esc(it.title)}</div>`;
   }).join('');
-  grid.innerHTML = rows + `<div class="grid-blocks" style="height:${(end-start)*HOUR_PX}px">${blocks}</div>`;
-  grid.querySelectorAll('.grid-block').forEach(el => {
+  const gcalBlocks = gcalTimed.map(e => {
+    const [h,m] = e.time.split(':').map(Number);
+    const top = ((h - start) * 60 + m) / 60 * HOUR_PX;
+    const height = Math.max(20, (e.duration_min||30) / 60 * HOUR_PX);
+    return `<div class="grid-block gcal-event" style="top:${top}px;height:${height}px;border-left-color:${calColor(e.cal.slot)}"><div class="gb-time">${fmtTime(e.time)}</div>${esc(e.title)}</div>`;
+  }).join('');
+  grid.innerHTML = rows + `<div class="grid-blocks" style="height:${(end-start)*HOUR_PX}px">${taskBlocks}${gcalBlocks}</div>`;
+  grid.querySelectorAll('.grid-block:not(.gcal-event)').forEach(el => {
     const item = timed.find(it => String(it.id)===el.dataset.id);
     if(item) el.addEventListener('pointerdown', e => startItemDrag(e, item, el, () => openTaskModal(item)));
   });
@@ -951,19 +981,30 @@ function weekChipHtml(item){
     <span style="flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${item.time?`<b>${fmtTime(item.time)}</b> `:''}${esc(item.title)}</span>
   </div>`;
 }
+function weekGcalChipHtml(e){
+  return `<div class="week-chip" style="cursor:default;border-left:3px solid ${calColor(e.cal.slot)};padding-left:6px">
+    <span style="flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;color:var(--ink-2)">${e.time?`<b>${fmtTime(e.time)}</b> `:''}${esc(e.title)}</span>
+  </div>`;
+}
 function renderWeek(){
   const dates = weekDates(weekAnchor);
   document.getElementById('week-title').textContent = `${fmtShort(dates[0])} – ${fmtShort(dates[6])}`;
   const grid = document.getElementById('week-grid');
   grid.innerHTML = dates.map(d => {
-    const items = itemsForDate(d).sort((a,b) => {
+    const gcalDay = gcalEventsForDate(d);
+    const gcalAllDay = gcalDay.filter(e=>e.allDay);
+    const gcalTimed = gcalDay.filter(e=>!e.allDay);
+    const rows = itemsForDate(d).map(it => ({time: it.time, done: !!it.done, html: weekChipHtml(it)}))
+      .concat(gcalTimed.map(e => ({time: e.time, done: false, html: weekGcalChipHtml(e)})));
+    rows.sort((a,b) => {
       if(!!a.time !== !!b.time) return a.time ? 1 : -1;
       if(a.time && b.time) return a.time.localeCompare(b.time);
       return (a.done===b.done)?0:(a.done?1:-1);
     });
     return `<div class="week-col ${d===todayStr()?'today':''}" data-drop="week-day" data-date="${d}">
       <div class="week-col-head" onclick="openDayFrom('${d}')"><span class="wc-day">${dowShort(d)}</span><span class="wc-date">${fmtShort(d)}</span></div>
-      ${items.map(weekChipHtml).join('')}
+      ${gcalAllDay.map(e=>`<div class="gcal-allday-chip" style="border-left-color:${calColor(e.cal.slot)};margin-bottom:3px">${esc(e.title)}</div>`).join('')}
+      ${rows.map(r=>r.html).join('')}
       <button class="week-add" onclick="openNewTaskModal({date:'${d}'})">+ add</button>
     </div>`;
   }).join('');
@@ -1143,6 +1184,143 @@ async function quickParseAdd(){
 }
 
 /* =====================================================================
+   GOOGLE CALENDAR — read-only, client-side (GIS token client). No client
+   ID is hardcoded: Bri pastes her own OAuth client ID into settings, the
+   same pattern as the law-school app. Since GitHub Pages project sites
+   share one origin per user (brieespo.github.io, regardless of path),
+   the exact same client ID she already authorized for law-school-tracker
+   works here with zero changes in Google Cloud Console — same origin.
+   This app never writes to Google Calendar.
+   ===================================================================== */
+const KNOWN_CALENDARS = ["Law School Schedule", "Online Law School Classes", "Law Review", "Bri", "Appointments", "Sloane", "Bills"];
+const CAL_COLORS_LIGHT = ["#2a78d6", "#1baf7a", "#eda100", "#008300", "#4a3aa7", "#e34948", "#e87ba4", "#eb6834"];
+const CAL_COLORS_DARK  = ["#3987e5", "#199e70", "#c98500", "#008300", "#9085e9", "#e66767", "#d55181", "#d95926"];
+let gTokenClient = null, gToken = null, gCalendars = [], gEvents = [];
+const calColor = slot => (matchMedia("(prefers-color-scheme: dark)").matches ? CAL_COLORS_DARK : CAL_COLORS_LIGHT)[((slot%8)+8)%8];
+
+function initGTokenClient(){
+  if(gTokenClient || !SETTINGS.googleClientId || !window.google?.accounts?.oauth2) return;
+  gTokenClient = google.accounts.oauth2.initTokenClient({
+    client_id: SETTINGS.googleClientId,
+    scope: 'https://www.googleapis.com/auth/calendar.readonly',
+    callback: async resp => {
+      if(resp.error){ setGcalStatus('Connection failed: ' + resp.error); return; }
+      gToken = resp.access_token;
+      try{ await refreshGCal(); }
+      catch(e){ console.error(e); setGcalStatus("Couldn't load calendars: " + e.message); }
+    }
+  });
+}
+function connectGoogle(){
+  const input = document.getElementById('gcal-client-id');
+  const typed = input ? input.value.trim() : '';
+  if(typed && typed !== SETTINGS.googleClientId){
+    SETTINGS.googleClientId = typed;
+    gTokenClient = null;
+    saveToStorage();
+  }
+  if(!SETTINGS.googleClientId){ setGcalStatus('Paste the OAuth client ID first.'); return; }
+  initGTokenClient();
+  if(!gTokenClient){ setGcalStatus('Google sign-in script still loading — try again in a couple seconds.'); return; }
+  gTokenClient.requestAccessToken({prompt: ''});
+}
+function disconnectGoogle(){
+  gToken = null; gEvents = []; gCalendars = [];
+  renderGcalSettings();
+  renderAll();
+}
+async function gfetch(url){
+  const r = await fetch(url, {headers: {Authorization: 'Bearer ' + gToken}});
+  if(r.status === 401){ gToken = null; throw new Error('Google session expired — click Connect again.'); }
+  if(!r.ok) throw new Error('Google API error ' + r.status);
+  return r.json();
+}
+function setGcalStatus(msg){ const el = document.getElementById('gcal-status-line'); if(el) el.textContent = msg; }
+// Fetches a rolling window wide enough for normal day/week browsing without
+// needing to detect and refetch every time the user navigates further out.
+async function refreshGCal(){
+  if(!gToken) return;
+  setGcalStatus('Loading calendars…');
+  const list = await gfetch('https://www.googleapis.com/calendar/v3/users/me/calendarList?maxResults=100');
+  gCalendars = (list.items||[]).map(c => ({id: c.id, name: c.summary || c.id}));
+  const ordered = [
+    ...KNOWN_CALENDARS.filter(n => gCalendars.some(c=>c.name===n)),
+    ...gCalendars.map(c=>c.name).filter(n=>!KNOWN_CALENDARS.includes(n)).sort()
+  ];
+  gCalendars.forEach(c => { c.slot = ordered.indexOf(c.name); });
+  const toggles = SETTINGS.calendarToggles || (SETTINGS.calendarToggles = {});
+  let changed = false;
+  gCalendars.forEach(c => { if(!(c.name in toggles)){ toggles[c.name] = KNOWN_CALENDARS.includes(c.name); changed = true; } });
+  if(changed) saveToStorage();
+
+  setGcalStatus('Loading events…');
+  const timeMin = addDays(todayStr(), -14);
+  const timeMax = addDays(todayStr(), 90);
+  const active = gCalendars.filter(c => toggles[c.name]);
+  const results = await Promise.all(active.map(async c => {
+    try{
+      const j = await gfetch(`https://www.googleapis.com/calendar/v3/calendars/${encodeURIComponent(c.id)}/events?singleEvents=true&orderBy=startTime&maxResults=250&timeMin=${parseLocalDate(timeMin).toISOString()}&timeMax=${parseLocalDate(timeMax).toISOString()}`);
+      return (j.items||[]).map(ev => ({cal:c, ev}));
+    }catch(e){ console.warn('events failed for', c.name, e); return []; }
+  }));
+  gEvents = results.flat();
+  setGcalStatus(`Connected · ${gEvents.length} events from ${active.length} calendar${active.length===1?'':'s'}`);
+  renderGcalSettings();
+  renderAll();
+}
+function gcalEventsForDate(dateStr){
+  return gEvents.filter(({ev}) => {
+    const key = ev.start?.dateTime ? ev.start.dateTime.slice(0,10) : ev.start?.date;
+    return key === dateStr;
+  }).map(({cal,ev}) => ({
+    id: `gcal-${cal.id}-${ev.id}`, title: ev.summary || '(untitled)', cal,
+    time: ev.start?.dateTime ? ev.start.dateTime.slice(11,16) : null,
+    duration_min: (ev.start?.dateTime && ev.end?.dateTime) ? Math.max(15, Math.round((new Date(ev.end.dateTime)-new Date(ev.start.dateTime))/60000)) : null,
+    allDay: !ev.start?.dateTime
+  }));
+}
+function renderGcalSettings(){
+  const el = document.getElementById('gcal-settings-body');
+  if(!el) return;
+  if(!gToken){
+    const cid = SETTINGS.googleClientId || '';
+    el.innerHTML = cid ? `
+      <p style="font-size:0.82rem;color:var(--ink-2);margin-bottom:8px">Classes, Law Review deadlines, and everything else on your calendars — merged in, read-only.</p>
+      <button class="primary" onclick="connectGoogle()">Connect Google Calendar</button>
+      <p class="gcal-status-line">Read-only · token stays in this tab · <a style="color:var(--accent);cursor:pointer" onclick="SETTINGS.googleClientId='';saveToStorage();renderGcalSettings()">use a different client ID</a></p>
+      <p class="gcal-status-line" id="gcal-status-line"></p>` : `
+      <p style="font-size:0.82rem;color:var(--ink-2)">Needs an OAuth client ID from a Google Cloud account. If you already set one up for the law-school app, paste that same one — it already works here, no Google Cloud changes needed (same origin, brieespo.github.io).</p>
+      <ol class="gcal-setup-steps">
+        <li>New client ID? Go to <code>console.cloud.google.com</code> → create a project → APIs &amp; Services → Library → enable <strong>Google Calendar API</strong>.</li>
+        <li>Google Auth Platform → Get started → Audience: <strong>External</strong> → your email → Create.</li>
+        <li>Audience → Test users → add <code>brieespo@gmail.com</code>.</li>
+        <li>Clients → + Create client → <strong>Web application</strong> → Authorized JavaScript origins → add <code>https://brieespo.github.io</code>.</li>
+        <li>Copy the client ID (ends in <code>.apps.googleusercontent.com</code>) and paste it below:</li>
+      </ol>
+      <input type="text" id="gcal-client-id" placeholder="1234567890-xxxx.apps.googleusercontent.com">
+      <button class="primary" onclick="connectGoogle()">Save &amp; Connect</button>
+      <p class="gcal-status-line" id="gcal-status-line"></p>`;
+    return;
+  }
+  const toggles = SETTINGS.calendarToggles || {};
+  el.innerHTML = `
+    <p class="gcal-status-line" id="gcal-status-line"></p>
+    <div class="cal-toggle-list">${[...gCalendars].sort((a,b)=>a.slot-b.slot).map(c => `
+      <label class="cal-toggle">
+        <input type="checkbox" ${toggles[c.name]?'checked':''} onchange="toggleCalendar('${c.name.replace(/'/g,"\\'")}', this.checked)">
+        <span class="evt-dot" style="background:${calColor(c.slot)}"></span>${esc(c.name)}
+      </label>`).join('')}</div>
+    <button class="ghost" onclick="disconnectGoogle()">Disconnect</button>`;
+  setGcalStatus(`Connected · ${gEvents.length} events from ${gCalendars.filter(c=>toggles[c.name]).length} calendar${gCalendars.filter(c=>toggles[c.name]).length===1?'':'s'}`);
+}
+function toggleCalendar(name, checked){
+  const toggles = SETTINGS.calendarToggles || (SETTINGS.calendarToggles = {});
+  toggles[name] = checked;
+  saveToStorage();
+  refreshGCal();
+}
+
+/* =====================================================================
    SUPABASE + PERSISTENCE (shared project; own table agenda_data)
    ===================================================================== */
 const SUPABASE_URL = 'https://zymvsdkwmdhrwjycxisr.supabase.co';
@@ -1195,6 +1373,20 @@ function showApp(){
   document.getElementById('chat-toggle-btn').style.display = _guestMode ? 'none' : '';
   document.getElementById('quick-add-bar').style.display = _guestMode ? 'none' : '';
   renderAll();
+  trySilentGoogleConnect();
+}
+// Attempts a background, no-popup token refresh so a saved Google
+// connection resumes without a click on every visit — falls back to the
+// manual Connect button in Settings if there's no live grant to reuse.
+function trySilentGoogleConnect(attemptsLeft){
+  if(!SETTINGS.googleClientId) return;
+  if(attemptsLeft === undefined) attemptsLeft = 15;
+  if(!window.google?.accounts?.oauth2){
+    if(attemptsLeft > 0) setTimeout(() => trySilentGoogleConnect(attemptsLeft-1), 300);
+    return;
+  }
+  initGTokenClient();
+  if(gTokenClient) gTokenClient.requestAccessToken({prompt: ''});
 }
 let _sessionHandled = false;
 async function handleAuthSession(session){
