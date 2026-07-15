@@ -217,6 +217,7 @@ button.danger-ghost { cursor: pointer; border: 1px solid var(--critical); backgr
 .routine-row .r-title { flex: 1; }
 .routine-row .r-recur { font-size: 0.72rem; color: var(--muted); }
 .routine-row button { border: none; background: none; color: var(--muted); cursor: pointer; }
+.r-cat-select { flex: none; max-width: 110px; font: inherit; font-size: 0.72rem; padding: 3px 5px; border-radius: 6px; border: 1px solid var(--border); background: var(--page); color: var(--ink-2); }
 .routine-row button:hover { color: var(--accent); }
 .routine-row button.danger:hover { color: var(--critical); }
 .toggle { width: 34px; height: 20px; border-radius: 10px; background: var(--hairline); position: relative; cursor: pointer; flex: none; border: none; }
@@ -846,9 +847,21 @@ function renderRoutinesList(){
     <div class="routine-row">
       <button class="toggle ${tpl.active?'on':''}" onclick="toggleTemplateActive(${tpl.id})"></button>
       <span class="r-title">${esc(tpl.title)}<div class="r-recur">${esc(recurLabel(tpl))}</div></span>
+      <select class="r-cat-select" data-tpl-id="${tpl.id}" onchange="setTemplateCategory(${tpl.id}, this.value)"></select>
       <button onclick='openTemplateModal(TEMPLATES.find(t=>t.id===${tpl.id}))' title="Edit">${ico('settings')}</button>
     </div>
   `).join('');
+  // Category values are read live from the select (this.value) rather than
+  // embedded in the onchange string, so user-typed category names with
+  // quotes/special characters can never break the attribute.
+  el.querySelectorAll('.r-cat-select').forEach(sel => {
+    const tpl = TEMPLATES.find(t => t.id === Number(sel.dataset.tplId));
+    if(tpl) populateCategorySelect(sel, tpl.category || '');
+  });
+}
+function setTemplateCategory(id, category){
+  const tpl = TEMPLATES.find(t => t.id === id);
+  if(tpl){ tpl.category = category || null; saveToStorage(); renderAll(); }
 }
 function changeWeekStart(){
   SETTINGS.weekStart = document.getElementById('setting-week-start').value;
@@ -1522,7 +1535,7 @@ function authGuest(){
 }
 function afterLoad(){
   if(!SETTINGS || typeof SETTINGS !== 'object') SETTINGS = {};
-  if(!SETTINGS.taskCategories) SETTINGS.taskCategories = ['Self-care', 'Household', 'Routine'];
+  if(!SETTINGS.taskCategories){ SETTINGS.taskCategories = ['Self-care', 'Household', 'Routine']; saveToStorage(); }
   nextId = Math.max(1, 0, ...TASKS.map(t=>t.id||0), ...TEMPLATES.map(t=>t.id||0)) + 1;
   runRollover();
 }
