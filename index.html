@@ -120,6 +120,13 @@ h3 { font-size: 0.85rem; font-weight: 600; margin-bottom: 6px; }
 .quick-add-row input { flex: 1; font: inherit; font-size: 0.84rem; padding: 7px 10px; border-radius: 8px; border: 1px solid var(--border); background: var(--page); color: var(--ink); }
 .quick-add-row button { font: inherit; font-size: 0.84rem; padding: 7px 12px; border-radius: 8px; border: 1px solid var(--border); background: var(--surface); color: var(--ink); cursor: pointer; }
 .empty-note { color: var(--muted); font-size: 0.8rem; padding: 10px 4px; }
+.task-group { margin-top: 2px; }
+.task-group-head { display: flex; align-items: center; gap: 6px; width: 100%; background: none; border: none; border-top: 1px solid var(--hairline); padding: 9px 6px; font: inherit; font-size: 0.8rem; font-weight: 650; color: var(--ink-2); cursor: pointer; text-align: left; transition: color 120ms ease; }
+.task-group-head:hover { color: var(--ink); }
+.tg-chevron { display: inline-flex; color: var(--muted); transition: transform 120ms ease; }
+.tg-chevron.open { transform: rotate(90deg); }
+.tg-count { margin-left: auto; font-size: 0.72rem; color: var(--muted); font-weight: 500; }
+.task-group-body { padding-left: 2px; }
 
 /* ---- hour grid ---- */
 .hour-grid-wrap { position: relative; margin-top: 6px; border: 1px solid var(--border); border-radius: 10px; overflow: hidden; background: var(--surface); }
@@ -394,6 +401,7 @@ footer button { font: inherit; font-size: 0.72rem; border: none; background: non
         <div class="field"><label>Time (blank = untimed)</label><input type="time" id="tm-time"></div>
       </div>
       <div class="field"><label>Duration (minutes)</label><input type="number" id="tm-duration" min="5" step="5" value="30"></div>
+      <div class="field"><label>Category</label><select id="tm-category"></select></div>
       <div class="field"><label>Notes</label><textarea id="tm-notes"></textarea></div>
     </div>
     <div class="modal-foot">
@@ -414,6 +422,13 @@ footer button { font: inherit; font-size: 0.72rem; border: none; background: non
       <h3>Recurring routines</h3>
       <div id="routines-list"></div>
       <div style="margin:12px 0 6px"><button class="ghost" onclick="openTemplateModal()">+ Add routine</button></div>
+      <h3 style="margin-top:18px">Task categories</h3>
+      <p style="font-size:0.76rem;color:var(--muted);margin-bottom:6px">Groups the Today list into collapsible sections — handy for tucking away routine/chore tasks when you're busy.</p>
+      <div id="categories-list"></div>
+      <div class="quick-add-row">
+        <input type="text" id="category-new-name" placeholder="New category…" onkeydown="if(event.key==='Enter')addCategory()">
+        <button onclick="addCategory()">Add</button>
+      </div>
       <h3 style="margin-top:18px">Settings</h3>
       <div class="field">
         <label>Week starts on</label>
@@ -444,6 +459,7 @@ footer button { font: inherit; font-size: 0.72rem; border: none; background: non
       </div>
       <div id="tpm-freq-fields"></div>
       <div class="field"><label>Time (optional — blank = untimed)</label><input type="time" id="tpm-time"></div>
+      <div class="field"><label>Category</label><select id="tpm-category"></select></div>
     </div>
     <div class="modal-foot">
       <button class="danger-ghost" id="tpm-delete" onclick="deleteTemplateFromModal()" style="display:none">Delete</button>
@@ -546,7 +562,7 @@ function materializeInstances(dateStr){
     out.push({
       id: `tpl-${tpl.id}-${dateStr}`, title: tpl.title, date: dateStr, week: null,
       time: tpl.time || null, duration_min: 30, done: instanceDone(tpl.id, dateStr),
-      rolled_from: null, source: 'template', template_id: tpl.id, virtual: true, notes: ''
+      rolled_from: null, source: 'template', template_id: tpl.id, virtual: true, notes: '', category: tpl.category || null
     });
   });
   return out;
@@ -571,7 +587,7 @@ function runRollover(){
     if(t.source === 'template' || t.source === 'template_exception') return;
     if(t.date && !t.done && t.date < today){
       t.rolled_from = t.date; t.date = today; changed = true;
-    } else if(!t.date && t.week && t.week < curWeek){
+    } else if(!t.date && !t.done && t.week && t.week < curWeek){
       t.rolled_from = t.week; t.week = curWeek; changed = true;
     }
   });
@@ -585,7 +601,7 @@ function createExceptionFromInstance(item){
   const id = nextId++;
   const task = {
     id, title: item.title, date: item.date, week: null, time: item.time, duration_min: item.duration_min||30,
-    done: item.done, rolled_from: null, source: 'template_exception', notes: '',
+    done: item.done, rolled_from: null, source: 'template_exception', notes: '', category: item.category || null,
     template_id: item.template_id, exception_date: item.date
   };
   TASKS.push(task);
@@ -614,15 +630,15 @@ function itemByVirtual(templateId, date){
   return {
     id: `tpl-${templateId}-${date}`, title: tpl.title, date, week: null,
     time: tpl.time || null, duration_min: 30, done: instanceDone(templateId, date),
-    rolled_from: null, source: 'template', template_id: templateId, virtual: true, notes: ''
+    rolled_from: null, source: 'template', template_id: templateId, virtual: true, notes: '', category: tpl.category || null
   };
 }
 function toggleDoneReal(id){ const t = itemByRealId(id); if(t) toggleItemDone(t); }
 function toggleDoneVirtual(templateId, date){ const it = itemByVirtual(templateId, date); if(it) toggleItemDone(it); }
 function openTaskReal(id){ const t = itemByRealId(id); if(t) openTaskModal(t); }
 function openTaskVirtual(templateId, date){ const it = itemByVirtual(templateId, date); if(it) openTaskModal(it); }
-function addTask({title, date=null, week=null, time=null}){
-  const task = { id: nextId++, title, date, week, time, duration_min: time?30:null, done:false, rolled_from:null, source:'manual', notes:'' };
+function addTask({title, date=null, week=null, time=null, category=null}){
+  const task = { id: nextId++, title, date, week, time, duration_min: time?30:null, done:false, rolled_from:null, source:'manual', notes:'', category };
   TASKS.push(task);
   saveToStorage();
   return task;
@@ -647,6 +663,10 @@ function quickAddSidebar(){
 /* =====================================================================
    TASK EDIT MODAL
    ===================================================================== */
+function populateCategorySelect(selectEl, selected){
+  const cats = SETTINGS.taskCategories || [];
+  selectEl.innerHTML = '<option value="">No category</option>' + cats.map(c => `<option value="${esc(c)}" ${c===selected?'selected':''}>${esc(c)}</option>`).join('');
+}
 let editingItem = null; // {id, virtual, template_id, date} — resolved to a real task on open
 function openTaskModal(item){
   if(item.virtual) item = createExceptionFromInstance(item);
@@ -656,6 +676,7 @@ function openTaskModal(item){
   document.getElementById('tm-date').value = item.date || '';
   document.getElementById('tm-time').value = item.time || '';
   document.getElementById('tm-duration').value = item.duration_min || 30;
+  populateCategorySelect(document.getElementById('tm-category'), item.category || '');
   document.getElementById('tm-notes').value = item.notes || '';
   document.getElementById('tm-delete').style.display = '';
   openModal('task-modal');
@@ -667,6 +688,7 @@ function openNewTaskModal({date=null, time=null}={}){
   document.getElementById('tm-date').value = date || '';
   document.getElementById('tm-time').value = time || '';
   document.getElementById('tm-duration').value = time ? 60 : 30;
+  populateCategorySelect(document.getElementById('tm-category'), '');
   document.getElementById('tm-notes').value = '';
   document.getElementById('tm-delete').style.display = 'none';
   openModal('task-modal');
@@ -677,16 +699,17 @@ function saveTaskFromModal(){
   const date = document.getElementById('tm-date').value || null;
   const time = document.getElementById('tm-time').value || null;
   const duration = parseInt(document.getElementById('tm-duration').value,10) || 30;
+  const category = document.getElementById('tm-category').value || null;
   const notes = document.getElementById('tm-notes').value;
   if(editingItem){
     const task = TASKS.find(t => t.id === editingItem.id);
     if(task){
       task.title = title; task.date = date; task.time = time;
-      task.duration_min = time ? duration : null; task.notes = notes;
+      task.duration_min = time ? duration : null; task.notes = notes; task.category = category;
       if(!date) task.week = weekKeyForDate(currentView==='week'?weekAnchor:currentDate);
     }
   } else {
-    addTask({title, date, time, week: date ? null : weekKeyForDate(currentView==='week'?weekAnchor:currentDate)});
+    addTask({title, date, time, category, week: date ? null : weekKeyForDate(currentView==='week'?weekAnchor:currentDate)});
     const t = TASKS[TASKS.length-1];
     if(time) t.duration_min = duration;
     t.notes = notes;
@@ -735,6 +758,7 @@ function openTemplateModal(tpl){
   document.getElementById('tpm-name').value = tpl ? tpl.title : '';
   document.getElementById('tpm-freq').value = tpl ? tpl.recurrence.freq : 'weekly';
   document.getElementById('tpm-time').value = tpl && tpl.time ? tpl.time : '';
+  populateCategorySelect(document.getElementById('tpm-category'), (tpl && tpl.category) || '');
   document.getElementById('tpm-delete').style.display = tpl ? '' : 'none';
   renderTemplateFreqFields();
   openModal('template-modal');
@@ -744,6 +768,7 @@ function saveTemplateFromModal(){
   if(!title) return;
   const freq = document.getElementById('tpm-freq').value;
   const time = document.getElementById('tpm-time').value || null;
+  const category = document.getElementById('tpm-category').value || null;
   let recurrence = {freq};
   if(freq==='weekly'){
     recurrence.days = Array.from(document.querySelectorAll('#tpm-freq-fields input[type=checkbox]:checked')).map(el=>el.value);
@@ -752,9 +777,9 @@ function saveTemplateFromModal(){
     recurrence.day = parseInt(document.getElementById('tpm-monthday').value,10) || 1;
   }
   if(editingTemplate){
-    editingTemplate.title = title; editingTemplate.recurrence = recurrence; editingTemplate.time = time;
+    editingTemplate.title = title; editingTemplate.recurrence = recurrence; editingTemplate.time = time; editingTemplate.category = category;
   } else {
-    TEMPLATES.push({id: nextId++, title, recurrence, time, active:true});
+    TEMPLATES.push({id: nextId++, title, recurrence, time, active:true, category});
   }
   saveToStorage();
   closeModal('template-modal');
@@ -778,8 +803,41 @@ function toggleTemplateActive(id){
 function openRoutinesModal(){
   document.getElementById('setting-week-start').value = weekStartSetting();
   renderRoutinesList();
+  renderCategoriesList();
   renderGcalSettings();
   openModal('routines-modal');
+}
+function renderCategoriesList(){
+  const el = document.getElementById('categories-list');
+  const cats = SETTINGS.taskCategories || [];
+  el.innerHTML = cats.length ? cats.map((c,i) => `
+    <div class="routine-row">
+      <span class="r-title">${esc(c)}</span>
+      <button class="danger" onclick="deleteCategory(${i})" title="Delete">${ico('trash')}</button>
+    </div>`).join('') : '<p class="empty-note">No categories yet — add one below.</p>';
+}
+function addCategory(){
+  const input = document.getElementById('category-new-name');
+  const name = input.value.trim();
+  if(!name) return;
+  if(!SETTINGS.taskCategories) SETTINGS.taskCategories = [];
+  if(!SETTINGS.taskCategories.includes(name)) SETTINGS.taskCategories.push(name);
+  saveToStorage();
+  input.value = '';
+  renderCategoriesList();
+  renderAll();
+}
+function deleteCategory(idx){
+  SETTINGS.taskCategories.splice(idx,1);
+  saveToStorage();
+  renderCategoriesList();
+  renderAll();
+}
+function toggleCategoryCollapse(cat){
+  const collapsed = SETTINGS.categoryCollapsed || (SETTINGS.categoryCollapsed = {});
+  collapsed[cat] = !collapsed[cat];
+  saveToStorage();
+  renderAll();
 }
 function renderRoutinesList(){
   const el = document.getElementById('routines-list');
@@ -912,6 +970,38 @@ function gridRangeFor(items){
 /* =====================================================================
    RENDER: DAY VIEW
    ===================================================================== */
+// Category names are user-typed text, so — same reason task titles never go
+// into onclick attributes — group headers get their handler attached via JS
+// (attachGroupCollapseHandlers) using data-cat-index, never the raw name.
+function renderUntimedGroups(untimed){
+  if(!untimed.length) return '<p class="empty-note">No untimed tasks today.</p>';
+  const cats = SETTINGS.taskCategories || [];
+  const collapsed = SETTINGS.categoryCollapsed || {};
+  const uncategorized = untimed.filter(it => !it.category || !cats.includes(it.category));
+  let html = uncategorized.map(taskRowHtml).join('');
+  cats.forEach((cat, i) => {
+    const items = untimed.filter(it => it.category === cat);
+    if(!items.length) return;
+    const isCollapsed = !!collapsed[cat];
+    const doneCount = items.filter(it=>it.done).length;
+    html += `<div class="task-group">
+      <button class="task-group-head" data-cat-index="${i}">
+        <span class="tg-chevron ${isCollapsed?'':'open'}">${ico('chevron-right')}</span>
+        <span class="tg-name">${esc(cat)}</span>
+        <span class="tg-count">${doneCount}/${items.length}</span>
+      </button>
+      ${isCollapsed ? '' : `<div class="task-group-body">${items.map(taskRowHtml).join('')}</div>`}
+    </div>`;
+  });
+  return html;
+}
+function attachGroupCollapseHandlers(container){
+  const cats = SETTINGS.taskCategories || [];
+  container.querySelectorAll('.task-group-head').forEach(btn => {
+    const cat = cats[Number(btn.dataset.catIndex)];
+    if(cat) btn.addEventListener('click', () => toggleCategoryCollapse(cat));
+  });
+}
 function taskRowHtml(item){
   const rolledChip = item.rolled_from ? `<span class="t-rolled-chip">from ${dowShort(item.rolled_from)}</span>` : '';
   const recurIco = (item.source==='template') ? `<span class="t-recur-ico">${ico('repeat')}</span>` : '';
@@ -951,8 +1041,9 @@ function renderDay(){
 
   const listEl = document.getElementById('today-list');
   listEl.dataset.date = currentDate;
-  listEl.innerHTML = untimed.length ? untimed.map(taskRowHtml).join('') : '<p class="empty-note">No untimed tasks today.</p>';
+  listEl.innerHTML = renderUntimedGroups(untimed);
   attachRowDrag(listEl, untimed);
+  attachGroupCollapseHandlers(listEl);
 
   const alldayEl = document.getElementById('gcal-allday-row');
   alldayEl.innerHTML = gcalAllDay.map((e,i) => `<div class="allday-line"><span class="hour-label">${i===0?'all day':''}</span><div class="allday-bar" style="border-left-color:${calColor(e.cal.slot)}">${esc(e.title)}</div></div>`).join('');
@@ -1431,6 +1522,7 @@ function authGuest(){
 }
 function afterLoad(){
   if(!SETTINGS || typeof SETTINGS !== 'object') SETTINGS = {};
+  if(!SETTINGS.taskCategories) SETTINGS.taskCategories = ['Self-care', 'Household', 'Routine'];
   nextId = Math.max(1, 0, ...TASKS.map(t=>t.id||0), ...TEMPLATES.map(t=>t.id||0)) + 1;
   runRollover();
 }
