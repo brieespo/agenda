@@ -50,9 +50,31 @@ supabase functions deploy assistant --project-ref zymvsdkwmdhrwjycxisr
 ```
 Secrets (set once, never committed): `ANTHROPIC_API_KEY` (from console.anthropic.com / platform.claude.com) and `ALLOWED_EMAIL`.
 
+## Google Calendar (read-only, silent refresh)
+
+No client ID is hardcoded — paste your own OAuth client ID into Settings → Google Calendar (same pattern as law-school-tracker); since GitHub Pages project sites share one origin per user, the same client ID already authorized for law-school-tracker works here too. Events render read-only on the day grid and week view (dashed, softer fill, no checkbox) and in an all-day strip; this app never writes to Google Calendar.
+
+True silent background refresh (no click, no popup, every visit) requires a server-side refresh token, since Google's client-side library (GIS) has no documented way to request one and its token-client model requires a real user gesture for every renewal — confirmed against Google's own docs before building this, not assumed. So the connect flow is a plain OAuth **authorization-code** redirect (`access_type=offline&prompt=consent`, constructed manually — GIS's `initCodeClient` doesn't expose `access_type`), landing back on `https://brieespo.github.io/agenda/` with a `?code=`. `supabase/functions/gcal/index.ts` exchanges that code for tokens once, stores only the refresh token server-side (table `gcal_tokens`, RLS-enabled with zero client policies — only the function's service-role key can read/write it, the client never touches it directly), and from then on mints fresh access tokens on request. This is why Google Calendar requires being signed in (not guest mode): the refresh token has to be tied to a real account.
+
+Requires: the OAuth client published to **Production** (Testing-status refresh tokens expire after 7 days — a hard Google limit, not configurable), `https://brieespo.github.io/agenda/` added under **Authorized redirect URIs** (separate from "Authorized JavaScript origins"), and its **Client Secret** set as `GOOGLE_CLIENT_SECRET` in Supabase secrets (never committed). Realistic ways this can still need reconnecting, none of them silent-refresh bugs: you revoke access at myaccount.google.com/permissions, 6 months with the app unused, or a Google-side security event forcing re-auth.
+
+Redeploy after editing the function:
+```
+supabase functions deploy gcal --project-ref zymvsdkwmdhrwjycxisr
+```
+
+```sql
+create table if not exists gcal_tokens (
+  user_id uuid primary key references auth.users(id) on delete cascade,
+  refresh_token text not null,
+  updated_at timestamptz default now()
+);
+alter table gcal_tokens enable row level security;
+```
+
 ## Build phases
 
 1. **Phase 1 (done):** auth, tasks CRUD, day view (untimed list + hour grid), week view, weekly sidebar with drag-assignment, completion gray-out, rollover, recurring templates + routines settings, the Claude chat (edge function + chat drawer + quick-add).
-2. **Phase 2 (done):** Google Calendar, read-only. No client ID is hardcoded — paste your own OAuth client ID into Settings → Google Calendar (same pattern as law-school-tracker); since GitHub Pages project sites share one origin per user, the same client ID already authorized for law-school-tracker works here with zero Google Cloud changes. Silent reconnect is attempted on every load once a client ID is saved (`prompt:''`), falling back to a one-click Connect button. Events render read-only on the day grid and week view (dashed, softer fill, no checkbox) and in an all-day strip; this app never writes to Google Calendar.
+2. **Phase 2 (done):** Google Calendar, read-only, with true silent background refresh via a server-side refresh token (see above).
 3. **Phase 3:** suite sync — study blocks/LR checkpoints/restock items as `source:'suite'` background items; hub widget.
 4. **Phase 4:** polish — week-end sidebar rollover review, completion-streak stats, print view.

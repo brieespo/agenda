@@ -5,7 +5,6 @@
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>Agenda</title>
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2/dist/umd/supabase.js"></script>
-<script src="https://accounts.google.com/gsi/client" async defer></script>
 <style>
 :root {
   --page: #f9f9f7;
@@ -1311,64 +1310,125 @@ async function quickParseAdd(){
 }
 
 /* =====================================================================
-   GOOGLE CALENDAR — read-only, client-side (GIS token client). No client
-   ID is hardcoded: Bri pastes her own OAuth client ID into settings, the
-   same pattern as the law-school app. Since GitHub Pages project sites
-   share one origin per user (brieespo.github.io, regardless of path),
-   the exact same client ID she already authorized for law-school-tracker
-   works here with zero changes in Google Cloud Console — same origin.
-   This app never writes to Google Calendar.
+   GOOGLE CALENDAR — read-only, genuinely silent refresh. The client never
+   holds a refresh token; it holds a short-lived access token in memory
+   and calls the `gcal` Edge Function to mint a new one (from the refresh
+   token stored server-side) whenever it's missing or expired. That's a
+   plain fetch to our own function — no popup, no user gesture, so it
+   really does happen on every load with no click, unlike the old GIS
+   token-client approach (which requires a user gesture and doesn't issue
+   refresh tokens at all).
+   No client ID is hardcoded: Bri pastes her own OAuth client ID into
+   settings, same as before. This app never writes to Google Calendar.
+   Requires being signed in (not guest mode) — the refresh token has to
+   be tied to a real account, since anyone with a browser tab could
+   otherwise ask for someone else's guest-mode calendar connection.
    ===================================================================== */
 const KNOWN_CALENDARS = ["Law School Schedule", "Online Law School Classes", "Law Review", "Bri", "Appointments", "Sloane", "Bills"];
 const CAL_COLORS_LIGHT = ["#2a78d6", "#1baf7a", "#eda100", "#008300", "#4a3aa7", "#e34948", "#e87ba4", "#eb6834"];
 const CAL_COLORS_DARK  = ["#3987e5", "#199e70", "#c98500", "#008300", "#9085e9", "#e66767", "#d55181", "#d95926"];
-let gTokenClient = null, gToken = null, gCalendars = [], gEvents = [];
+const GCAL_REDIRECT_URI = 'https://brieespo.github.io/agenda/';
+const GCAL_SCOPE = 'https://www.googleapis.com/auth/calendar.readonly';
+let gToken = null, gTokenExpiresAt = 0, gCalendars = [], gEvents = [];
 const calColor = slot => (matchMedia("(prefers-color-scheme: dark)").matches ? CAL_COLORS_DARK : CAL_COLORS_LIGHT)[((slot%8)+8)%8];
 
-function initGTokenClient(){
-  if(gTokenClient || !SETTINGS.googleClientId || !window.google?.accounts?.oauth2) return;
-  gTokenClient = google.accounts.oauth2.initTokenClient({
-    client_id: SETTINGS.googleClientId,
-    scope: 'https://www.googleapis.com/auth/calendar.readonly',
-    callback: async resp => {
-      if(resp.error){ setGcalStatus('Connection failed: ' + resp.error); return; }
-      gToken = resp.access_token;
-      try{ await refreshGCal(); }
-      catch(e){ console.error(e); setGcalStatus("Couldn't load calendars: " + e.message); }
-    }
-  });
+async function gcalFnErrorMessage(error){
+  try{ const body = await error.context.json(); if(body && body.error) return body.error; }catch(e){}
+  return 'Something went wrong reaching Google Calendar.';
 }
+function setGcalStatus(msg){ const el = document.getElementById('gcal-status-line'); if(el) el.textContent = msg; }
+
+// Kicks off the one-time (or reconnect) consent — a full-page redirect
+// rather than a popup, since only the redirect flow's authorization code
+// can be exchanged server-side for a refresh token (access_type=offline
+// isn't available through GIS's popup-based code client).
 function connectGoogle(){
   const input = document.getElementById('gcal-client-id');
   const typed = input ? input.value.trim() : '';
   if(typed && typed !== SETTINGS.googleClientId){
     SETTINGS.googleClientId = typed;
-    gTokenClient = null;
     saveToStorage();
   }
   if(!SETTINGS.googleClientId){ setGcalStatus('Paste the OAuth client ID first.'); return; }
-  initGTokenClient();
-  if(!gTokenClient){ setGcalStatus('Google sign-in script still loading — try again in a couple seconds.'); return; }
-  gTokenClient.requestAccessToken({prompt: ''});
+  const state = Math.random().toString(36).slice(2) + Math.random().toString(36).slice(2);
+  sessionStorage.setItem('gcal-oauth-state', state);
+  const params = new URLSearchParams({
+    client_id: SETTINGS.googleClientId,
+    redirect_uri: GCAL_REDIRECT_URI,
+    response_type: 'code',
+    scope: GCAL_SCOPE,
+    access_type: 'offline',
+    prompt: 'consent',
+    include_granted_scopes: 'true',
+    state
+  });
+  window.location.href = 'https://accounts.google.com/o/oauth2/v2/auth?' + params.toString();
 }
-function disconnectGoogle(){
-  gToken = null; gEvents = []; gCalendars = [];
+// Runs once on load: if the URL has ?code=... (we just got redirected back
+// from Google), trade it for tokens via the Edge Function and store the
+// fact that we're connected. Cleans the URL either way so a page refresh
+// never resubmits a one-time code.
+async function handleGCalRedirect(){
+  const params = new URLSearchParams(window.location.search);
+  const code = params.get('code');
+  if(!code) return false;
+  const state = params.get('state');
+  history.replaceState(null, '', window.location.pathname);
+  const expectedState = sessionStorage.getItem('gcal-oauth-state');
+  sessionStorage.removeItem('gcal-oauth-state');
+  if(!SETTINGS.googleClientId) return true;
+  if(!state || state !== expectedState){ setGcalStatus('Google sign-in failed a security check — try connecting again.'); return true; }
+  setGcalStatus('Finishing connection…');
+  try{
+    const {data,error} = await sb.functions.invoke('gcal', {body:{action:'exchange', code, client_id:SETTINGS.googleClientId, redirect_uri:GCAL_REDIRECT_URI}});
+    if(error) throw new Error(await gcalFnErrorMessage(error));
+    if(data.error) throw new Error(data.error);
+    gToken = data.access_token;
+    gTokenExpiresAt = Date.now() + (data.expires_in*1000) - 60000;
+    SETTINGS.gcalConnected = true;
+    saveToStorage();
+    await refreshGCal();
+  }catch(e){
+    setGcalStatus('Connection failed: ' + e.message);
+  }
+  return true;
+}
+async function disconnectGoogle(){
+  try{ await sb.functions.invoke('gcal', {body:{action:'disconnect', client_id: SETTINGS.googleClientId||''}}); }catch(e){}
+  gToken = null; gTokenExpiresAt = 0; gEvents = []; gCalendars = [];
+  SETTINGS.gcalConnected = false;
+  saveToStorage();
   renderGcalSettings();
   renderAll();
 }
+// The only thing that ever mints/renews an access token — a plain fetch
+// to our own Edge Function, so it can run silently with no user gesture.
+async function getValidGToken(){
+  if(gToken && Date.now() < gTokenExpiresAt) return gToken;
+  if(!SETTINGS.gcalConnected || !SETTINGS.googleClientId || _guestMode) return null;
+  const {data,error} = await sb.functions.invoke('gcal', {body:{action:'refresh', client_id:SETTINGS.googleClientId}});
+  if(error){ console.error('gcal refresh error', await gcalFnErrorMessage(error)); return null; }
+  if(data.error === 'not_connected'){ SETTINGS.gcalConnected = false; saveToStorage(); return null; }
+  if(data.error){ console.error('gcal refresh error', data.error); return null; }
+  gToken = data.access_token;
+  gTokenExpiresAt = Date.now() + (data.expires_in*1000) - 60000;
+  return gToken;
+}
 async function gfetch(url){
-  const r = await fetch(url, {headers: {Authorization: 'Bearer ' + gToken}});
-  if(r.status === 401){ gToken = null; throw new Error('Google session expired — click Connect again.'); }
+  const token = await getValidGToken();
+  if(!token) throw new Error('Not connected to Google Calendar.');
+  const r = await fetch(url, {headers: {Authorization: 'Bearer ' + token}});
   if(!r.ok) throw new Error('Google API error ' + r.status);
   return r.json();
 }
-function setGcalStatus(msg){ const el = document.getElementById('gcal-status-line'); if(el) el.textContent = msg; }
 // Fetches a rolling window wide enough for normal day/week browsing without
 // needing to detect and refetch every time the user navigates further out.
 async function refreshGCal(){
-  if(!gToken) return;
+  if(!SETTINGS.gcalConnected) return;
   setGcalStatus('Loading calendars…');
-  const list = await gfetch('https://www.googleapis.com/calendar/v3/users/me/calendarList?maxResults=100');
+  let list;
+  try{ list = await gfetch('https://www.googleapis.com/calendar/v3/users/me/calendarList?maxResults=100'); }
+  catch(e){ setGcalStatus(e.message); renderGcalSettings(); return; }
   gCalendars = (list.items||[]).map(c => ({id: c.id, name: c.summary || c.id}));
   const ordered = [
     ...KNOWN_CALENDARS.filter(n => gCalendars.some(c=>c.name===n)),
@@ -1409,35 +1469,39 @@ function gcalEventsForDate(dateStr){
 function renderGcalSettings(){
   const el = document.getElementById('gcal-settings-body');
   if(!el) return;
-  if(!gToken){
+  if(_guestMode){
+    el.innerHTML = `<p style="font-size:0.82rem;color:var(--ink-2)">Sign in with a real account to connect Google Calendar — the connection is tied to your account so it can silently refresh in the background, which guest mode can't support.</p>`;
+    return;
+  }
+  if(!SETTINGS.gcalConnected){
     const cid = SETTINGS.googleClientId || '';
     el.innerHTML = cid ? `
       <p style="font-size:0.82rem;color:var(--ink-2);margin-bottom:8px">Classes, Law Review deadlines, and everything else on your calendars — merged in, read-only.</p>
       <button class="primary" onclick="connectGoogle()">Connect Google Calendar</button>
-      <p class="gcal-status-line">Read-only · token stays in this tab · <a style="color:var(--accent);cursor:pointer" onclick="SETTINGS.googleClientId='';saveToStorage();renderGcalSettings()">use a different client ID</a></p>
+      <p class="gcal-status-line">Read-only · <a style="color:var(--accent);cursor:pointer" onclick="SETTINGS.googleClientId='';saveToStorage();renderGcalSettings()">use a different client ID</a></p>
       <p class="gcal-status-line" id="gcal-status-line"></p>` : `
-      <p style="font-size:0.82rem;color:var(--ink-2)">Needs an OAuth client ID from a Google Cloud account. If you already set one up for the law-school app, paste that same one — it already works here, no Google Cloud changes needed (same origin, brieespo.github.io).</p>
-      <ol class="gcal-setup-steps">
-        <li>New client ID? Go to <code>console.cloud.google.com</code> → create a project → APIs &amp; Services → Library → enable <strong>Google Calendar API</strong>.</li>
-        <li>Google Auth Platform → Get started → Audience: <strong>External</strong> → your email → Create.</li>
-        <li>Audience → Test users → add <code>brieespo@gmail.com</code>.</li>
-        <li>Clients → + Create client → <strong>Web application</strong> → Authorized JavaScript origins → add <code>https://brieespo.github.io</code>.</li>
-        <li>Copy the client ID (ends in <code>.apps.googleusercontent.com</code>) and paste it below:</li>
-      </ol>
+      <p style="font-size:0.82rem;color:var(--ink-2)">Needs an OAuth client ID from a Google Cloud account (the same one law-school-tracker uses works here — same origin, no Cloud changes needed for the client ID itself). For this app's silent background refresh, that OAuth client also needs: published to <strong>Production</strong>, <code>https://brieespo.github.io/agenda/</code> added under <strong>Authorized redirect URIs</strong>, and its <strong>Client Secret</strong> set as a Supabase secret.</p>
       <input type="text" id="gcal-client-id" placeholder="1234567890-xxxx.apps.googleusercontent.com">
       <button class="primary" onclick="connectGoogle()">Save &amp; Connect</button>
       <p class="gcal-status-line" id="gcal-status-line"></p>`;
     return;
   }
   const toggles = SETTINGS.calendarToggles || {};
+  const sorted = [...gCalendars].sort((a,b)=>a.slot-b.slot);
   el.innerHTML = `
     <p class="gcal-status-line" id="gcal-status-line"></p>
-    <div class="cal-toggle-list">${[...gCalendars].sort((a,b)=>a.slot-b.slot).map(c => `
+    <div class="cal-toggle-list">${sorted.map((c,i) => `
       <label class="cal-toggle">
-        <input type="checkbox" ${toggles[c.name]?'checked':''} onchange="toggleCalendar('${c.name.replace(/'/g,"\\'")}', this.checked)">
+        <input type="checkbox" data-cal-index="${i}" ${toggles[c.name]?'checked':''}>
         <span class="evt-dot" style="background:${calColor(c.slot)}"></span>${esc(c.name)}
       </label>`).join('')}</div>
     <button class="ghost" onclick="disconnectGoogle()">Disconnect</button>`;
+  // Same reason as everywhere else: calendar names can contain quotes, so
+  // the change handler reads the name from the live array, not an attribute.
+  el.querySelectorAll('.cal-toggle input[type=checkbox]').forEach(cb => {
+    const cal = sorted[Number(cb.dataset.calIndex)];
+    if(cal) cb.addEventListener('change', () => toggleCalendar(cal.name, cb.checked));
+  });
   setGcalStatus(`Connected · ${gEvents.length} events from ${gCalendars.filter(c=>toggles[c.name]).length} calendar${gCalendars.filter(c=>toggles[c.name]).length===1?'':'s'}`);
 }
 function toggleCalendar(name, checked){
@@ -1500,20 +1564,14 @@ function showApp(){
   document.getElementById('chat-toggle-btn').style.display = _guestMode ? 'none' : '';
   document.getElementById('quick-add-bar').style.display = _guestMode ? 'none' : '';
   renderAll();
-  trySilentGoogleConnect();
-}
-// Attempts a background, no-popup token refresh so a saved Google
-// connection resumes without a click on every visit — falls back to the
-// manual Connect button in Settings if there's no live grant to reuse.
-function trySilentGoogleConnect(attemptsLeft){
-  if(!SETTINGS.googleClientId) return;
-  if(attemptsLeft === undefined) attemptsLeft = 15;
-  if(!window.google?.accounts?.oauth2){
-    if(attemptsLeft > 0) setTimeout(() => trySilentGoogleConnect(attemptsLeft-1), 300);
-    return;
-  }
-  initGTokenClient();
-  if(gTokenClient) gTokenClient.requestAccessToken({prompt: ''});
+  // handleGCalRedirect first, in case we just landed back from Google's
+  // consent screen — it exchanges the code and calls refreshGCal itself.
+  // Otherwise, if already connected, silently mint a fresh access token
+  // and load events: a plain fetch to our own Edge Function, no popup,
+  // no click, works on every visit.
+  handleGCalRedirect().then(handledRedirect => {
+    if(!handledRedirect && SETTINGS.gcalConnected) refreshGCal();
+  });
 }
 let _sessionHandled = false;
 async function handleAuthSession(session){
