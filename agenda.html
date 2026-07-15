@@ -126,6 +126,10 @@ h3 { font-size: 0.85rem; font-weight: 600; margin-bottom: 6px; }
 .tg-chevron.open { transform: rotate(90deg); }
 .tg-count { margin-left: auto; font-size: 0.72rem; color: var(--muted); font-weight: 500; }
 .task-group-body { padding-left: 2px; }
+.today-card-head { display: flex; align-items: center; justify-content: space-between; margin-bottom: 10px; }
+.today-card-head h2 { margin-bottom: 0; }
+.today-collapse-btn { border: none; background: none; padding: 4px; margin: -4px; cursor: pointer; color: var(--muted); border-radius: 6px; transition: color 120ms ease; }
+.today-collapse-btn:hover { color: var(--ink); }
 
 /* ---- hour grid ---- */
 .hour-grid-wrap { position: relative; margin-top: 6px; border: 1px solid var(--border); border-radius: 10px; overflow: hidden; background: var(--surface); }
@@ -345,11 +349,16 @@ footer button { font: inherit; font-size: 0.72rem; border: none; background: non
         </div>
         <div class="card headline-card" id="day-headline"></div>
         <div class="card">
-          <h2>Today</h2>
-          <div class="list-drop" id="today-list" data-drop="today-list"></div>
-          <div class="quick-add-row">
-            <input type="text" id="day-quick-add" placeholder="Add a task…" onkeydown="if(event.key==='Enter')quickAddToday()">
-            <button onclick="quickAddToday()">Add</button>
+          <div class="today-card-head">
+            <h2>Today</h2>
+            <button class="today-collapse-btn" id="today-collapse-btn" onclick="toggleTodayCollapse()" title="Collapse Today"><span class="tg-chevron open" id="today-chevron" data-ico="chevron-right"></span></button>
+          </div>
+          <div id="today-card-body">
+            <div class="list-drop" id="today-list" data-drop="today-list"></div>
+            <div class="quick-add-row">
+              <input type="text" id="day-quick-add" placeholder="Add a task…" onkeydown="if(event.key==='Enter')quickAddToday()">
+              <button onclick="quickAddToday()">Add</button>
+            </div>
           </div>
         </div>
         <div class="hour-grid-wrap">
@@ -1062,6 +1071,18 @@ function renderDay(){
 
   renderHourGrid(timed, gcalTimed);
   paintIcons(listEl);
+  applyTodayCollapseState();
+}
+function applyTodayCollapseState(){
+  const collapsed = !!SETTINGS.todayBoxCollapsed;
+  document.getElementById('today-card-body').style.display = collapsed ? 'none' : '';
+  document.getElementById('today-chevron').classList.toggle('open', !collapsed);
+  document.getElementById('today-collapse-btn').title = collapsed ? 'Expand Today' : 'Collapse Today';
+}
+function toggleTodayCollapse(){
+  SETTINGS.todayBoxCollapsed = !SETTINGS.todayBoxCollapsed;
+  saveToStorage();
+  applyTodayCollapseState();
 }
 function renderHourGrid(timed, gcalTimed){
   gcalTimed = gcalTimed || [];
