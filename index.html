@@ -348,7 +348,7 @@ footer button { font: inherit; font-size: 0.72rem; border: none; background: non
           <button class="primary" onclick="quickParseAdd()">Add</button>
         </div>
         <div class="card headline-card" id="day-headline"></div>
-        <div class="card">
+        <div class="card" id="today-card" data-drop="today-list">
           <div class="today-card-head">
             <h2>Today</h2>
             <button class="today-collapse-btn" id="today-collapse-btn" onclick="toggleTodayCollapse()" title="Collapse Today"><span class="tg-chevron open" id="today-chevron" data-ico="chevron-right"></span></button>
@@ -1065,6 +1065,13 @@ function renderDay(){
   listEl.innerHTML = renderUntimedGroups(untimed);
   attachRowDrag(listEl, untimed);
   attachGroupCollapseHandlers(listEl);
+  // The whole Today card — header, quick-add row, everything — is also a
+  // today-list drop target, not just the list itself. A short/collapsed
+  // card leaves very little room to hit the list precisely, and drops
+  // landing just outside it (e.g. on the quick-add row) were silently
+  // swallowed: elementFromPoint hit an element with no data-drop ancestor
+  // other than the list, which the drop simply missed.
+  document.getElementById('today-card').dataset.date = currentDate;
 
   const alldayEl = document.getElementById('gcal-allday-row');
   alldayEl.innerHTML = gcalAllDay.map((e,i) => `<div class="allday-line"><span class="hour-label">${i===0?'all day':''}</span><div class="allday-bar" style="border-left-color:${calColor(e.cal.slot)}">${esc(e.title)}</div></div>`).join('');
