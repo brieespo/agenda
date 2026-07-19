@@ -220,6 +220,14 @@ button.ghost { cursor: pointer; border: 1px solid var(--border); background: var
 button.ghost:hover { border-color: var(--accent); }
 button.danger-ghost { cursor: pointer; border: 1px solid var(--critical); background: var(--surface); color: var(--critical); border-radius: 8px; padding: 7px 14px; font: inherit; font-size: 0.85rem; }
 
+/* ---- settings menu rows (submenu launchers) ---- */
+.settings-menu-row { display: flex; align-items: center; gap: 8px; width: 100%; padding: 12px 10px; margin-bottom: 8px; border-radius: 10px; border: 1px solid var(--border); background: var(--surface); font: inherit; text-align: left; cursor: pointer; transition: transform 120ms ease, box-shadow 120ms ease, border-color 120ms ease; }
+.settings-menu-row:hover { transform: translateY(-1px); box-shadow: var(--shadow); border-color: var(--accent); }
+.settings-menu-row .sm-title { flex: 1; }
+.settings-menu-row .sm-title strong { display: block; font-size: 0.88rem; }
+.settings-menu-row .sm-sub { font-size: 0.74rem; color: var(--muted); }
+.settings-menu-row .sm-chevron { flex: none; color: var(--muted); }
+
 /* ---- routines list ---- */
 .routine-row { display: flex; align-items: center; gap: 8px; padding: 8px 4px; border-bottom: 1px solid var(--hairline); font-size: 0.85rem; }
 .routine-row .r-title { flex: 1; }
@@ -442,16 +450,14 @@ footer button { font: inherit; font-size: 0.72rem; border: none; background: non
   <div class="modal" style="max-width:560px">
     <div class="modal-head"><strong>Routines & settings</strong><button class="modal-x" data-ico="x" onclick="closeModal('routines-modal')"></button></div>
     <div class="modal-body">
-      <h3>Recurring routines</h3>
-      <div id="routines-list"></div>
-      <div style="margin:12px 0 6px"><button class="ghost" onclick="openTemplateModal()">+ Add routine</button></div>
-      <h3 style="margin-top:18px">Task categories</h3>
-      <p style="font-size:0.76rem;color:var(--muted);margin-bottom:6px">Groups the Today list into collapsible sections — handy for tucking away routine/chore tasks when you're busy.</p>
-      <div id="categories-list"></div>
-      <div class="quick-add-row">
-        <input type="text" id="category-new-name" placeholder="New category…" onkeydown="if(event.key==='Enter')addCategory()">
-        <button onclick="addCategory()">Add</button>
-      </div>
+      <button class="settings-menu-row" onclick="openRoutinesSubmodal()">
+        <span class="sm-title"><strong>Recurring routines</strong><span class="sm-sub" id="routines-count-label"></span></span>
+        <span class="sm-chevron" data-ico="chevron-right"></span>
+      </button>
+      <button class="settings-menu-row" onclick="openCategoriesSubmodal()">
+        <span class="sm-title"><strong>Task categories</strong><span class="sm-sub" id="categories-count-label"></span></span>
+        <span class="sm-chevron" data-ico="chevron-right"></span>
+      </button>
       <h3 style="margin-top:18px">Settings</h3>
       <div class="field">
         <label>Week starts on</label>
@@ -468,6 +474,32 @@ footer button { font: inherit; font-size: 0.72rem; border: none; background: non
         <button class="toggle" id="push-toggle-btn" onclick="togglePushBrief()"></button>
       </div>
       <p class="gcal-status-line" id="push-status-line"></p>
+    </div>
+  </div>
+</div>
+
+<!-- Recurring routines submenu -->
+<div class="modal-bg" id="routines-submodal">
+  <div class="modal" style="max-width:480px">
+    <div class="modal-head"><strong>Recurring routines</strong><button class="modal-x" data-ico="x" onclick="closeModal('routines-submodal')"></button></div>
+    <div class="modal-body">
+      <div id="routines-list"></div>
+      <div style="margin:12px 0 6px"><button class="ghost" onclick="openTemplateModal()">+ Add routine</button></div>
+    </div>
+  </div>
+</div>
+
+<!-- Task categories submenu -->
+<div class="modal-bg" id="categories-submodal">
+  <div class="modal" style="max-width:480px">
+    <div class="modal-head"><strong>Task categories</strong><button class="modal-x" data-ico="x" onclick="closeModal('categories-submodal')"></button></div>
+    <div class="modal-body">
+      <p style="font-size:0.76rem;color:var(--muted);margin-bottom:6px">Groups the Today list into collapsible sections — handy for tucking away routine/chore tasks when you're busy.</p>
+      <div id="categories-list"></div>
+      <div class="quick-add-row">
+        <input type="text" id="category-new-name" placeholder="New category…" onkeydown="if(event.key==='Enter')addCategory()">
+        <button onclick="addCategory()">Add</button>
+      </div>
     </div>
   </div>
 </div>
@@ -862,11 +894,24 @@ function toggleTemplateActive(id){
 }
 function openRoutinesModal(){
   document.getElementById('setting-week-start').value = weekStartSetting();
-  renderRoutinesList();
-  renderCategoriesList();
+  updateSettingsMenuCounts();
   renderGcalSettings();
   renderPushSettings();
   openModal('routines-modal');
+}
+function updateSettingsMenuCounts(){
+  const routineCount = TEMPLATES.length;
+  document.getElementById('routines-count-label').textContent = routineCount ? `${routineCount} routine${routineCount===1?'':'s'}` : 'None yet';
+  const catCount = (SETTINGS.taskCategories || []).length;
+  document.getElementById('categories-count-label').textContent = catCount ? `${catCount} categor${catCount===1?'y':'ies'}` : 'None yet';
+}
+function openRoutinesSubmodal(){
+  renderRoutinesList();
+  openModal('routines-submodal');
+}
+function openCategoriesSubmodal(){
+  renderCategoriesList();
+  openModal('categories-submodal');
 }
 function renderCategoriesList(){
   const el = document.getElementById('categories-list');
@@ -876,6 +921,7 @@ function renderCategoriesList(){
       <span class="r-title">${esc(c)}</span>
       <button class="danger" onclick="deleteCategory(${i})" title="Delete">${ico('trash')}</button>
     </div>`).join('') : '<p class="empty-note">No categories yet — add one below.</p>';
+  updateSettingsMenuCounts();
 }
 function addCategory(){
   const input = document.getElementById('category-new-name');
@@ -902,6 +948,7 @@ function toggleCategoryCollapse(cat){
 }
 function renderRoutinesList(){
   const el = document.getElementById('routines-list');
+  updateSettingsMenuCounts();
   if(!TEMPLATES.length){ el.innerHTML = '<p class="empty-note">No routines yet — add one below.</p>'; return; }
   el.innerHTML = TEMPLATES.map(tpl => `
     <div class="routine-row">
