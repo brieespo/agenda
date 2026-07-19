@@ -29,6 +29,19 @@
   --shadow: 0 1px 3px rgba(11,11,11,0.07);
   --done-op: 0.5;
 }
+:root[data-theme="warm"] {
+  --page: #faf5ec;
+  --surface: #fdfaf5;
+  --ink: #241a10;
+  --ink-2: #6b5c48;
+  --muted: #93816a;
+  --hairline: #ece0cd;
+  --border: rgba(36,26,16,0.10);
+  --accent: #bd6a3e;
+  --accent-strong: #9c5330;
+  --accent-light: #f6e6d5;
+  --shadow: 0 1px 3px rgba(36,26,16,0.08);
+}
 @media (prefers-color-scheme: dark) {
   :root {
     --page: #0d0d0d;
@@ -42,6 +55,19 @@
     --accent-strong: #6da7ec;
     --accent-light: #16233a;
     --good-text: #0ca30c;
+    --shadow: none;
+  }
+  :root[data-theme="warm"] {
+    --page: #17100a;
+    --surface: #241a10;
+    --ink: #f4ead9;
+    --ink-2: #ccb89e;
+    --muted: #98836a;
+    --hairline: #382a1b;
+    --border: rgba(244,234,217,0.10);
+    --accent: #dd8a52;
+    --accent-strong: #eba36e;
+    --accent-light: #3a2716;
     --shadow: none;
   }
 }
@@ -282,6 +308,7 @@ button.danger-ghost { cursor: pointer; border: 1px solid var(--critical); backgr
 footer { max-width: 1320px; margin: 24px auto 0; padding: 0 16px; font-size: 0.72rem; color: var(--muted); display: flex; gap: 14px; flex-wrap: wrap; }
 footer button { font: inherit; font-size: 0.72rem; border: none; background: none; color: var(--muted); text-decoration: underline; cursor: pointer; }
 </style>
+<script>try{const t=localStorage.getItem('agenda-theme');if(t)document.documentElement.dataset.theme=t;}catch(e){}</script>
 </head>
 <body>
 
@@ -464,6 +491,13 @@ footer button { font: inherit; font-size: 0.72rem; border: none; background: non
         <select id="setting-week-start" onchange="changeWeekStart()">
           <option value="sun">Sunday</option>
           <option value="mon">Monday</option>
+        </select>
+      </div>
+      <div class="field">
+        <label>Color theme</label>
+        <select id="setting-theme" onchange="changeTheme()">
+          <option value="default">Default</option>
+          <option value="warm">Warm</option>
         </select>
       </div>
       <h3 style="margin-top:18px">Google Calendar</h3>
@@ -894,6 +928,7 @@ function toggleTemplateActive(id){
 }
 function openRoutinesModal(){
   document.getElementById('setting-week-start').value = weekStartSetting();
+  document.getElementById('setting-theme').value = (SETTINGS && SETTINGS.theme) || 'default';
   updateSettingsMenuCounts();
   renderGcalSettings();
   renderPushSettings();
@@ -974,6 +1009,17 @@ function changeWeekStart(){
   SETTINGS.weekStart = document.getElementById('setting-week-start').value;
   saveToStorage();
   renderAll();
+}
+function applyTheme(){
+  const theme = (SETTINGS && SETTINGS.theme) || 'default';
+  document.documentElement.dataset.theme = theme === 'default' ? '' : theme;
+  try{ localStorage.setItem('agenda-theme', theme === 'default' ? '' : theme); }catch(e){}
+  document.querySelector('meta[name=theme-color]').setAttribute('content', getComputedStyle(document.documentElement).getPropertyValue('--accent').trim());
+}
+function changeTheme(){
+  SETTINGS.theme = document.getElementById('setting-theme').value;
+  saveToStorage();
+  applyTheme();
 }
 
 /* =====================================================================
@@ -2053,6 +2099,7 @@ function afterLoad(){
   if(!SETTINGS || typeof SETTINGS !== 'object') SETTINGS = {};
   if(!SETTINGS.taskCategories){ SETTINGS.taskCategories = ['Self-care', 'Household', 'Routine']; saveToStorage(); }
   nextId = Math.max(1, 0, ...TASKS.map(t=>t.id||0), ...TEMPLATES.map(t=>t.id||0)) + 1;
+  applyTheme();
   runRollover();
 }
 
