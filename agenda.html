@@ -329,7 +329,7 @@ footer button { font: inherit; font-size: 0.72rem; border: none; background: non
     <button class="icon-btn" onclick="toggleChat(false)" data-ico="x"></button>
   </div>
   <div class="chat-messages" id="chat-messages">
-    <div class="chat-bubble assistant">Tell me what's going on — "go to the bank Wednesday," "every Saturday I take my medication," "move the dentist to Friday at 2." I'll turn it into tasks.</div>
+    <div class="chat-bubble assistant">Tell me what's going on — "go to the bank Wednesday," "every Saturday I take my medication," "move the dentist to Friday at 2" — or ask me something, like "what's my Wednesday look like?"</div>
   </div>
   <div class="chat-input-row">
     <input type="text" id="chat-input" placeholder="Message the assistant…" onkeydown="if(event.key==='Enter')sendChatMessage()">
@@ -1340,20 +1340,29 @@ function appendChatBubble(role, text){
   el.innerHTML = CHAT_HISTORY.map(m => `<div class="chat-bubble ${m.role}">${esc(m.text)}</div>`).join('');
   el.scrollTop = el.scrollHeight;
 }
-// Gives the model something to resolve references against ("move the bank
-// thing to Friday") — every real + virtual item visible in the currently
-// browsed week, tagged with the same ids the drag system already uses.
-function currentWeekContext(){
-  const dates = weekDates(currentView==='week' ? weekAnchor : currentDate);
+// Gives the model something to both resolve references against ("move the
+// bank thing to Friday") and answer questions from ("what's my Wednesday
+// look like?"). Wide enough (a week back, five weeks ahead, plus every
+// undated sidebar item) to answer about a day/week that isn't even the one
+// currently on screen — personal task volume is low enough that sending a
+// generous window is simpler and more reliable than first figuring out
+// which range a given question actually needs.
+function buildAssistantContext(){
+  const today = todayStr();
+  const rangeStart = addDays(today, -7);
+  const rangeEnd = addDays(today, 35);
   const out = [];
-  dates.forEach(d => itemsForDate(d).forEach(it => out.push({id: it.id, title: it.title, date: it.date, time: it.time})));
-  const wk = weekKeyForDate(currentView==='week' ? weekAnchor : currentDate);
-  TASKS.filter(t => t.date===null && t.week===wk).forEach(t => out.push({id: t.id, title: t.title, date: null, time: null}));
+  for(let d = rangeStart; d <= rangeEnd; d = addDays(d, 1)){
+    itemsForDate(d).forEach(it => out.push({id: it.id, title: it.title, date: it.date, time: it.time, done: !!it.done}));
+  }
+  TASKS.filter(t => t.date===null).forEach(t => out.push({
+    id: t.id, title: t.title, date: null, time: null, done: !!t.done, week: t.week||null, month: t.month||null
+  }));
   return out;
 }
 async function callAssistant(message){
   const {data, error} = await sb.functions.invoke('assistant', {
-    body: {message, todayDate: todayStr(), weekTasks: currentWeekContext()}
+    body: {message, todayDate: todayStr(), scheduleContext: buildAssistantContext()}
   });
   if(error){
     let msg = 'Something went wrong reaching the assistant.';

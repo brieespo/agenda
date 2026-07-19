@@ -47,18 +47,25 @@ const ACTIONS_TOOL = {
   }
 };
 
-function systemPrompt(todayDate: string, weekTasks: unknown[]) {
-  return `You are the parser behind a personal daily-agenda app's chat and quick-add box. Turn the user's message into structured actions using the emit_actions tool. Always call emit_actions exactly once.
+function systemPrompt(todayDate: string, scheduleContext: unknown[]) {
+  return `You are the assistant behind a personal daily-agenda app's chat and quick-add box. You do two things: (1) turn write requests into structured actions, and (2) answer questions about the schedule directly in the reply. Always call emit_actions exactly once either way — for a pure question, actions is just an empty array and reply carries the actual answer.
 
-Today's date is ${todayDate}. Here are the tasks/events currently visible to the user this week (use their "id" for complete_task/move_task; ids like "tpl-4-2026-07-18" are recurring-routine instances and are valid targets too):
-${JSON.stringify(weekTasks)}
+Today's date is ${todayDate}. Here is the schedule context — a rolling window from a week ago through five weeks ahead, plus everything waiting in the weekly/monthly sidebars. Undated sidebar items have date:null and instead carry week and/or month; "done" reflects current completion state; use "id" for complete_task/move_task (ids like "tpl-4-2026-07-18" are recurring-routine instances and are valid targets too):
+${JSON.stringify(scheduleContext)}
 
-Rules:
+Rules for write requests:
 - Resolve relative dates ("tomorrow", "Friday", "next week") against today's date.
 - "Every Saturday I take my medication" -> add_template with recurrence {freq:"weekly", days:["sat"]}.
-- If a message is genuinely ambiguous (e.g. "move the bank thing to Friday" but two tasks could match, or "this Wednesday or next?"), return an empty actions array and ask a short clarifying question in reply instead of guessing.
-- reply should be short and specific, e.g. "Added: Go to the bank — Wednesday." or "Moved dentist to Friday at 2pm."
-- A task with no date goes to the weekly sidebar (add_task with date omitted/null) rather than being invented a date.`;
+- If a write request is genuinely ambiguous (e.g. "move the bank thing to Friday" but two tasks could match, or "this Wednesday or next?"), return an empty actions array and ask a short clarifying question in reply instead of guessing.
+- A task with no date goes to the weekly sidebar (add_task with date omitted/null) rather than being invented a date.
+
+Rules for questions ("what's my Wednesday look like?", "what do I have left this week?", "am I free Friday afternoon?"):
+- Answer directly and specifically from the schedule context above — name the actual tasks and times, don't just report a count.
+- If nothing falls in the asked-about range, say so plainly.
+- Leave actions empty — answering a question is never itself an action, and never guess at a write the user didn't ask for.
+- If the question needs a range outside what's in the context above (more than 5 weeks out, or more than a week in the past), say you don't have that far back/ahead rather than guessing.
+
+reply should be short and specific either way: for actions, e.g. "Added: Go to the bank — Wednesday."; for questions, e.g. "Wednesday: dentist at 2pm, and 2 undone tasks — call the bank, pick up dry cleaning."`;
 }
 
 Deno.serve(async (req) => {
@@ -81,7 +88,7 @@ Deno.serve(async (req) => {
       return new Response(JSON.stringify({ error: 'Not authorized for this assistant.' }), { status: 401, headers: { ...corsHeaders, 'Content-Type': 'application/json' } });
     }
 
-    const { message, todayDate, weekTasks } = await req.json();
+    const { message, todayDate, scheduleContext } = await req.json();
     if (!message || typeof message !== 'string') {
       return new Response(JSON.stringify({ error: 'No message provided' }), { status: 400, headers: { ...corsHeaders, 'Content-Type': 'application/json' } });
     }
@@ -101,7 +108,7 @@ Deno.serve(async (req) => {
       body: JSON.stringify({
         model: 'claude-haiku-4-5-20251001',
         max_tokens: 1024,
-        system: systemPrompt(todayDate || new Date().toISOString().slice(0, 10), Array.isArray(weekTasks) ? weekTasks : []),
+        system: systemPrompt(todayDate || new Date().toISOString().slice(0, 10), Array.isArray(scheduleContext) ? scheduleContext : []),
         messages: [{ role: 'user', content: message }],
         tools: [ACTIONS_TOOL],
         tool_choice: { type: 'tool', name: 'emit_actions' },

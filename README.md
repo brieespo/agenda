@@ -68,6 +68,8 @@ Pointer-events based (not native HTML5 drag/drop), so it works with both mouse a
 
 `supabase/functions/assistant/index.ts` proxies chat/quick-add messages to Anthropic (Haiku) using Claude's tool-use to force a structured `{reply, actions[]}` response — no raw-JSON parsing. The Anthropic key lives only in Supabase secrets and never reaches the client. The function also checks the caller's Supabase JWT email against an `ALLOWED_EMAIL` secret, since a valid JWT alone only proves "someone signed up on this shared project," not "Bri" — anyone could self-register via any sibling app's auth form. Both the chat drawer and quick-add box are hidden in guest mode since there's no JWT to send.
 
+Read access: the assistant also answers questions ("what's my Wednesday look like?") directly in `reply` with an empty `actions` array — same tool-use call, same endpoint, no separate code path. `buildAssistantContext()` sends a rolling window (a week back through five weeks ahead) plus every undated weekly/monthly sidebar item on every message, rather than just whatever's currently on screen, so a question about a day/week that isn't the one currently displayed still has something to answer from. Personal task volume is low enough that sending this generous a window is simpler and more reliable than first trying to parse a date range out of the question.
+
 Redeploy after editing the function:
 ```
 supabase functions deploy assistant --project-ref zymvsdkwmdhrwjycxisr
