@@ -7,29 +7,10 @@
 <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='%232a78d6' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'><rect x='1' y='1' width='22' height='22' rx='5' fill='%23ffffff' stroke='none'/><rect x='3' y='4' width='18' height='18' rx='2'/><line x1='16' y1='2' x2='16' y2='6'/><line x1='8' y1='2' x2='8' y2='6'/><line x1='3' y1='10' x2='21' y2='10'/></svg>">
 <link rel="manifest" href="manifest.json">
 <link rel="apple-touch-icon" href="apple-touch-icon.png">
-<meta name="theme-color" content="#2a78d6">
+<meta name="theme-color" content="#bd6a3e">
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2/dist/umd/supabase.js"></script>
 <style>
 :root {
-  --page: #f9f9f7;
-  --surface: #fcfcfb;
-  --ink: #0b0b0b;
-  --ink-2: #52514e;
-  --muted: #898781;
-  --hairline: #e1e0d9;
-  --border: rgba(11,11,11,0.10);
-  --accent: #2a78d6;
-  --accent-strong: #1c5cab;
-  --accent-light: #e6f0fc;
-  --good: #0ca30c;
-  --good-text: #006300;
-  --warning: #fab219;
-  --serious: #ec835a;
-  --critical: #d03b3b;
-  --shadow: 0 1px 3px rgba(11,11,11,0.07);
-  --done-op: 0.5;
-}
-:root[data-theme="warm"] {
   --page: #faf5ec;
   --surface: #fdfaf5;
   --ink: #241a10;
@@ -40,10 +21,42 @@
   --accent: #bd6a3e;
   --accent-strong: #9c5330;
   --accent-light: #f6e6d5;
+  --good: #0ca30c;
+  --good-text: #006300;
+  --warning: #fab219;
+  --serious: #ec835a;
+  --critical: #d03b3b;
   --shadow: 0 1px 3px rgba(36,26,16,0.08);
+  --done-op: 0.5;
+}
+:root[data-theme="minimal"] {
+  --page: #f9f9f7;
+  --surface: #fcfcfb;
+  --ink: #0b0b0b;
+  --ink-2: #52514e;
+  --muted: #898781;
+  --hairline: #e1e0d9;
+  --border: rgba(11,11,11,0.10);
+  --accent: #2a78d6;
+  --accent-strong: #1c5cab;
+  --accent-light: #e6f0fc;
+  --shadow: 0 1px 3px rgba(11,11,11,0.07);
 }
 @media (prefers-color-scheme: dark) {
   :root {
+    --page: #17100a;
+    --surface: #241a10;
+    --ink: #f4ead9;
+    --ink-2: #ccb89e;
+    --muted: #98836a;
+    --hairline: #382a1b;
+    --border: rgba(244,234,217,0.10);
+    --accent: #dd8a52;
+    --accent-strong: #eba36e;
+    --accent-light: #3a2716;
+    --shadow: none;
+  }
+  :root[data-theme="minimal"] {
     --page: #0d0d0d;
     --surface: #1a1a19;
     --ink: #ffffff;
@@ -55,19 +68,6 @@
     --accent-strong: #6da7ec;
     --accent-light: #16233a;
     --good-text: #0ca30c;
-    --shadow: none;
-  }
-  :root[data-theme="warm"] {
-    --page: #17100a;
-    --surface: #241a10;
-    --ink: #f4ead9;
-    --ink-2: #ccb89e;
-    --muted: #98836a;
-    --hairline: #382a1b;
-    --border: rgba(244,234,217,0.10);
-    --accent: #dd8a52;
-    --accent-strong: #eba36e;
-    --accent-light: #3a2716;
     --shadow: none;
   }
 }
@@ -496,8 +496,8 @@ footer button { font: inherit; font-size: 0.72rem; border: none; background: non
       <div class="field">
         <label>Color theme</label>
         <select id="setting-theme" onchange="changeTheme()">
-          <option value="default">Default</option>
           <option value="warm">Warm</option>
+          <option value="minimal">Minimal</option>
         </select>
       </div>
       <h3 style="margin-top:18px">Google Calendar</h3>
@@ -928,7 +928,7 @@ function toggleTemplateActive(id){
 }
 function openRoutinesModal(){
   document.getElementById('setting-week-start').value = weekStartSetting();
-  document.getElementById('setting-theme').value = (SETTINGS && SETTINGS.theme) || 'default';
+  document.getElementById('setting-theme').value = normalizedTheme();
   updateSettingsMenuCounts();
   renderGcalSettings();
   renderPushSettings();
@@ -1010,10 +1010,18 @@ function changeWeekStart(){
   saveToStorage();
   renderAll();
 }
+// Warm is the default look (unattributed :root), so "minimal" is the only
+// value that needs an explicit data-theme attribute. "default" is a legacy
+// stored value from before warm became the default — treat it as minimal,
+// the palette it used to point to.
+function normalizedTheme(){
+  const raw = (SETTINGS && SETTINGS.theme) || 'warm';
+  return raw === 'default' ? 'minimal' : raw;
+}
 function applyTheme(){
-  const theme = (SETTINGS && SETTINGS.theme) || 'default';
-  document.documentElement.dataset.theme = theme === 'default' ? '' : theme;
-  try{ localStorage.setItem('agenda-theme', theme === 'default' ? '' : theme); }catch(e){}
+  const theme = normalizedTheme();
+  document.documentElement.dataset.theme = theme === 'warm' ? '' : theme;
+  try{ localStorage.setItem('agenda-theme', theme === 'warm' ? '' : theme); }catch(e){}
   document.querySelector('meta[name=theme-color]').setAttribute('content', getComputedStyle(document.documentElement).getPropertyValue('--accent').trim());
 }
 function changeTheme(){
