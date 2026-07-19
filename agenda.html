@@ -152,7 +152,7 @@ h3 { font-size: 0.85rem; font-weight: 600; margin-bottom: 6px; }
 .gcal-allday-row:not(:empty) { border-bottom: 1px solid var(--hairline); }
 .allday-line { display: flex; align-items: center; min-height: 34px; }
 .allday-line + .allday-line { border-top: 1px solid var(--hairline); }
-.allday-bar { flex: 1; margin: 5px 8px 5px 0; padding: 5px 12px; border-radius: 6px; border-left: 4px solid var(--accent); background: var(--page); font-size: 0.78rem; color: var(--ink-2); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.allday-bar { flex: 1; margin: 5px 8px 5px 0; padding: 5px 12px; border-radius: 6px; border-left: 4px solid var(--accent); background: var(--page); font-size: 0.78rem; color: var(--ink-2); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; cursor: pointer; }
 .gcal-allday-chip { font-size: 0.72rem; padding: 4px 9px; border-radius: 8px; background: var(--page); border: 1px dashed var(--border); color: var(--ink-2); border-left-width: 3px; }
 .evt-dot { width: 8px; height: 8px; border-radius: 50%; display: inline-block; flex: none; margin-right: 4px; }
 
@@ -471,6 +471,14 @@ footer button { font: inherit; font-size: 0.72rem; border: none; background: non
   </div>
 </div>
 
+<!-- Google Calendar event detail modal (read-only info + guarded delete) -->
+<div class="modal-bg" id="gcal-event-modal">
+  <div class="modal" style="max-width:420px">
+    <div class="modal-head"><strong>Event</strong><button class="modal-x" data-ico="x" onclick="closeModal('gcal-event-modal')"></button></div>
+    <div class="modal-body" id="gcal-event-modal-body"></div>
+  </div>
+</div>
+
 <!-- Template edit modal -->
 <div class="modal-bg" id="template-modal">
   <div class="modal">
@@ -744,8 +752,9 @@ function saveTaskFromModal(){
   const duration = parseInt(document.getElementById('tm-duration').value,10) || 30;
   const category = document.getElementById('tm-category').value || null;
   const notes = document.getElementById('tm-notes').value;
+  let task;
   if(editingItem){
-    const task = TASKS.find(t => t.id === editingItem.id);
+    task = TASKS.find(t => t.id === editingItem.id);
     if(task){
       task.title = title; task.date = date; task.time = time;
       task.duration_min = time ? duration : null; task.notes = notes; task.category = category;
@@ -753,18 +762,23 @@ function saveTaskFromModal(){
     }
   } else {
     addTask({title, date, time, category, week: date ? null : weekKeyForDate(currentView==='week'?weekAnchor:currentDate)});
-    const t = TASKS[TASKS.length-1];
-    if(time) t.duration_min = duration;
-    t.notes = notes;
+    task = TASKS[TASKS.length-1];
+    if(time) task.duration_min = duration;
+    task.notes = notes;
   }
   saveToStorage();
   closeModal('task-modal');
   renderAll();
+  if(task) syncTaskToGCal(task);
 }
 function deleteTaskFromModal(){
   if(editingItem){
     const idx = TASKS.findIndex(t => t.id === editingItem.id);
-    if(idx>=0) TASKS.splice(idx,1);
+    if(idx>=0){
+      const task = TASKS[idx];
+      if(task.gcal_event_id) deleteGCalEventSafe(task.gcal_event_id);
+      TASKS.splice(idx,1);
+    }
     saveToStorage();
   }
   closeModal('task-modal');
@@ -976,11 +990,12 @@ function resolveDraggedTask(item){
 }
 function handleDrop(item, targetEl, e){
   const kind = targetEl.dataset.drop;
+  let task = null;
   if(kind === 'today-list'){
-    const task = resolveDraggedTask(item);
+    task = resolveDraggedTask(item);
     if(task){ task.date = targetEl.dataset.date; task.time = null; task.duration_min = null; }
   } else if(kind === 'today-row'){
-    const task = resolveDraggedTask(item);
+    task = resolveDraggedTask(item);
     if(task){
       task.date = targetEl.dataset.date; task.time = null; task.duration_min = null;
       const targetId = Number(targetEl.dataset.id);
@@ -998,24 +1013,25 @@ function handleDrop(item, targetEl, e){
       }
     }
   } else if(kind === 'hour-slot'){
-    const task = resolveDraggedTask(item);
+    task = resolveDraggedTask(item);
     // Default to a full hour (not 30min) when a task first becomes timed —
     // a 30min block at this grid density is too short to read its title.
     if(task){ task.date = targetEl.dataset.date; task.time = targetEl.dataset.time; if(!task.duration_min) task.duration_min = 60; }
   } else if(kind === 'sidebar'){
-    const task = resolveDraggedTask(item);
+    task = resolveDraggedTask(item);
     if(task){ task.date = null; task.week = targetEl.dataset.week; task.month = null; task.time = null; task.duration_min = null; }
   } else if(kind === 'month-sidebar'){
-    const task = resolveDraggedTask(item);
+    task = resolveDraggedTask(item);
     if(task){ task.date = null; task.week = null; task.month = targetEl.dataset.month; task.time = null; task.duration_min = null; }
   } else if(kind === 'week-day'){
-    const task = resolveDraggedTask(item);
+    task = resolveDraggedTask(item);
     if(task){ task.date = targetEl.dataset.date; }
   } else {
     return;
   }
   saveToStorage();
   renderAll();
+  if(task) syncTaskToGCal(task);
 }
 
 /* =====================================================================
@@ -1114,7 +1130,11 @@ function renderDay(){
   document.getElementById('today-card').dataset.date = currentDate;
 
   const alldayEl = document.getElementById('gcal-allday-row');
-  alldayEl.innerHTML = gcalAllDay.map((e,i) => `<div class="allday-line"><span class="hour-label">${i===0?'all day':''}</span><div class="allday-bar" style="border-left-color:${calColor(e.cal.slot)}">${esc(e.title)}</div></div>`).join('');
+  alldayEl.innerHTML = gcalAllDay.map((e,i) => `<div class="allday-line"><span class="hour-label">${i===0?'all day':''}</span><div class="allday-bar" data-gcal-index="${i}" style="border-left-color:${calColor(e.cal.slot)}">${esc(e.title)}</div></div>`).join('');
+  alldayEl.querySelectorAll('.allday-bar').forEach(el => {
+    const item = gcalAllDay[Number(el.dataset.gcalIndex)];
+    if(item) el.addEventListener('click', () => openGcalEventModal(item));
+  });
 
   renderHourGrid(timed, gcalTimed);
   paintIcons(listEl);
@@ -1146,16 +1166,20 @@ function renderHourGrid(timed, gcalTimed){
     const height = Math.max(20, (it.duration_min||30) / 60 * HOUR_PX);
     return `<div class="grid-block ${it.done?'done':''}" style="top:${top}px;height:${height}px" data-id="${it.id}" data-kind="${it.virtual?'v':'r'}"><div class="gb-time">${fmtTime(it.time)}${it.source==='template'?' '+ico('repeat'):''}</div>${esc(it.title)}</div>`;
   }).join('');
-  const gcalBlocks = gcalTimed.map(e => {
+  const gcalBlocks = gcalTimed.map((e,i) => {
     const [h,m] = e.time.split(':').map(Number);
     const top = ((h - start) * 60 + m) / 60 * HOUR_PX;
     const height = Math.max(20, (e.duration_min||30) / 60 * HOUR_PX);
-    return `<div class="grid-block gcal-event" style="top:${top}px;height:${height}px;border-left-color:${calColor(e.cal.slot)}"><div class="gb-time">${fmtTime(e.time)}</div>${esc(e.title)}</div>`;
+    return `<div class="grid-block gcal-event" data-gcal-index="${i}" style="top:${top}px;height:${height}px;border-left-color:${calColor(e.cal.slot)}"><div class="gb-time">${fmtTime(e.time)}</div>${esc(e.title)}</div>`;
   }).join('');
   grid.innerHTML = rows + `<div class="grid-blocks" style="height:${(end-start)*HOUR_PX}px">${taskBlocks}${gcalBlocks}</div>`;
   grid.querySelectorAll('.grid-block:not(.gcal-event)').forEach(el => {
     const item = timed.find(it => String(it.id)===el.dataset.id);
     if(item) el.addEventListener('pointerdown', e => startItemDrag(e, item, el, () => openTaskModal(item)));
+  });
+  grid.querySelectorAll('.grid-block.gcal-event').forEach(el => {
+    const item = gcalTimed[Number(el.dataset.gcalIndex)];
+    if(item) el.addEventListener('click', () => openGcalEventModal(item));
   });
   paintIcons(grid);
 }
@@ -1176,7 +1200,7 @@ function weekChipHtml(item){
   </div>`;
 }
 function weekGcalChipHtml(e){
-  return `<div class="week-chip" style="cursor:default;border-left:3px solid ${calColor(e.cal.slot)};padding-left:6px">
+  return `<div class="week-chip gcal-week-chip" data-gcal-event-id="${esc(e.eventId)}" style="cursor:pointer;border-left:3px solid ${calColor(e.cal.slot)};padding-left:6px">
     <span style="flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;color:var(--ink-2)">${e.time?`<b>${fmtTime(e.time)}</b> `:''}${esc(e.title)}</span>
   </div>`;
 }
@@ -1197,7 +1221,7 @@ function renderWeek(){
     });
     return `<div class="week-col ${d===todayStr()?'today':''}" data-drop="week-day" data-date="${d}">
       <div class="week-col-head" onclick="openDayFrom('${d}')"><span class="wc-day">${dowShort(d)}</span><span class="wc-date">${fmtShort(d)}</span></div>
-      ${gcalAllDay.map(e=>`<div class="gcal-allday-chip" style="border-left-color:${calColor(e.cal.slot)};margin-bottom:3px">${esc(e.title)}</div>`).join('')}
+      ${gcalAllDay.map(e=>`<div class="gcal-allday-chip" data-gcal-event-id="${esc(e.eventId)}" style="border-left-color:${calColor(e.cal.slot)};margin-bottom:3px;cursor:pointer">${esc(e.title)}</div>`).join('')}
       ${rows.map(r=>r.html).join('')}
       <button class="week-add" onclick="openNewTaskModal({date:'${d}'})">+ add</button>
     </div>`;
@@ -1207,6 +1231,14 @@ function renderWeek(){
     const items = itemsForDate(date);
     const item = items.find(it => String(it.id)===row.dataset.id);
     if(item) row.addEventListener('pointerdown', e => { if(!e.target.closest('.wchk')) startItemDrag(e, item, row, () => openTaskModal(item)); });
+  });
+  // Read-only Google events (timed chips + all-day chips) open the detail
+  // modal on click instead — they're never drag sources.
+  grid.querySelectorAll('.gcal-week-chip, .gcal-allday-chip').forEach(el => {
+    const date = el.closest('.week-col').dataset.date;
+    const dayGcalItems = gcalEventsForDate(date);
+    const item = dayGcalItems.find(it => it.eventId === el.dataset.gcalEventId);
+    if(item) el.addEventListener('click', () => openGcalEventModal(item));
   });
 }
 function openDayFrom(d){ currentDate = d; switchView('day'); }
@@ -1342,7 +1374,8 @@ function applyAssistantAction(action){
     if(!action.title) return;
     const date = action.date || null;
     const time = action.type==='add_timed_task' ? (action.time||null) : null;
-    addTask({title: action.title, date, time, week: date ? null : weekKeyForDate(currentView==='week'?weekAnchor:currentDate)});
+    const task = addTask({title: action.title, date, time, week: date ? null : weekKeyForDate(currentView==='week'?weekAnchor:currentDate)});
+    syncTaskToGCal(task);
   } else if(action.type==='add_template'){
     if(!action.title || !action.recurrence) return;
     TEMPLATES.push({id: nextId++, title: action.title, recurrence: action.recurrence, time: action.time||null, active:true, include_in_brief:false});
@@ -1356,6 +1389,7 @@ function applyAssistantAction(action){
     if(task){
       if(action.date!==undefined) task.date = action.date || null;
       if(action.time!==undefined) task.time = action.time || null;
+      syncTaskToGCal(task);
     }
   }
 }
@@ -1416,7 +1450,7 @@ const KNOWN_CALENDARS = ["Law School Schedule", "Online Law School Classes", "La
 const CAL_COLORS_LIGHT = ["#2a78d6", "#1baf7a", "#eda100", "#008300", "#4a3aa7", "#e34948", "#e87ba4", "#eb6834"];
 const CAL_COLORS_DARK  = ["#3987e5", "#199e70", "#c98500", "#008300", "#9085e9", "#e66767", "#d55181", "#d95926"];
 const GCAL_REDIRECT_URI = 'https://brieespo.github.io/agenda/';
-const GCAL_SCOPE = 'https://www.googleapis.com/auth/calendar.readonly';
+const GCAL_SCOPE = 'https://www.googleapis.com/auth/calendar';
 let gToken = null, gTokenExpiresAt = 0, gCalendars = [], gEvents = [];
 const calColor = slot => (matchMedia("(prefers-color-scheme: dark)").matches ? CAL_COLORS_DARK : CAL_COLORS_LIGHT)[((slot%8)+8)%8];
 
@@ -1509,6 +1543,58 @@ async function gfetch(url){
   if(!r.ok) throw new Error('Google API error ' + r.status);
   return r.json();
 }
+// Generic authenticated write (POST/PATCH/DELETE) against the Calendar
+// API — gfetch above stays GET-only/read-focused, this is the mutating
+// counterpart used by calendar creation and event push/delete.
+async function gcalApiRequest(method, path, body){
+  const token = await getValidGToken();
+  if(!token) throw new Error('Not connected to Google Calendar.');
+  const res = await fetch(`https://www.googleapis.com/calendar/v3/${path}`, {
+    method,
+    headers: {Authorization: 'Bearer ' + token, 'Content-Type': 'application/json'},
+    body: body !== undefined ? JSON.stringify(body) : undefined
+  });
+  if(res.status === 204) return null;
+  const text = await res.text();
+  const data = text ? JSON.parse(text) : null;
+  if(!res.ok){
+    const err = new Error((data && data.error && data.error.message) || `Google API error ${res.status}`);
+    err.status = res.status;
+    throw err;
+  }
+  return data;
+}
+// Finds or creates the app-owned "Agenda" calendar once — every pushed
+// event lives only here, never in any calendar Bri didn't ask us to
+// touch. Runs at most once (guarded by SETTINGS.agendaCalendarId).
+async function ensureAgendaCalendar(rawCalendars){
+  if(SETTINGS.agendaCalendarId) return;
+  const existing = rawCalendars.find(c => c.name === 'Agenda');
+  if(existing){ SETTINGS.agendaCalendarId = existing.id; saveToStorage(); return; }
+  try{
+    const created = await gcalApiRequest('POST', 'calendars', {summary: 'Agenda'});
+    SETTINGS.agendaCalendarId = created.id;
+    saveToStorage();
+  }catch(e){ console.error('could not create Agenda calendar', e); }
+}
+// Purely detects events Bri deleted *directly* in Google Calendar — any
+// task whose gcal_event_id no longer shows up here gets unlinked (cleared,
+// never recreated). Scoped to the same fetch window as the main event
+// pull, and only unlinks tasks whose own date actually falls in that
+// window — otherwise a task just outside the window would look "deleted"
+// simply because it was never fetched, not because it's actually gone.
+async function reconcileAgendaCalendar(timeMin, timeMax){
+  if(!SETTINGS.agendaCalendarId) return;
+  const linkedTasks = TASKS.filter(t => t.gcal_event_id && t.date && t.date >= timeMin && t.date <= timeMax);
+  if(!linkedTasks.length) return;
+  try{
+    const j = await gfetch(`https://www.googleapis.com/calendar/v3/calendars/${encodeURIComponent(SETTINGS.agendaCalendarId)}/events?singleEvents=true&maxResults=2500&timeMin=${parseLocalDate(timeMin).toISOString()}&timeMax=${parseLocalDate(timeMax).toISOString()}`);
+    const stillThere = new Set((j.items||[]).map(ev => ev.id));
+    let changed = false;
+    linkedTasks.forEach(t => { if(!stillThere.has(t.gcal_event_id)){ t.gcal_event_id = null; changed = true; } });
+    if(changed) saveToStorage();
+  }catch(e){ console.warn('agenda calendar reconciliation failed', e); }
+}
 // Fetches a rolling window wide enough for normal day/week browsing without
 // needing to detect and refetch every time the user navigates further out.
 async function refreshGCal(){
@@ -1517,7 +1603,13 @@ async function refreshGCal(){
   let list;
   try{ list = await gfetch('https://www.googleapis.com/calendar/v3/users/me/calendarList?maxResults=100'); }
   catch(e){ setGcalStatus(e.message); renderGcalSettings(); return; }
-  gCalendars = (list.items||[]).map(c => ({id: c.id, name: c.summary || c.id}));
+  const rawCalendars = (list.items||[]).map(c => ({id: c.id, name: c.summary || c.id, accessRole: c.accessRole}));
+  await ensureAgendaCalendar(rawCalendars);
+
+  // The Agenda calendar itself never appears in the picker or the
+  // rendered feed — its events already show as tasks, so listing it too
+  // would just render everything twice.
+  gCalendars = rawCalendars.filter(c => c.id !== SETTINGS.agendaCalendarId);
   const ordered = [
     ...KNOWN_CALENDARS.filter(n => gCalendars.some(c=>c.name===n)),
     ...gCalendars.map(c=>c.name).filter(n=>!KNOWN_CALENDARS.includes(n)).sort()
@@ -1539,6 +1631,7 @@ async function refreshGCal(){
     }catch(e){ console.warn('events failed for', c.name, e); return []; }
   }));
   gEvents = results.flat();
+  await reconcileAgendaCalendar(timeMin, timeMax);
   setGcalStatus(`Connected · ${gEvents.length} events from ${active.length} calendar${active.length===1?'':'s'}`);
   renderGcalSettings();
   renderAll();
@@ -1551,7 +1644,9 @@ function gcalEventsForDate(dateStr){
     id: `gcal-${cal.id}-${ev.id}`, title: ev.summary || '(untitled)', cal,
     time: ev.start?.dateTime ? ev.start.dateTime.slice(11,16) : null,
     duration_min: (ev.start?.dateTime && ev.end?.dateTime) ? Math.max(15, Math.round((new Date(ev.end.dateTime)-new Date(ev.start.dateTime))/60000)) : null,
-    allDay: !ev.start?.dateTime
+    allDay: !ev.start?.dateTime,
+    date: dateStr, eventId: ev.id, calendarId: cal.id, calendarName: cal.name, accessRole: cal.accessRole,
+    recurringEventId: ev.recurringEventId || null, htmlLink: ev.htmlLink || null
   }));
 }
 function renderGcalSettings(){
@@ -1564,7 +1659,7 @@ function renderGcalSettings(){
   if(!SETTINGS.gcalConnected){
     const cid = SETTINGS.googleClientId || '';
     el.innerHTML = cid ? `
-      <p style="font-size:0.82rem;color:var(--ink-2);margin-bottom:8px">Classes, Law Review deadlines, and everything else on your calendars — merged in, read-only.</p>
+      <p style="font-size:0.82rem;color:var(--ink-2);margin-bottom:8px">Classes, Law Review deadlines, and everything else on your calendars — merged in. Timed one-time tasks also push to an app-owned "Agenda" calendar, two-way.</p>
       <button class="primary" onclick="connectGoogle()">Connect Google Calendar</button>
       <p class="gcal-status-line">Read-only · <a style="color:var(--accent);cursor:pointer" onclick="SETTINGS.googleClientId='';saveToStorage();renderGcalSettings()">use a different client ID</a></p>
       <p class="gcal-status-line" id="gcal-status-line"></p>` : `
@@ -1583,6 +1678,8 @@ function renderGcalSettings(){
         <input type="checkbox" data-cal-index="${i}" ${toggles[c.name]?'checked':''}>
         <span class="evt-dot" style="background:${calColor(c.slot)}"></span>${esc(c.name)}
       </label>`).join('')}</div>
+    <p class="gcal-status-line" id="gcal-sync-status"></p>
+    <button class="ghost" onclick="pushExistingTimedTasks()">Push existing timed tasks now</button>
     <button class="ghost" onclick="disconnectGoogle()">Disconnect</button>`;
   // Same reason as everywhere else: calendar names can contain quotes, so
   // the change handler reads the name from the live array, not an attribute.
@@ -1591,12 +1688,150 @@ function renderGcalSettings(){
     if(cal) cb.addEventListener('change', () => toggleCalendar(cal.name, cb.checked));
   });
   setGcalStatus(`Connected · ${gEvents.length} events from ${gCalendars.filter(c=>toggles[c.name]).length} calendar${gCalendars.filter(c=>toggles[c.name]).length===1?'':'s'}`);
+  renderGcalSyncStatus();
 }
 function toggleCalendar(name, checked){
   const toggles = SETTINGS.calendarToggles || (SETTINGS.calendarToggles = {});
   toggles[name] = checked;
   saveToStorage();
   refreshGCal();
+}
+
+/* =====================================================================
+   TWO-WAY PUSH SYNC — one-time (non-routine) tasks with both a date and
+   a time push automatically into the app-owned Agenda calendar. Routines
+   (templates and their exceptions) never push — they aren't calendar
+   events. Marking a task done never touches its event either way; only
+   date/time/title/notes changes and deletion do.
+   ===================================================================== */
+function gcalEventBodyForTask(task){
+  const tz = Intl.DateTimeFormat().resolvedOptions().timeZone || 'America/New_York';
+  const [sh,sm] = task.time.split(':').map(Number);
+  const startDate = parseLocalDate(task.date);
+  startDate.setHours(sh, sm, 0, 0);
+  const endDate = new Date(startDate.getTime() + (task.duration_min||30)*60000);
+  const iso = d => `${fmtDate(d)}T${String(d.getHours()).padStart(2,'0')}:${String(d.getMinutes()).padStart(2,'0')}:00`;
+  return {
+    summary: task.title,
+    description: task.notes || '',
+    start: {dateTime: iso(startDate), timeZone: tz},
+    end: {dateTime: iso(endDate), timeZone: tz}
+  };
+}
+async function deleteGCalEventSafe(eventId, calendarId){
+  calendarId = calendarId || SETTINGS.agendaCalendarId;
+  try{
+    await gcalApiRequest('DELETE', `calendars/${encodeURIComponent(calendarId)}/events/${eventId}`);
+  }catch(e){
+    if(e.status !== 404 && e.status !== 410) throw e; // already gone (e.g. deleted directly in Google Calendar) — not an error
+  }
+}
+// Call after any mutation to a one-time task's date/time/title/notes.
+// Creates the event on first becoming a dated+timed task, updates it on
+// every subsequent change, and deletes it if the task stops qualifying
+// (date or time cleared) without ever recreating anything on its own.
+async function syncTaskToGCal(task){
+  if(!task || task.source === 'template' || task.source === 'template_exception') return;
+  if(!SETTINGS.gcalConnected || !SETTINGS.agendaCalendarId) return;
+  try{
+    if(task.date && task.time){
+      if(task.gcal_event_id){
+        await gcalApiRequest('PATCH', `calendars/${encodeURIComponent(SETTINGS.agendaCalendarId)}/events/${task.gcal_event_id}`, gcalEventBodyForTask(task));
+      } else {
+        const created = await gcalApiRequest('POST', `calendars/${encodeURIComponent(SETTINGS.agendaCalendarId)}/events`, gcalEventBodyForTask(task));
+        task.gcal_event_id = created.id;
+        saveToStorage();
+      }
+    } else if(task.gcal_event_id){
+      await deleteGCalEventSafe(task.gcal_event_id);
+      task.gcal_event_id = null;
+      saveToStorage();
+    }
+  }catch(e){ console.error('gcal task sync error', e); }
+}
+function renderGcalSyncStatus(){
+  const el = document.getElementById('gcal-sync-status');
+  if(!el) return;
+  if(!SETTINGS.agendaCalendarId){ el.textContent = 'Two-way sync: setting up…'; return; }
+  const linked = TASKS.filter(t => t.gcal_event_id).length;
+  const pending = TASKS.filter(t => t.date && t.time && !t.gcal_event_id && t.source!=='template' && t.source!=='template_exception').length;
+  el.textContent = `Two-way sync: ${linked} task${linked===1?'':'s'} linked to your Agenda calendar` + (pending ? ` · ${pending} pending push` : '');
+}
+// One-time catch-up for tasks that already existed with a date+time
+// before two-way sync was ever turned on — normal creates/edits push
+// automatically, this just backfills the ones that predate that.
+async function pushExistingTimedTasks(){
+  const pending = TASKS.filter(t => t.date && t.time && !t.gcal_event_id && t.source!=='template' && t.source!=='template_exception');
+  if(!pending.length){ setGcalStatus('Nothing to push — every timed task is already linked.'); return; }
+  setGcalStatus(`Pushing ${pending.length} task${pending.length===1?'':'s'}…`);
+  for(const task of pending){ await syncTaskToGCal(task); }
+  setGcalStatus(`Pushed ${pending.length} task${pending.length===1?'':'s'}.`);
+  renderGcalSyncStatus();
+}
+
+/* =====================================================================
+   EVENT DETAIL MODAL — the *only* place a Google Calendar event can be
+   deleted from. No swipe/hover affordance on the grid itself, matching
+   the requirement that deletion always be a deliberate, confirmed act.
+   ===================================================================== */
+let _gcalEventModalItem = null;
+function addMinutesToTimeStr(time, minutes){
+  const [h,m] = time.split(':').map(Number);
+  const total = h*60 + m + minutes;
+  const hh = Math.floor((((total%1440)+1440)%1440)/60), mm = ((total%60)+60)%60;
+  return `${String(hh).padStart(2,'0')}:${String(mm).padStart(2,'0')}`;
+}
+function openGcalEventModal(item){
+  _gcalEventModalItem = item;
+  renderGcalEventModalBody(false);
+  openModal('gcal-event-modal');
+}
+function renderGcalEventModalBody(confirming){
+  const item = _gcalEventModalItem;
+  const el = document.getElementById('gcal-event-modal-body');
+  if(!item || !el) return;
+  const whenLabel = item.allDay
+    ? `${fmtLong(item.date)} · all day`
+    : `${fmtLong(item.date)} · ${fmtTime(item.time)}${item.duration_min ? ' – ' + fmtTime(addMinutesToTimeStr(item.time, item.duration_min)) : ''}`;
+  const isReadOnly = item.accessRole === 'reader' || item.accessRole === 'freeBusyReader';
+  const isRecurring = !!item.recurringEventId;
+
+  let actionHtml;
+  if(isReadOnly){
+    actionHtml = `<p style="font-size:0.76rem;color:var(--muted)">You can't delete events on "${esc(item.calendarName)}" — your access there is read-only.</p>`;
+  } else if(confirming){
+    actionHtml = `
+      <p style="font-size:0.85rem;margin-bottom:10px">Delete "${esc(item.title)}" from ${esc(item.calendarName)}?</p>
+      <div style="display:flex;gap:8px">
+        <button class="ghost" onclick="renderGcalEventModalBody(false)">Cancel</button>
+        <button class="danger-ghost" onclick="confirmDeleteGcalEvent()">Delete</button>
+      </div>`;
+  } else if(isRecurring){
+    actionHtml = `
+      <button class="danger-ghost" onclick="renderGcalEventModalBody(true)">Delete just this occurrence</button>
+      <p style="font-size:0.76rem;color:var(--muted);margin-top:8px">Part of a recurring event — to delete the whole series, <a href="${esc(item.htmlLink||'#')}" target="_blank" rel="noopener" style="color:var(--accent)">open it in Google Calendar</a>.</p>`;
+  } else {
+    actionHtml = `<button class="danger-ghost" onclick="renderGcalEventModalBody(true)">Delete</button>`;
+  }
+
+  el.innerHTML = `
+    <div class="field"><label>Title</label><div style="font-size:0.9rem">${esc(item.title)}</div></div>
+    <div class="field"><label>When</label><div style="font-size:0.9rem">${esc(whenLabel)}</div></div>
+    <div class="field"><label>Calendar</label><div style="font-size:0.9rem">${esc(item.calendarName)}</div></div>
+    <div style="margin-top:14px">${actionHtml}</div>`;
+}
+async function confirmDeleteGcalEvent(){
+  const item = _gcalEventModalItem;
+  if(!item) return;
+  try{
+    await deleteGCalEventSafe(item.eventId, item.calendarId);
+    closeModal('gcal-event-modal');
+    await refreshGCal();
+  }catch(e){
+    console.error('event delete failed', e);
+    const el = document.getElementById('gcal-event-modal-body');
+    if(el) el.insertAdjacentHTML('beforeend', `<p style="font-size:0.78rem;color:var(--critical);margin-top:8px">Couldn't delete: ${esc(e.message)}</p>`);
+  }
 }
 
 /* =====================================================================

@@ -74,13 +74,25 @@ supabase functions deploy assistant --project-ref zymvsdkwmdhrwjycxisr
 ```
 Secrets (set once, never committed): `ANTHROPIC_API_KEY` (from console.anthropic.com / platform.claude.com) and `ALLOWED_EMAIL`.
 
-## Google Calendar (read-only, silent refresh)
+## Google Calendar (two-way sync, silent refresh)
 
-No client ID is hardcoded — paste your own OAuth client ID into Settings → Google Calendar (same pattern as law-school-tracker); since GitHub Pages project sites share one origin per user, the same client ID already authorized for law-school-tracker works here too. Events render read-only on the day grid and week view (dashed, softer fill, no checkbox) and in an all-day strip; this app never writes to Google Calendar.
+No client ID is hardcoded — paste your own OAuth client ID into Settings → Google Calendar (same pattern as law-school-tracker); since GitHub Pages project sites share one origin per user, the same client ID already authorized for law-school-tracker works here too. Events from your other calendars render read-only on the day grid and week view (dashed, softer fill) and in an all-day strip.
 
 True silent background refresh (no click, no popup, every visit) requires a server-side refresh token, since Google's client-side library (GIS) has no documented way to request one and its token-client model requires a real user gesture for every renewal — confirmed against Google's own docs before building this, not assumed. So the connect flow is a plain OAuth **authorization-code** redirect (`access_type=offline&prompt=consent`, constructed manually — GIS's `initCodeClient` doesn't expose `access_type`), landing back on `https://brieespo.github.io/agenda/` with a `?code=`. `supabase/functions/gcal/index.ts` exchanges that code for tokens once, stores only the refresh token server-side (table `gcal_tokens`, RLS-enabled with zero client policies — only the function's service-role key can read/write it, the client never touches it directly), and from then on mints fresh access tokens on request. This is why Google Calendar requires being signed in (not guest mode): the refresh token has to be tied to a real account.
 
 Requires: the OAuth client published to **Production** (Testing-status refresh tokens expire after 7 days — a hard Google limit, not configurable), `https://brieespo.github.io/agenda/` added under **Authorized redirect URIs** (separate from "Authorized JavaScript origins"), and its **Client Secret** set as `GOOGLE_CLIENT_SECRET` in Supabase secrets (never committed). Realistic ways this can still need reconnecting, none of them silent-refresh bugs: you revoke access at myaccount.google.com/permissions, 6 months with the app unused, or a Google-side security event forcing re-auth.
+
+### Two-way push sync
+
+Scope is the full `https://www.googleapis.com/auth/calendar` — not `calendar.events`, which was the original ask. Creating a new calendar (`calendars.insert`) needs calendar-management access that `calendar.events` doesn't grant, and deleting events from other calendars (see below) needs broad event write access too, so the full scope is the one combination that actually covers both without stacking multiple scopes — confirmed against Google's OAuth scope reference before building, same as the silent-refresh scope decision above. Both are "sensitive," not "restricted" — same unverified-app warning as before, no formal security review.
+
+On first connect, the app finds-or-creates a calendar literally named **Agenda** (same pattern as law-school-tracker's own app-owned calendar) and stores its id in `SETTINGS.agendaCalendarId`. Every one-time task (never routines/templates/exceptions — "routines aren't calendar events") that has both a date and a time pushes there automatically: on creation (including via chat/quick-add), and again on every subsequent move/retime/title/notes edit, tracked via `task.gcal_event_id`. Deleting the task deletes the event; marking done never touches it. If a task loses its date or time (dragged back to a sidebar, etc.), the linked event is deleted the same way a task deletion would. The Agenda calendar is excluded from the calendar picker and the rendered feed — its events already show as tasks — but its events are still fetched separately each refresh purely to detect ones deleted *directly* in Google Calendar, which unlinks the task (clears `gcal_event_id`) rather than silently recreating the event.
+
+Settings → Google Calendar shows a sync status line (tasks linked / pending) and a **Push existing timed tasks now** button — a one-time catch-up for tasks that already had a date+time before two-way sync was ever turned on.
+
+### Deleting events from the app
+
+Click any Google Calendar event (grid block, all-day strip, or week-view chip) to open its detail view — the *only* place delete lives; there's no swipe or hover affordance on the grid itself. Deleting requires an explicit confirmation naming the event, date, and calendar. Recurring events only ever offer "delete just this occurrence" (Google's `singleEvents=true` event-list flag already gives each occurrence its own deletable instance id, so no extra work there) plus a link to the event's own `htmlLink` for deleting the whole series in Google Calendar's own UI. The delete option is hidden entirely when the calendar's `accessRole` (from `calendarList.list`) is `reader` or `freeBusyReader`. The feed refreshes after a successful deletion.
 
 Redeploy after editing the function:
 ```
