@@ -150,6 +150,19 @@ Redeploy after editing the function:
 supabase functions deploy morning-brief --project-ref zymvsdkwmdhrwjycxisr
 ```
 
+## iOS Scriptable widget
+
+`agenda-widget.js` is a [Scriptable](https://scriptable.app) script for a lock-screen or home-screen widget showing today's date, the next timed item, and up to 3 undone tasks.
+
+**Why it doesn't use your real Supabase login:** that account has full read/write access to every app in the shared project — a script holding it (or a session token derived from it) is a much bigger blast radius than this needs. Instead, `supabase/functions/widget-brief/index.ts` is a dedicated read-only endpoint authenticated by its own `WIDGET_SECRET` (a plain random string, unrelated to any account credential) plus a fixed `AGENDA_USER_ID`, since this suite is single-tenant. A leaked widget secret only ever unlocks today's summary through this one endpoint — nothing else — and can be rotated independently of your actual password at any time.
+
+The secret is entered once via an in-app prompt and stored in iOS's Keychain (shared between the Scriptable app and its widget extension, but never written into the script's own text) — it never appears in the script file, so it's not exposed if the script is ever exported or shared.
+
+Redeploy after editing the function:
+```
+supabase functions deploy widget-brief --project-ref zymvsdkwmdhrwjycxisr
+```
+
 ## Build phases
 
 1. **Phase 1 (done):** auth, tasks CRUD, day view (untimed list + hour grid), week view, weekly sidebar with drag-assignment, completion gray-out, rollover, recurring templates + routines settings, the Claude chat (edge function + chat drawer + quick-add).
