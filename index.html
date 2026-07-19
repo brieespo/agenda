@@ -116,6 +116,7 @@ h3 { font-size: 0.85rem; font-weight: 600; margin-bottom: 6px; }
 .task-row.done { opacity: var(--done-op); }
 .t-time-chip { font-size: 0.7rem; color: var(--accent-strong); background: var(--accent-light); border-radius: 6px; padding: 2px 6px; flex: none; }
 .t-rolled-chip { font-size: 0.65rem; color: var(--serious); border: 1px solid var(--serious); border-radius: 6px; padding: 1px 5px; flex: none; }
+.rolled-dot { display: inline-block; width: 6px; height: 6px; border-radius: 50%; background: var(--serious); margin-left: 5px; vertical-align: middle; }
 .t-recur-ico { color: var(--muted); flex: none; }
 .t-menu { border: none; background: none; color: var(--muted); cursor: pointer; flex: none; opacity: 0; transition: opacity 120ms ease; padding: 2px; }
 .task-row:hover .t-menu { opacity: 1; }
@@ -1255,7 +1256,7 @@ function renderSidebar(){
   listEl.innerHTML = items.length ? items.map(item => `
     <div class="sidebar-task" data-id="${item.id}">
       <span class="chk ${item.done?'done':''}" onclick='toggleDoneReal(${item.id})'>${item.done?ico('check'):''}</span>
-      <span class="t-title ${item.done?'done':''}" style="font-size:.82rem">${esc(item.title)}${item.rolled_from?`<div class="t-rolled-chip" style="display:inline-block;margin-left:4px">from last week</div>`:''}</span>
+      <span class="t-title ${item.done?'done':''}" style="font-size:.82rem">${esc(item.title)}${item.rolled_from?`<span class="rolled-dot" title="Rolled over from last week"></span>`:''}</span>
     </div>`).join('') : '<p class="empty-note">Nothing waiting for a day yet.</p>';
   listEl.querySelectorAll('.sidebar-task').forEach(row => {
     const item = items.find(it => String(it.id)===row.dataset.id);
@@ -1274,7 +1275,7 @@ function renderMonthSidebar(){
   listEl.innerHTML = items.length ? items.map(item => `
     <div class="sidebar-task" data-id="${item.id}">
       <span class="chk ${item.done?'done':''}" onclick='toggleDoneReal(${item.id})'>${item.done?ico('check'):''}</span>
-      <span class="t-title ${item.done?'done':''}" style="font-size:.82rem">${esc(item.title)}${item.rolled_from?`<div class="t-rolled-chip" style="display:inline-block;margin-left:4px">from last month</div>`:''}</span>
+      <span class="t-title ${item.done?'done':''}" style="font-size:.82rem">${esc(item.title)}${item.rolled_from?`<span class="rolled-dot" title="Rolled over from last month"></span>`:''}</span>
     </div>`).join('') : '<p class="empty-note">Nothing waiting for a week yet.</p>';
   listEl.querySelectorAll('.sidebar-task').forEach(row => {
     const item = items.find(it => String(it.id)===row.dataset.id);
