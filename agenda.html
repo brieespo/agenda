@@ -387,21 +387,21 @@ footer button { font: inherit; font-size: 0.72rem; border: none; background: non
     <aside class="sidebar-col" id="sidebar-col">
       <button class="icon-btn sidebar-close" onclick="toggleSidebar(false)" data-ico="x"></button>
       <div class="card" style="margin-bottom:16px">
-        <div class="sidebar-head"><h2 style="margin-bottom:0">This month</h2></div>
-        <div class="sidebar-sub" id="month-sidebar-label"></div>
-        <div class="sidebar-drop" id="month-sidebar-list" data-drop="month-sidebar"></div>
-        <div class="quick-add-row">
-          <input type="text" id="month-sidebar-quick-add" placeholder="Add for this month…" onkeydown="if(event.key==='Enter')quickAddMonthSidebar()">
-          <button onclick="quickAddMonthSidebar()">Add</button>
-        </div>
-      </div>
-      <div class="card">
         <div class="sidebar-head"><h2 style="margin-bottom:0">This week</h2></div>
         <div class="sidebar-sub" id="sidebar-week-label"></div>
         <div class="sidebar-drop" id="sidebar-list" data-drop="sidebar"></div>
         <div class="quick-add-row">
           <input type="text" id="sidebar-quick-add" placeholder="Add for this week…" onkeydown="if(event.key==='Enter')quickAddSidebar()">
           <button onclick="quickAddSidebar()">Add</button>
+        </div>
+      </div>
+      <div class="card">
+        <div class="sidebar-head"><h2 style="margin-bottom:0">This month</h2></div>
+        <div class="sidebar-sub" id="month-sidebar-label"></div>
+        <div class="sidebar-drop" id="month-sidebar-list" data-drop="month-sidebar"></div>
+        <div class="quick-add-row">
+          <input type="text" id="month-sidebar-quick-add" placeholder="Add for this month…" onkeydown="if(event.key==='Enter')quickAddMonthSidebar()">
+          <button onclick="quickAddMonthSidebar()">Add</button>
         </div>
       </div>
     </aside>
