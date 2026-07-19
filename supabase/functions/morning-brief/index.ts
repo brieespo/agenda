@@ -71,17 +71,24 @@ function computeBrief(row: any, today: string) {
   const curWeek = startOfWeekStr(today, weekStart);
   const curMonth = monthOf(today);
 
-  const realToday = tasks.filter((t: any) => t.date === today);
+  // Routines (recurring templates) are excluded from the brief by default —
+  // it's meant to be a short one-time/rolled-over/first-event summary, not
+  // a full routine checklist. A template only shows up (as a virtual
+  // instance, or as a same-day exception created by editing/moving one
+  // occurrence) if its own include_in_brief flag is explicitly on.
+  const includedTemplateIds = new Set(templates.filter((tpl: any) => tpl.include_in_brief === true).map((tpl: any) => tpl.id));
+  const oneOffToday = tasks.filter((t: any) => t.date === today && t.source !== 'template_exception');
+  const exceptionToday = tasks.filter((t: any) => t.date === today && t.source === 'template_exception' && includedTemplateIds.has(t.template_id));
   const exceptionTemplateIds = new Set(
     tasks.filter((t: any) => t.source === 'template_exception' && t.exception_date === today).map((t: any) => t.template_id)
   );
   const virtualToday = templates
-    .filter((tpl: any) => templateOccursOn(tpl, today) && !exceptionTemplateIds.has(tpl.id))
+    .filter((tpl: any) => includedTemplateIds.has(tpl.id) && templateOccursOn(tpl, today) && !exceptionTemplateIds.has(tpl.id))
     .map((tpl: any) => ({
       title: tpl.title, time: tpl.time || null,
       done: completions.some((c: any) => c.template_id === tpl.id && c.date === today),
     }));
-  const allToday = realToday.concat(virtualToday);
+  const allToday = oneOffToday.concat(exceptionToday).concat(virtualToday);
   const leftCount = allToday.filter((t: any) => !t.done).length;
   const timed = allToday.filter((t: any) => t.time).sort((a: any, b: any) => a.time.localeCompare(b.time));
   const firstEvent = timed[0] || null;

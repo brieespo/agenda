@@ -488,6 +488,7 @@ footer button { font: inherit; font-size: 0.72rem; border: none; background: non
       <div id="tpm-freq-fields"></div>
       <div class="field"><label>Time (optional — blank = untimed)</label><input type="time" id="tpm-time"></div>
       <div class="field"><label>Category</label><select id="tpm-category"></select></div>
+      <label style="display:flex;align-items:center;gap:7px;font-size:0.82rem;color:var(--ink-2);margin-top:4px"><input type="checkbox" id="tpm-include-brief"> Include in morning brief</label>
     </div>
     <div class="modal-foot">
       <button class="danger-ghost" id="tpm-delete" onclick="deleteTemplateFromModal()" style="display:none">Delete</button>
@@ -801,6 +802,7 @@ function openTemplateModal(tpl){
   document.getElementById('tpm-freq').value = tpl ? tpl.recurrence.freq : 'weekly';
   document.getElementById('tpm-time').value = tpl && tpl.time ? tpl.time : '';
   populateCategorySelect(document.getElementById('tpm-category'), (tpl && tpl.category) || '');
+  document.getElementById('tpm-include-brief').checked = !!(tpl && tpl.include_in_brief);
   document.getElementById('tpm-delete').style.display = tpl ? '' : 'none';
   renderTemplateFreqFields();
   openModal('template-modal');
@@ -811,6 +813,7 @@ function saveTemplateFromModal(){
   const freq = document.getElementById('tpm-freq').value;
   const time = document.getElementById('tpm-time').value || null;
   const category = document.getElementById('tpm-category').value || null;
+  const includeInBrief = document.getElementById('tpm-include-brief').checked;
   let recurrence = {freq};
   if(freq==='weekly'){
     recurrence.days = Array.from(document.querySelectorAll('#tpm-freq-fields input[type=checkbox]:checked')).map(el=>el.value);
@@ -819,9 +822,9 @@ function saveTemplateFromModal(){
     recurrence.day = parseInt(document.getElementById('tpm-monthday').value,10) || 1;
   }
   if(editingTemplate){
-    editingTemplate.title = title; editingTemplate.recurrence = recurrence; editingTemplate.time = time; editingTemplate.category = category;
+    editingTemplate.title = title; editingTemplate.recurrence = recurrence; editingTemplate.time = time; editingTemplate.category = category; editingTemplate.include_in_brief = includeInBrief;
   } else {
-    TEMPLATES.push({id: nextId++, title, recurrence, time, active:true, category});
+    TEMPLATES.push({id: nextId++, title, recurrence, time, active:true, category, include_in_brief: includeInBrief});
   }
   saveToStorage();
   closeModal('template-modal');
@@ -888,7 +891,7 @@ function renderRoutinesList(){
   el.innerHTML = TEMPLATES.map(tpl => `
     <div class="routine-row">
       <button class="toggle ${tpl.active?'on':''}" onclick="toggleTemplateActive(${tpl.id})"></button>
-      <span class="r-title">${esc(tpl.title)}<div class="r-recur">${esc(recurLabel(tpl))}</div></span>
+      <span class="r-title">${esc(tpl.title)}<div class="r-recur">${esc(recurLabel(tpl))}${tpl.include_in_brief?' · in morning brief':''}</div></span>
       <select class="r-cat-select" data-tpl-id="${tpl.id}" onchange="setTemplateCategory(${tpl.id}, this.value)"></select>
       <button onclick='openTemplateModal(TEMPLATES.find(t=>t.id===${tpl.id}))' title="Edit">${ico('settings')}</button>
     </div>
@@ -1342,7 +1345,7 @@ function applyAssistantAction(action){
     addTask({title: action.title, date, time, week: date ? null : weekKeyForDate(currentView==='week'?weekAnchor:currentDate)});
   } else if(action.type==='add_template'){
     if(!action.title || !action.recurrence) return;
-    TEMPLATES.push({id: nextId++, title: action.title, recurrence: action.recurrence, time: action.time||null, active:true});
+    TEMPLATES.push({id: nextId++, title: action.title, recurrence: action.recurrence, time: action.time||null, active:true, include_in_brief:false});
   } else if(action.type==='complete_task'){
     const item = resolveIdToItem(action.task_id);
     if(item) toggleItemDone(item);
