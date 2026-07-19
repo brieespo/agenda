@@ -9,6 +9,30 @@ Daily agenda app: a day view mixing timed events and untimed tasks, a week view,
 - `agenda.html` — the entire app (source of truth)
 - `index.html` — always an exact copy of `agenda.html`. After every change: `cp agenda.html index.html`, then push.
 - `.github/workflows/deploy.yml` — GitHub Pages deploy on every push to `main`
+- `manifest.json`, `sw.js`, `icon-192.png`, `icon-512.png`, `apple-touch-icon.png` — PWA installability (see below)
+
+## PWA (installable)
+
+`manifest.json` (name, standalone display, theme/background colors pulled from the app's own `--accent`/`--page` CSS variables) plus `icon-192.png`/`icon-512.png`/`apple-touch-icon.png` (generated once via Pillow — same calendar glyph as the favicon, full-bleed accent-blue background, no separate design asset to maintain) make the app installable from Chrome's address bar or a phone's "Add to Home Screen."
+
+`sw.js` is intentionally minimal — just enough to satisfy installability, not an offline-first cache. This is a live-data app (Supabase + Google Calendar), so every same-origin request is **network-first**; the tiny cached app shell (`index.html`, `manifest.json`, the two icons) is only ever used as a fallback if a request fails outright (actually offline), never to serve stale content while online. Cross-origin requests (Supabase, Google, the CDN supabase-js bundle) always pass straight through uncached.
+
+### Data freshness (two complementary mechanisms, not redundant)
+
+- **Focus/visibility refetch** — `refreshFromSupabase()` re-pulls the row whenever the tab regains focus or becomes visible. Catches "stepped away and came back," including cases where a Realtime socket got dropped while backgrounded (mobile browsers throttle/kill background sockets often).
+- **Supabase Realtime** — subscribes to `UPDATE` events on the signed-in user's own `agenda_data` row, so a second open tab/device/window updates live without needing focus to change at all. Requires enabling Realtime on the table once:
+  ```sql
+  do $$
+  begin
+    if not exists (
+      select 1 from pg_publication_tables
+      where pubname = 'supabase_realtime' and schemaname = 'public' and tablename = 'agenda_data'
+    ) then
+      alter publication supabase_realtime add table agenda_data;
+    end if;
+  end $$;
+  ```
+Both guest mode and mid-session own-writes are handled the simple way: guest mode skips both (no server row to watch), and an own save's Realtime echo just reassigns the same data it already has — harmless, if occasionally a redundant re-render.
 
 ## Supabase setup
 

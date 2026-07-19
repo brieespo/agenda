@@ -5,6 +5,9 @@
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>Agenda</title>
 <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='%232a78d6' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'><rect x='1' y='1' width='22' height='22' rx='5' fill='%23ffffff' stroke='none'/><rect x='3' y='4' width='18' height='18' rx='2'/><line x1='16' y1='2' x2='16' y2='6'/><line x1='8' y1='2' x2='8' y2='6'/><line x1='3' y1='10' x2='21' y2='10'/></svg>">
+<link rel="manifest" href="manifest.json">
+<link rel="apple-touch-icon" href="apple-touch-icon.png">
+<meta name="theme-color" content="#2a78d6">
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2/dist/umd/supabase.js"></script>
 <style>
 :root {
@@ -1647,6 +1650,7 @@ function showApp(){
   handleGCalRedirect().then(handledRedirect => {
     if(!handledRedirect && SETTINGS.gcalConnected) refreshGCal();
   });
+  subscribeRealtime();
 }
 let _sessionHandled = false;
 async function handleAuthSession(session){
@@ -1726,6 +1730,41 @@ async function loadUserData(user){
   afterLoad();
 }
 
+// ---- DATA FRESHNESS: refetch on focus/visibility + Realtime ----
+// Two complementary mechanisms, not redundant: focus/visibility catches
+// "I stepped away and came back" even if Realtime's socket dropped while
+// backgrounded (mobile browsers throttle/kill background sockets often);
+// Realtime catches "another open window/device just changed something"
+// while this tab stays in the foreground the whole time, which a focus
+// listener alone would never see.
+let _lastRefetch = 0;
+async function refreshFromSupabase(){
+  if(!_currentUser || _guestMode) return;
+  if(Date.now() - _lastRefetch < 2000) return; // focus + visibilitychange often fire together
+  _lastRefetch = Date.now();
+  try{
+    const {data,error} = await sb.from('agenda_data').select('*').eq('user_id',_currentUser.id).maybeSingle();
+    if(error || !data) return;
+    TASKS = data.tasks||[]; TEMPLATES = data.templates||[]; COMPLETIONS = data.completions||[]; SETTINGS = data.settings||{};
+    writeLocalCache(_currentUser.id, {tasks:TASKS, templates:TEMPLATES, completions:COMPLETIONS, settings:SETTINGS});
+    afterLoad();
+    renderAll();
+  }catch(e){ console.error('refreshFromSupabase error:', e); }
+}
+let _realtimeChannel = null;
+function subscribeRealtime(){
+  if(!_currentUser || _guestMode || _realtimeChannel) return;
+  _realtimeChannel = sb.channel('agenda_data_' + _currentUser.id)
+    .on('postgres_changes', {event:'UPDATE', schema:'public', table:'agenda_data', filter:`user_id=eq.${_currentUser.id}`}, (payload) => {
+      const row = payload.new;
+      TASKS = row.tasks||[]; TEMPLATES = row.templates||[]; COMPLETIONS = row.completions||[]; SETTINGS = row.settings||{};
+      writeLocalCache(_currentUser.id, {tasks:TASKS, templates:TEMPLATES, completions:COMPLETIONS, settings:SETTINGS});
+      afterLoad();
+      renderAll();
+    })
+    .subscribe();
+}
+
 /* ---- INIT ---- */
 paintIcons(document);
 loadRememberedEmail();
@@ -1743,7 +1782,14 @@ function checkForDateChange(){
   _lastKnownDate = now;
   if(_currentUser){ runRollover(); renderAll(); }
 }
-document.addEventListener('visibilitychange', () => { if(!document.hidden) checkForDateChange(); });
+document.addEventListener('visibilitychange', () => {
+  if(!document.hidden){ checkForDateChange(); refreshFromSupabase(); }
+});
+window.addEventListener('focus', refreshFromSupabase);
+
+if('serviceWorker' in navigator){
+  window.addEventListener('load', () => { navigator.serviceWorker.register('./sw.js').catch(e => console.error('sw register failed:', e)); });
+}
 </script>
 </body>
 </html>
