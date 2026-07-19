@@ -213,6 +213,8 @@ h3 { font-size: 0.85rem; font-weight: 600; margin-bottom: 6px; }
 .sidebar-task { display: flex; align-items: center; gap: 6px; padding: 7px 6px; border-radius: 8px; cursor: grab; transition: background 120ms ease, transform 120ms ease; touch-action: none; user-select: none; }
 .sidebar-task:hover { background: var(--accent-light); }
 .sidebar-task.dragging { opacity: 0.35; }
+.sidebar-task.done { opacity: var(--done-op); }
+.sidebar-task.done .t-title { font-style: italic; color: var(--muted); }
 .sidebar-drop { min-height: 40px; border-radius: 8px; }
 .sidebar-drop.dragover { background: var(--accent-light); outline: 2px dashed var(--accent); }
 
@@ -1358,11 +1360,11 @@ function openDayFrom(d){ currentDate = d; switchView('day'); }
 function renderSidebar(){
   const wk = weekKeyForDate(currentView==='week' ? weekAnchor : currentDate);
   document.getElementById('sidebar-week-label').textContent = `Week of ${fmtShort(wk)}`;
-  const items = TASKS.filter(t => t.date===null && t.week===wk);
+  const items = TASKS.filter(t => t.date===null && t.week===wk).sort((a,b) => (a.done===b.done)?0:(a.done?1:-1));
   const listEl = document.getElementById('sidebar-list');
   listEl.dataset.week = wk;
   listEl.innerHTML = items.length ? items.map(item => `
-    <div class="sidebar-task" data-id="${item.id}">
+    <div class="sidebar-task ${item.done?'done':''}" data-id="${item.id}">
       <span class="chk ${item.done?'done':''}" onclick='toggleDoneReal(${item.id})'>${item.done?ico('check'):''}</span>
       <span class="t-title ${item.done?'done':''}" style="font-size:.82rem">${esc(item.title)}${item.rolled_from?`<span class="rolled-dot" title="Rolled over from last week"></span>`:''}</span>
     </div>`).join('') : '<p class="empty-note">Nothing waiting for a day yet.</p>';
@@ -1377,11 +1379,11 @@ function renderSidebar(){
 function renderMonthSidebar(){
   const mk = monthKeyForDate(currentView==='week' ? weekAnchor : currentDate);
   document.getElementById('month-sidebar-label').textContent = fmtMonthLabel(mk);
-  const items = TASKS.filter(t => t.date===null && !t.week && t.month===mk);
+  const items = TASKS.filter(t => t.date===null && !t.week && t.month===mk).sort((a,b) => (a.done===b.done)?0:(a.done?1:-1));
   const listEl = document.getElementById('month-sidebar-list');
   listEl.dataset.month = mk;
   listEl.innerHTML = items.length ? items.map(item => `
-    <div class="sidebar-task" data-id="${item.id}">
+    <div class="sidebar-task ${item.done?'done':''}" data-id="${item.id}">
       <span class="chk ${item.done?'done':''}" onclick='toggleDoneReal(${item.id})'>${item.done?ico('check'):''}</span>
       <span class="t-title ${item.done?'done':''}" style="font-size:.82rem">${esc(item.title)}${item.rolled_from?`<span class="rolled-dot" title="Rolled over from last month"></span>`:''}</span>
     </div>`).join('') : '<p class="empty-note">Nothing waiting for a week yet.</p>';
