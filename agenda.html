@@ -946,6 +946,11 @@ function closeModal(id){ document.getElementById(id).classList.remove('open'); }
 // a plain tap on a draggable row can still open its edit modal (onTap) or
 // toggle done, instead of the two gestures fighting over the same element.
 const DRAG_THRESHOLD = 6;
+// True for the duration of an actual drag gesture (past the threshold) plus
+// one tick after drop, so a hour-slot's click handler (which fires right
+// after pointerup on the element under the cursor) can tell a real tap from
+// the tail end of a drag that happened to land on it.
+let DRAG = false;
 function startItemDrag(e, item, sourceEl, onTap){
   if(e.pointerType==='mouse' && e.button!==0) return;
   e.preventDefault(); // block native text-selection/drag so our pointermove-based drag owns the gesture
@@ -956,6 +961,7 @@ function startItemDrag(e, item, sourceEl, onTap){
     if(!dragging){
       if(Math.hypot(ev.clientX-startX, ev.clientY-startY) < DRAG_THRESHOLD) return;
       dragging = true;
+      DRAG = true;
       ghost = document.createElement('div');
       ghost.className = 'drag-ghost';
       ghost.textContent = item.title;
@@ -975,6 +981,7 @@ function startItemDrag(e, item, sourceEl, onTap){
       if(sourceEl) sourceEl.classList.remove('dragging');
       const target = currentDropTarget(ev.clientX, ev.clientY);
       if(target) handleDrop(item, target, ev);
+      setTimeout(() => { DRAG = false; }, 0);
     } else if(onTap){
       onTap();
     }
