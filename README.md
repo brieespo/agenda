@@ -96,6 +96,60 @@ create table if not exists gcal_tokens (
 alter table gcal_tokens enable row level security;
 ```
 
+## Push notifications (morning brief)
+
+Settings → Notifications → "Morning brief at 7:00" toggle. Subscriptions are per-device — the toggle's on/off reflects whether *this* device specifically has an active `PushSubscription` (not just the synced setting), since enabling on a phone shouldn't look "already on" from the Mac's subscription and then disable it on toggle.
+
+**VAPID keys** — generated once locally (Python `cryptography`, EC P-256, base64url-encoded per RFC 8292) and set as Supabase secrets; the private key never appears in this repo or chat. Only the public key is embedded client-side (`VAPID_PUBLIC_KEY` in `agenda.html`) — public keys are meant to be public.
+
+```sql
+create table if not exists push_subscriptions (
+  id uuid primary key default gen_random_uuid(),
+  user_id uuid not null references auth.users(id) on delete cascade,
+  endpoint text not null unique,
+  p256dh text not null,
+  auth text not null,
+  created_at timestamptz default now()
+);
+alter table push_subscriptions enable row level security;
+create policy "Users manage own push subscriptions" on push_subscriptions
+  for all using (auth.uid() = user_id) with check (auth.uid() = user_id);
+```
+
+`supabase/functions/morning-brief/index.ts` composes the brief (today's task count, first timed event, rolled-over count — reimplementing the client's recurrence/rollover logic in Deno, since this runs without the app open) and sends it via `npm:web-push`. It's triggered by pg_cron, not the client, so it authenticates via a shared `x-cron-secret` header instead of a user JWT — there's no per-request user when a scheduler calls it.
+
+**Scheduling and DST:** pg_cron runs in UTC with no native timezone/DST support. Rather than hand-maintaining two schedules that flip every March/November, cron fires the function at *both* UTC times that correspond to 7am Eastern across DST (11:00 UTC in EDT, 12:00 UTC in EST); the function itself checks the actual current Eastern hour and no-ops unless it's really 7 — so exactly one of the two firings ever sends, automatically, forever, no manual DST updates.
+
+```sql
+create extension if not exists pg_cron;
+create extension if not exists pg_net;
+
+select cron.schedule('morning-brief-edt', '0 11 * * *', $$
+  select net.http_post(
+    url := 'https://zymvsdkwmdhrwjycxisr.supabase.co/functions/v1/morning-brief',
+    headers := jsonb_build_object('Content-Type','application/json','x-cron-secret', '<CRON_SECRET value>'),
+    body := '{}'::jsonb
+  );
+$$);
+
+select cron.schedule('morning-brief-est', '0 12 * * *', $$
+  select net.http_post(
+    url := 'https://zymvsdkwmdhrwjycxisr.supabase.co/functions/v1/morning-brief',
+    headers := jsonb_build_object('Content-Type','application/json','x-cron-secret', '<CRON_SECRET value>'),
+    body := '{}'::jsonb
+  );
+$$);
+```
+
+Manual verification (still requires `x-cron-secret`, just skips the hour gate): `POST .../functions/v1/morning-brief?test=true`.
+
+**iOS note:** push notifications on iPhone only work for a PWA added to the home screen *through Safari's share-sheet "Add to Home Screen"* — Chrome on iOS is a WebKit wrapper with no installable-PWA/push support at all, regardless of what Chrome shows on desktop or Android.
+
+Redeploy after editing the function:
+```
+supabase functions deploy morning-brief --project-ref zymvsdkwmdhrwjycxisr
+```
+
 ## Build phases
 
 1. **Phase 1 (done):** auth, tasks CRUD, day view (untimed list + hour grid), week view, weekly sidebar with drag-assignment, completion gray-out, rollover, recurring templates + routines settings, the Claude chat (edge function + chat drawer + quick-add).

@@ -36,3 +36,25 @@ self.addEventListener('fetch', (event) => {
       .catch(() => caches.match(event.request).then((cached) => cached || caches.match('./')))
   );
 });
+
+// Morning-brief push notifications (see morning-brief Edge Function).
+self.addEventListener('push', (event) => {
+  let data = {};
+  try{ data = event.data ? event.data.json() : {}; }catch(e){}
+  event.waitUntil(self.registration.showNotification(data.title || 'Agenda', {
+    body: data.body || '',
+    icon: './icon-192.png',
+    badge: './icon-192.png',
+    data: {url: data.url || './'}
+  }));
+});
+self.addEventListener('notificationclick', (event) => {
+  event.notification.close();
+  event.waitUntil(
+    clients.matchAll({type:'window', includeUncontrolled:true}).then((list) => {
+      const url = event.notification.data && event.notification.data.url || './';
+      for(const client of list){ if(client.url.includes(new URL(url, self.location.href).pathname) && 'focus' in client) return client.focus(); }
+      if(clients.openWindow) return clients.openWindow(url);
+    })
+  );
+});

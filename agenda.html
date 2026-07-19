@@ -461,6 +461,12 @@ footer button { font: inherit; font-size: 0.72rem; border: none; background: non
       </div>
       <h3 style="margin-top:18px">Google Calendar</h3>
       <div id="gcal-settings-body"></div>
+      <h3 style="margin-top:18px">Notifications</h3>
+      <div class="routine-row" style="border-bottom:none">
+        <span class="r-title">Morning brief at 7:00<div class="r-recur">Today's task count, first timed event, and anything rolled over — Eastern time</div></span>
+        <button class="toggle" id="push-toggle-btn" onclick="togglePushBrief()"></button>
+      </div>
+      <p class="gcal-status-line" id="push-status-line"></p>
     </div>
   </div>
 </div>
@@ -841,6 +847,7 @@ function openRoutinesModal(){
   renderRoutinesList();
   renderCategoriesList();
   renderGcalSettings();
+  renderPushSettings();
   openModal('routines-modal');
 }
 function renderCategoriesList(){
@@ -1587,6 +1594,76 @@ function toggleCalendar(name, checked){
   toggles[name] = checked;
   saveToStorage();
   refreshGCal();
+}
+
+/* =====================================================================
+   PUSH NOTIFICATIONS — morning brief. Subscriptions are per-device (each
+   browser/device gets its own PushSubscription), so SETTINGS.morningBrief
+   Enabled means "at least one device is subscribed," while the toggle's
+   visual on/off state reflects whether *this* device specifically has an
+   active subscription — otherwise enabling on a phone would look "already
+   on" (synced from the Mac) and tapping it would disable the Mac's.
+   ===================================================================== */
+const VAPID_PUBLIC_KEY = 'BK1fbR49ipwqmyWsTQ8HV9vTDhwxYVtAhUzUDMTaHlPRQuA5yupb8cfquTnA-ipk4cPVOYQXPnGGjGkAWb-sNqY';
+function urlBase64ToUint8Array(base64String){
+  const padding = '='.repeat((4 - base64String.length % 4) % 4);
+  const base64 = (base64String + padding).replace(/-/g,'+').replace(/_/g,'/');
+  const raw = atob(base64);
+  return Uint8Array.from([...raw].map(c => c.charCodeAt(0)));
+}
+function setPushStatus(msg){ const el = document.getElementById('push-status-line'); if(el) el.textContent = msg; }
+async function togglePushBrief(){
+  if(_guestMode){ setPushStatus('Sign in with a real account to enable push notifications.'); return; }
+  if(!('serviceWorker' in navigator) || !('PushManager' in window)){ setPushStatus('Push notifications are not supported in this browser.'); return; }
+  const reg = await navigator.serviceWorker.ready;
+  const existing = await reg.pushManager.getSubscription();
+  if(existing) await disablePushBrief(existing);
+  else await enablePushBrief(reg);
+}
+async function enablePushBrief(reg){
+  setPushStatus('Requesting permission…');
+  const perm = await Notification.requestPermission();
+  if(perm !== 'granted'){ setPushStatus('Notification permission was not granted.'); return; }
+  try{
+    const sub = await reg.pushManager.subscribe({userVisibleOnly:true, applicationServerKey: urlBase64ToUint8Array(VAPID_PUBLIC_KEY)});
+    const json = sub.toJSON();
+    const {error} = await sb.from('push_subscriptions').upsert(
+      {user_id:_currentUser.id, endpoint:json.endpoint, p256dh:json.keys.p256dh, auth:json.keys.auth},
+      {onConflict:'endpoint'});
+    if(error) throw error;
+    await refreshMorningBriefFlag();
+    setPushStatus('Morning brief enabled on this device — 7:00am Eastern.');
+  }catch(e){
+    console.error('push subscribe error', e);
+    setPushStatus("Couldn't enable push notifications: " + e.message);
+  }
+  renderPushSettings();
+}
+async function disablePushBrief(sub){
+  try{
+    await sb.from('push_subscriptions').delete().eq('endpoint', sub.endpoint);
+    await sub.unsubscribe();
+  }catch(e){ console.error('push unsubscribe error', e); }
+  await refreshMorningBriefFlag();
+  setPushStatus('Turned off on this device.');
+  renderPushSettings();
+}
+async function refreshMorningBriefFlag(){
+  if(!_currentUser || _guestMode) return;
+  const {count} = await sb.from('push_subscriptions').select('id', {count:'exact', head:true}).eq('user_id', _currentUser.id);
+  SETTINGS.morningBriefEnabled = (count||0) > 0;
+  saveToStorage();
+}
+async function renderPushSettings(){
+  const btn = document.getElementById('push-toggle-btn');
+  if(!btn) return;
+  if(_guestMode){ btn.classList.remove('on'); setPushStatus('Sign in to enable push notifications.'); return; }
+  let subscribedHere = false;
+  if('serviceWorker' in navigator && 'PushManager' in window){
+    try{ const reg = await navigator.serviceWorker.ready; const sub = await reg.pushManager.getSubscription(); subscribedHere = !!sub; }catch(e){}
+  }
+  btn.classList.toggle('on', subscribedHere);
+  setPushStatus(SETTINGS.morningBriefEnabled && !subscribedHere ? 'Enabled on another device — tap to also get it here.' : '');
 }
 
 /* =====================================================================
