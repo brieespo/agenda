@@ -256,6 +256,20 @@ button.danger-ghost { cursor: pointer; border: 1px solid var(--critical); backgr
 .settings-menu-row .sm-sub { font-size: 0.74rem; color: var(--muted); }
 .settings-menu-row .sm-chevron { flex: none; color: var(--muted); }
 
+/* ---- weekly progress ---- */
+.progress-overall { text-align: center; padding: 8px 0 14px; }
+.progress-overall .po-pct { font-size: 2.4rem; font-weight: 700; color: var(--accent-strong); line-height: 1; }
+.progress-overall .po-frac { font-size: 0.82rem; color: var(--muted); margin-top: 4px; }
+.progress-overall .po-week { font-size: 0.72rem; color: var(--muted); margin-bottom: 8px; }
+.progress-bar { height: 8px; border-radius: 999px; background: var(--hairline); overflow: hidden; margin-top: 8px; }
+.progress-bar > span { display: block; height: 100%; background: var(--accent); border-radius: 999px; transition: width 200ms ease; }
+.progress-bar.full > span { background: var(--good); }
+.prog-row { padding: 10px 0; border-top: 1px solid var(--hairline); }
+.prog-row .pr-head { display: flex; align-items: baseline; gap: 8px; font-size: 0.85rem; }
+.prog-row .pr-title { flex: 1; overflow-wrap: anywhere; }
+.prog-row .pr-frac { flex: none; font-size: 0.76rem; color: var(--muted); }
+.prog-row .progress-bar { height: 6px; }
+
 /* ---- routines list ---- */
 .routine-row { display: flex; align-items: center; gap: 8px; padding: 8px 4px; border-bottom: 1px solid var(--hairline); font-size: 0.85rem; }
 .routine-row .r-title { flex: 1; }
@@ -487,6 +501,10 @@ footer button { font: inherit; font-size: 0.72rem; border: none; background: non
         <span class="sm-title"><strong>Task categories</strong><span class="sm-sub" id="categories-count-label"></span></span>
         <span class="sm-chevron" data-ico="chevron-right"></span>
       </button>
+      <button class="settings-menu-row" onclick="openProgressSubmodal()">
+        <span class="sm-title"><strong>Weekly progress</strong><span class="sm-sub" id="progress-summary-label"></span></span>
+        <span class="sm-chevron" data-ico="chevron-right"></span>
+      </button>
       <h3 style="margin-top:18px">Settings</h3>
       <div class="field">
         <label>Week starts on</label>
@@ -537,6 +555,14 @@ footer button { font: inherit; font-size: 0.72rem; border: none; background: non
         <button onclick="addCategory()">Add</button>
       </div>
     </div>
+  </div>
+</div>
+
+<!-- Weekly progress submenu -->
+<div class="modal-bg" id="progress-submodal">
+  <div class="modal" style="max-width:480px">
+    <div class="modal-head"><strong>Weekly progress</strong><button class="modal-x" data-ico="x" onclick="closeModal('progress-submodal')"></button></div>
+    <div class="modal-body" id="progress-body"></div>
   </div>
 </div>
 
@@ -941,6 +967,8 @@ function updateSettingsMenuCounts(){
   document.getElementById('routines-count-label').textContent = routineCount ? `${routineCount} routine${routineCount===1?'':'s'}` : 'None yet';
   const catCount = (SETTINGS.taskCategories || []).length;
   document.getElementById('categories-count-label').textContent = catCount ? `${catCount} categor${catCount===1?'y':'ies'}` : 'None yet';
+  const wp = weeklyProgress();
+  document.getElementById('progress-summary-label').textContent = wp.totalAll ? `${wp.pct}% done this week` : 'Nothing scheduled yet';
 }
 function openRoutinesSubmodal(){
   renderRoutinesList();
@@ -949,6 +977,56 @@ function openRoutinesSubmodal(){
 function openCategoriesSubmodal(){
   renderCategoriesList();
   openModal('categories-submodal');
+}
+// Completion percentage for the current week (the real current week per
+// today's date, not whatever week the views are navigated to). Denominator
+// is every task/routine instance *scheduled* in the week — so the number
+// climbs as the week fills in, and the raw "done of total" is always shown
+// alongside so the percentage reads as progress, never a hidden penalty.
+// Google Calendar events aren't counted (they're facts, not things to do).
+function weeklyProgress(){
+  const week = weekDates(todayStr());
+  let totalAll = 0, doneAll = 0;
+  const perTpl = {};   // template_id -> {total, done}
+  week.forEach(d => {
+    itemsForDate(d).forEach(it => {
+      totalAll++; if(it.done) doneAll++;
+      if(it.source === 'template' || it.source === 'template_exception'){
+        const t = perTpl[it.template_id] || (perTpl[it.template_id] = {total:0, done:0});
+        t.total++; if(it.done) t.done++;
+      }
+    });
+  });
+  const routines = TEMPLATES
+    .filter(tpl => perTpl[tpl.id])
+    .map(tpl => ({title: tpl.title, total: perTpl[tpl.id].total, done: perTpl[tpl.id].done,
+      pct: Math.round(perTpl[tpl.id].done / perTpl[tpl.id].total * 100)}));
+  return {totalAll, doneAll, pct: totalAll ? Math.round(doneAll/totalAll*100) : 0, weekStart: week[0], routines};
+}
+function openProgressSubmodal(){
+  const wp = weeklyProgress();
+  const el = document.getElementById('progress-body');
+  if(!wp.totalAll){
+    el.innerHTML = '<p class="empty-note">Nothing scheduled this week yet — add tasks or routines and your completion will show up here.</p>';
+    openModal('progress-submodal');
+    return;
+  }
+  const overall = `
+    <div class="progress-overall">
+      <div class="po-week">Week of ${esc(fmtShort(wp.weekStart))}</div>
+      <div class="po-pct">${wp.pct}%</div>
+      <div class="po-frac">${wp.doneAll} of ${wp.totalAll} done</div>
+      <div class="progress-bar ${wp.pct===100?'full':''}"><span style="width:${wp.pct}%"></span></div>
+    </div>`;
+  const routineRows = wp.routines.length ? `
+    <h3 style="margin-top:6px">By routine</h3>
+    ${wp.routines.map(r => `
+      <div class="prog-row">
+        <div class="pr-head"><span class="pr-title">${esc(r.title)}</span><span class="pr-frac">${r.done}/${r.total} · ${r.pct}%</span></div>
+        <div class="progress-bar ${r.pct===100?'full':''}"><span style="width:${r.pct}%"></span></div>
+      </div>`).join('')}` : '';
+  el.innerHTML = overall + routineRows;
+  openModal('progress-submodal');
 }
 function renderCategoriesList(){
   const el = document.getElementById('categories-list');
