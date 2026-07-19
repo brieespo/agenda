@@ -218,6 +218,31 @@ h3 { font-size: 0.85rem; font-weight: 600; margin-bottom: 6px; }
 .sidebar-drop { min-height: 40px; border-radius: 8px; }
 .sidebar-drop.dragover { background: var(--accent-light); outline: 2px dashed var(--accent); }
 
+/* ---- meals (dinner integration) ---- */
+.meal-strip { margin-bottom: 14px; display: flex; flex-direction: column; gap: 5px; border-radius: 10px; padding: 2px; }
+.meal-strip.dragover { outline: 2px dashed var(--accent); outline-offset: 2px; background: var(--accent-light); }
+.meal-chip { display: flex; align-items: center; gap: 8px; padding: 8px 10px; border-radius: 9px; background: var(--surface); border: 1px solid var(--border); border-left: 3px solid var(--serious); cursor: grab; transition: transform 120ms ease, box-shadow 120ms ease; touch-action: none; user-select: none; }
+.meal-chip:hover { transform: translateY(-1px); box-shadow: var(--shadow); }
+.meal-chip.dragging { opacity: 0.35; }
+.meal-chip.made { opacity: var(--done-op); }
+.meal-ico { color: var(--serious); flex: none; display: inline-flex; }
+.meal-made { width: 18px; height: 18px; border-radius: 50%; border: 1.5px solid var(--muted); flex: none; display: inline-flex; align-items: center; justify-content: center; cursor: pointer; color: #fff; transition: background 120ms ease, border-color 120ms ease; }
+.meal-made.on { background: var(--good); border-color: var(--good); }
+.meal-body { flex: 1; min-width: 0; }
+.meal-title { font-size: 0.86rem; overflow-wrap: anywhere; }
+.meal-chip.made .meal-title { font-style: italic; color: var(--muted); }
+.meal-extras { font-size: 0.72rem; color: var(--muted); margin-top: 1px; }
+.meal-del { border: none; background: none; color: var(--muted); cursor: pointer; flex: none; opacity: 0; padding: 2px; transition: opacity 120ms ease; }
+.meal-chip:hover .meal-del { opacity: 1; }
+.meal-del:hover { color: var(--critical); }
+.meal-add-btn { align-self: flex-start; border: 1px dashed var(--border); background: none; color: var(--muted); font: inherit; font-size: 0.76rem; padding: 5px 10px; border-radius: 8px; cursor: pointer; display: inline-flex; align-items: center; gap: 5px; transition: color 120ms ease, border-color 120ms ease; }
+.meal-add-btn:hover { color: var(--serious); border-color: var(--serious); }
+.meal-picker-opt { display: flex; flex-direction: column; padding: 9px 10px; border-radius: 8px; border: 1px solid var(--border); background: var(--surface); cursor: pointer; margin-bottom: 6px; transition: border-color 120ms ease, background 120ms ease; text-align: left; width: 100%; font: inherit; }
+.meal-picker-opt:hover { border-color: var(--accent); background: var(--accent-light); }
+.meal-picker-opt .mp-name { font-size: 0.86rem; }
+.meal-picker-opt .mp-src { font-size: 0.72rem; color: var(--muted); }
+.meal-picker-list { max-height: 260px; overflow-y: auto; margin-top: 6px; }
+
 /* ---- drag ghost ---- */
 .drag-ghost { position: fixed; z-index: 500; pointer-events: none; background: var(--surface); border: 1px solid var(--accent); color: var(--ink); font-size: 0.8rem; padding: 6px 10px; border-radius: 8px; box-shadow: 0 8px 20px rgba(0,0,0,0.18); max-width: 220px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 
@@ -404,6 +429,7 @@ footer button { font: inherit; font-size: 0.72rem; border: none; background: non
           <button class="primary" onclick="quickParseAdd()">Add</button>
         </div>
         <div class="card headline-card" id="day-headline"></div>
+        <div class="meal-strip" id="meal-strip" data-drop="meal-day"></div>
         <div class="card" id="today-card" data-drop="today-list">
           <div class="today-card-head">
             <h2>Today</h2>
@@ -446,7 +472,7 @@ footer button { font: inherit; font-size: 0.72rem; border: none; background: non
           <button onclick="quickAddSidebar()">Add</button>
         </div>
       </div>
-      <div class="card">
+      <div class="card" style="margin-bottom:16px">
         <div class="sidebar-head"><h2 style="margin-bottom:0">This month</h2></div>
         <div class="sidebar-sub" id="month-sidebar-label"></div>
         <div class="sidebar-drop" id="month-sidebar-list" data-drop="month-sidebar"></div>
@@ -454,6 +480,16 @@ footer button { font: inherit; font-size: 0.72rem; border: none; background: non
           <input type="text" id="month-sidebar-quick-add" placeholder="Add for this month…" onkeydown="if(event.key==='Enter')quickAddMonthSidebar()">
           <button onclick="quickAddMonthSidebar()">Add</button>
         </div>
+      </div>
+      <div class="card">
+        <div class="sidebar-head"><h2 style="margin-bottom:0">Meal plan</h2></div>
+        <div class="sidebar-sub">Unscheduled meals — drag onto a day</div>
+        <div class="sidebar-drop" id="meal-sidebar-list" data-drop="meal-plan"></div>
+        <div class="quick-add-row">
+          <input type="text" id="meal-sidebar-quick-add" placeholder="Add a dish…" onkeydown="if(event.key==='Enter')quickAddMealSidebar()">
+          <button onclick="quickAddMealSidebar()">Add</button>
+        </div>
+        <button class="meal-add-btn" style="margin-top:8px" onclick="openMealPicker(null)"><span data-ico="utensils"></span> Browse recipes / import a menu</button>
       </div>
     </aside>
   </div>
@@ -558,6 +594,28 @@ footer button { font: inherit; font-size: 0.72rem; border: none; background: non
   </div>
 </div>
 
+<!-- Meal picker: pick a recipe from the dinner planner, add a custom dish, or import a saved week -->
+<div class="modal-bg" id="meal-picker-modal">
+  <div class="modal" style="max-width:480px">
+    <div class="modal-head"><strong id="meal-picker-title">Add a meal</strong><button class="modal-x" data-ico="x" onclick="closeModal('meal-picker-modal')"></button></div>
+    <div class="modal-body">
+      <div class="field">
+        <label>Custom dish</label>
+        <div class="quick-add-row">
+          <input type="text" id="meal-custom-name" placeholder="e.g. Leftovers, Takeout…" onkeydown="if(event.key==='Enter')addCustomMealFromPicker()">
+          <button onclick="addCustomMealFromPicker()">Add</button>
+        </div>
+      </div>
+      <div class="field" style="margin-top:14px">
+        <label>From your recipes</label>
+        <input type="text" id="meal-recipe-search" placeholder="Search recipes…" oninput="renderMealPickerList()">
+      </div>
+      <div class="meal-picker-list" id="meal-recipe-list"></div>
+      <div id="meal-import-section" style="margin-top:16px"></div>
+    </div>
+  </div>
+</div>
+
 <!-- Weekly progress submenu -->
 <div class="modal-bg" id="progress-submodal">
   <div class="modal" style="max-width:480px">
@@ -621,7 +679,8 @@ const ICONS = {
   "repeat": '<polyline points="17 1 21 5 17 9"/><path d="M3 11V9a4 4 0 0 1 4-4h14"/><polyline points="7 23 3 19 7 15"/><path d="M21 13v2a4 4 0 0 1-4 4H3"/>',
   "menu": '<line x1="3" y1="12" x2="21" y2="12"/><line x1="3" y1="6" x2="21" y2="6"/><line x1="3" y1="18" x2="21" y2="18"/>',
   "chat": '<path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/>',
-  "send": '<line x1="22" y1="2" x2="11" y2="13"/><polygon points="22 2 15 22 11 13 2 9 22 2"/>'
+  "send": '<line x1="22" y1="2" x2="11" y2="13"/><polygon points="22 2 15 22 11 13 2 9 22 2"/>',
+  "utensils": '<path d="M3 2v7c0 1.1.9 2 2 2h4a2 2 0 0 0 2-2V2"/><path d="M7 2v20"/><path d="M21 15V2a5 5 0 0 0-5 5v6c0 1.1.9 2 2 2h3z"/><path d="M18 15v7"/>'
 };
 function ico(name){ return `<svg class="icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">${ICONS[name]||''}</svg>`; }
 function paintIcons(root){ (root||document).querySelectorAll('[data-ico]').forEach(el => { if(!el.querySelector('svg')) el.insertAdjacentHTML('afterbegin', ico(el.dataset.ico)); }); }
@@ -1179,6 +1238,19 @@ function resolveDraggedTask(item){
 }
 function handleDrop(item, targetEl, e){
   const kind = targetEl.dataset.drop;
+  // Meals are their own thing: a dragged meal only ever changes which day
+  // it's on (or goes back to the unscheduled meal-plan pool). It never turns
+  // into a task, gets a time, or touches the task drop logic below.
+  if(item && item.source === 'dinner'){
+    const meal = getMeals().find(m => m.id === item.id);
+    if(!meal) return;
+    if(kind === 'meal-plan'){ meal.date = null; }
+    else if(targetEl.dataset.date){ meal.date = targetEl.dataset.date; }   // meal-day, week-day, today-list/row, hour-slot
+    else return;
+    saveToStorage();
+    renderAll();
+    return;
+  }
   let task = null;
   if(kind === 'today-list'){
     task = resolveDraggedTask(item);
@@ -1490,10 +1562,171 @@ function toggleSidebar(open){
   document.getElementById('sidebar-scrim').classList.toggle('open', open);
 }
 
+/* =====================================================================
+   MEALS (dinner-planner integration)
+   Meals live in SETTINGS.meals (no separate table — piggybacks the
+   settings JSON, so every sync/save/load path already carries them and
+   no DB migration is needed). Snapshots of a recipe's name + id at pick
+   time, so a later rename in the dinner planner never rewrites history.
+   Meals are NOT tasks: no rollover, not counted in weekly progress —
+   both of those operate on TASKS, and meals are deliberately kept out.
+   ===================================================================== */
+// Always read/write through this so we track the live SETTINGS object even
+// after a refetch reassigns SETTINGS wholesale (a cached top-level var would
+// go stale).
+function getMeals(){ if(!Array.isArray(SETTINGS.meals)) SETTINGS.meals = []; return SETTINGS.meals; }
+function mealsForDate(dateStr){ return getMeals().filter(m => m.date === dateStr); }
+function addMeal({title, recipe_id=null, extras='', date=null}){
+  getMeals().push({id: nextId++, title, recipe_id, extras, date, made: false, source: 'dinner'});
+  saveToStorage(); renderAll();
+}
+function deleteMeal(id){
+  const meals = getMeals(); const i = meals.findIndex(m => m.id===id);
+  if(i>=0){ meals.splice(i,1); saveToStorage(); renderAll(); }
+}
+function toggleMealMade(id){
+  const m = getMeals().find(x => x.id===id);
+  if(m){ m.made = !m.made; saveToStorage(); renderAll(); }
+}
+function quickAddMealSidebar(){
+  const input = document.getElementById('meal-sidebar-quick-add');
+  const title = input.value.trim();
+  if(!title) return;
+  input.value = '';
+  addMeal({title, date: null});   // unscheduled -> meal-plan pool
+}
+function addCustomMealFromPicker(){
+  const input = document.getElementById('meal-custom-name');
+  const title = input.value.trim();
+  if(!title) return;
+  input.value = '';
+  addMeal({title, date: _mealPickerDate});   // honors the day the picker was opened for (null = pool)
+  closeModal('meal-picker-modal');
+}
+
+// ---- cross-app read: dinner planner's recipes + saved menus ----
+// Same shared Supabase project + same signed-in user, so a plain owner read
+// of the dinner app's user_data row works under its RLS. Fetched once, lazily,
+// the first time the picker opens.
+let DINNER_RECIPES = null, DINNER_MENUS = null, _dinnerLoading = false;
+async function loadDinnerData(){
+  if(DINNER_RECIPES !== null) return;
+  if(_guestMode || !_currentUser){ DINNER_RECIPES = []; DINNER_MENUS = []; return; }
+  _dinnerLoading = true;
+  try{
+    const {data} = await sb.from('user_data').select('recipes, rules').eq('user_id', _currentUser.id).maybeSingle();
+    DINNER_RECIPES = (data && Array.isArray(data.recipes)) ? data.recipes : [];
+    DINNER_MENUS = (data && data.rules && Array.isArray(data.rules._savedMenus)) ? data.rules._savedMenus : [];
+  }catch(e){ console.error('loadDinnerData error:', e); DINNER_RECIPES = []; DINNER_MENUS = []; }
+  _dinnerLoading = false;
+}
+
+// ---- meal picker modal ----
+let _mealPickerDate = null;   // the day being added to (null = meal-plan pool)
+async function openMealPicker(dateStr){
+  _mealPickerDate = dateStr || null;
+  document.getElementById('meal-picker-title').textContent = _mealPickerDate ? `Add a meal — ${fmtShort(_mealPickerDate)}` : 'Add a meal';
+  document.getElementById('meal-custom-name').value = '';
+  document.getElementById('meal-recipe-search').value = '';
+  document.getElementById('meal-recipe-list').innerHTML = '<p class="empty-note">Loading your recipes…</p>';
+  document.getElementById('meal-import-section').innerHTML = '';
+  openModal('meal-picker-modal');
+  await loadDinnerData();
+  renderMealPickerList();
+  renderMealImportSection();
+}
+function renderMealPickerList(){
+  const el = document.getElementById('meal-recipe-list');
+  const q = (document.getElementById('meal-recipe-search').value || '').toLowerCase();
+  if(!DINNER_RECIPES || !DINNER_RECIPES.length){
+    el.innerHTML = `<p class="empty-note">${_guestMode ? 'Sign in with the same account as your dinner planner to pull in your recipes — or just add a custom dish above.' : 'No recipes found in your dinner planner yet. Add a custom dish above, or create recipes over there first.'}</p>`;
+    return;
+  }
+  let opts = DINNER_RECIPES.filter(r => r && r.name && (!q || r.name.toLowerCase().includes(q) || (r.src||'').toLowerCase().includes(q)));
+  if(opts.length > 60) opts = opts.slice(0, 60);
+  el.innerHTML = opts.length
+    ? opts.map(r => `<button class="meal-picker-opt" data-recipe-id="${r.id}"><span class="mp-name">${esc(r.name)}</span>${r.src?`<span class="mp-src">${esc(r.src)}</span>`:''}</button>`).join('')
+    : '<p class="empty-note">No recipes match that search.</p>';
+  el.querySelectorAll('.meal-picker-opt').forEach(btn => {
+    const r = DINNER_RECIPES.find(x => String(x.id) === btn.dataset.recipeId);
+    if(r) btn.addEventListener('click', () => { addMeal({title: r.name, recipe_id: r.id, date: _mealPickerDate}); closeModal('meal-picker-modal'); });
+  });
+}
+function renderMealImportSection(){
+  const el = document.getElementById('meal-import-section');
+  const weekly = (DINNER_MENUS || []).filter(m => m.type === 'weekly' && Array.isArray(m.plan));
+  if(!weekly.length){ el.innerHTML = ''; return; }
+  const anchor = _mealPickerDate || (currentView==='week' ? weekAnchor : currentDate);
+  const mon = startOfWeek(anchor, 'mon');
+  el.innerHTML = `<label style="font-size:0.72rem;color:var(--muted);display:block;margin-bottom:4px">Import a saved week onto ${fmtShort(mon)}–${fmtShort(addDays(mon,6))}</label>
+    ${weekly.map(m => `<button class="meal-picker-opt" data-menu-id="${esc(m.id)}"><span class="mp-name">${esc(m.name)}</span><span class="mp-src">${(m.plan||[]).filter(p=>p&&p.r).length} dinners · saved ${esc(m.savedAt||'')}</span></button>`).join('')}`;
+  el.querySelectorAll('.meal-picker-opt').forEach(btn => {
+    const menu = weekly.find(m => m.id === btn.dataset.menuId);
+    if(menu) btn.addEventListener('click', () => importSavedMenu(menu, mon));
+  });
+}
+const _DAYS_MON = ['Monday','Tuesday','Wednesday','Thursday','Friday','Saturday','Sunday'];
+function importSavedMenu(menu, mondayStr){
+  let added = 0;
+  (menu.plan || []).forEach(p => {
+    if(!p || !p.r || !p.r.name) return;
+    const dayIdx = _DAYS_MON.indexOf(p.day);
+    const date = dayIdx >= 0 ? addDays(mondayStr, dayIdx) : null;
+    if(date === null) return;   // skip entries with no resolvable weekday
+    const extrasParts = [];
+    if(p.side && p.side.name) extrasParts.push(`Side: ${p.side.name}`);
+    if(p.dessert && p.dessert.name) extrasParts.push(`Dessert: ${p.dessert.name}`);
+    getMeals().push({id: nextId++, title: p.r.name, recipe_id: p.r.id ?? null, extras: extrasParts.join(' · '), date, made: false, source: 'dinner'});
+    added++;
+  });
+  saveToStorage();
+  closeModal('meal-picker-modal');
+  renderAll();
+}
+
+// ---- meal rendering ----
+function mealChipHtml(m){
+  return `<div class="meal-chip ${m.made?'made':''}" data-id="${m.id}">
+    <span class="meal-ico" data-ico="utensils"></span>
+    <span class="meal-made ${m.made?'on':''}" title="Mark made">${m.made?ico('check'):''}</span>
+    <div class="meal-body"><div class="meal-title">${esc(m.title)}</div>${m.extras?`<div class="meal-extras">${esc(m.extras)}</div>`:''}</div>
+    <button class="meal-del" title="Remove">${ico('trash')}</button>
+  </div>`;
+}
+function attachMealChipHandlers(container, meals){
+  container.querySelectorAll('.meal-chip').forEach(row => {
+    const m = meals.find(x => String(x.id) === row.dataset.id);
+    if(!m) return;
+    row.querySelector('.meal-made').addEventListener('click', e => { e.stopPropagation(); toggleMealMade(m.id); });
+    row.querySelector('.meal-del').addEventListener('click', e => { e.stopPropagation(); deleteMeal(m.id); });
+    row.addEventListener('pointerdown', e => { if(!e.target.closest('.meal-made') && !e.target.closest('.meal-del')) startItemDrag(e, m, row); });
+  });
+}
+function renderMealStrip(){
+  const el = document.getElementById('meal-strip');
+  if(!el) return;
+  el.dataset.date = currentDate;
+  const meals = mealsForDate(currentDate).sort((a,b)=>(a.made===b.made)?0:(a.made?1:-1));
+  el.innerHTML = meals.map(mealChipHtml).join('')
+    + `<button class="meal-add-btn" onclick="openMealPicker('${currentDate}')"><span data-ico="utensils"></span> Add a meal</button>`;
+  attachMealChipHandlers(el, meals);
+  paintIcons(el);
+}
+function renderMealSidebar(){
+  const el = document.getElementById('meal-sidebar-list');
+  if(!el) return;
+  const meals = getMeals().filter(m => m.date === null).sort((a,b)=>(a.made===b.made)?0:(a.made?1:-1));
+  el.innerHTML = meals.length ? meals.map(mealChipHtml).join('') : '<p class="empty-note">No unscheduled meals.</p>';
+  attachMealChipHandlers(el, meals);
+  paintIcons(el);
+}
+
 function renderAll(){
   if(currentView==='day') renderDay(); else renderWeek();
   renderSidebar();
   renderMonthSidebar();
+  renderMealSidebar();
+  if(currentView==='day') renderMealStrip();
 }
 
 /* =====================================================================
@@ -2186,7 +2419,8 @@ function authGuest(){
 function afterLoad(){
   if(!SETTINGS || typeof SETTINGS !== 'object') SETTINGS = {};
   if(!SETTINGS.taskCategories){ SETTINGS.taskCategories = ['Self-care', 'Household', 'Routine']; saveToStorage(); }
-  nextId = Math.max(1, 0, ...TASKS.map(t=>t.id||0), ...TEMPLATES.map(t=>t.id||0)) + 1;
+  if(!Array.isArray(SETTINGS.meals)) SETTINGS.meals = [];
+  nextId = Math.max(1, 0, ...TASKS.map(t=>t.id||0), ...TEMPLATES.map(t=>t.id||0), ...SETTINGS.meals.map(m=>m.id||0)) + 1;
   applyTheme();
   runRollover();
 }

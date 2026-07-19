@@ -60,6 +60,14 @@ One row per user; tasks/templates/completions/settings each sync as a jsonb blob
 
 See `CLAUDE.md` for the full plan. Summary: a **task** is a one-time item (`date` null means it lives in the weekly sidebar, tagged with a `week` key instead); a **template** is a recurring routine (daily/weekly-on-days/monthly-on-day) whose occurrences are materialized virtually at render time rather than stored — completing one just writes to `completions`, editing/moving one creates a real `template_exception` task for that date. Week keys are the week's start date under the current week-start setting (Sun or Mon), not ISO week numbers — simpler and stays consistent with what the week view actually displays.
 
+## Meals (dinner-planner integration)
+
+A per-day **meal strip** on the day view plus a **Meal plan** sidebar (a pool of unscheduled meals you drag onto days), mirroring the This-week / This-month sidebars. Meals have a light "made" toggle (grays + italicizes, no rollover) and are draggable between days and to/from the pool.
+
+- **Where meals live:** `settings.meals` — piggybacks the settings JSON rather than a new column, so every existing sync/save/load path already carries them and no DB migration is needed. Meals are deliberately **not** tasks: `runRollover` and `weeklyProgress` both operate on `TASKS`, so meals never roll over and never count toward the weekly completion %.
+- **Snapshot, not live-link:** picking a recipe copies its `{name, id}` onto the meal at pick time, so a later rename in the dinner planner never rewrites your agenda history.
+- **Cross-app read:** the recipe picker and "import a saved week" pull from the **dinner planner's** `user_data` row (`recipes` + `rules._savedMenus`) via a plain owner read — same shared Supabase project, same signed-in user, so its RLS allows it. Fetched once, lazily, when the picker first opens; guests (no session) get the custom-dish path only. If the dinner app ever changes its `user_data` RLS or moves recipes out of that row, the picker falls back to empty gracefully. Saved **weekly** menus import onto a week by mapping each plan entry's `day` name (Mon–Sun) to that week's dates; entries with no recipe are skipped.
+
 ## Drag & drop
 
 Pointer-events based (not native HTML5 drag/drop), so it works with both mouse and touch. A single pointerdown→move→up cycle on a draggable row does double duty: past a small movement threshold it's a drag (today-list reorder/retime, sidebar → day/grid assignment, week-view day-to-day moves); below the threshold, releasing counts as a tap and opens the edit modal instead.
@@ -181,5 +189,5 @@ supabase functions deploy widget-brief --project-ref zymvsdkwmdhrwjycxisr
 
 1. **Phase 1 (done):** auth, tasks CRUD, day view (untimed list + hour grid), week view, weekly sidebar with drag-assignment, completion gray-out, rollover, recurring templates + routines settings, the Claude chat (edge function + chat drawer + quick-add).
 2. **Phase 2 (done):** Google Calendar, read-only, with true silent background refresh via a server-side refresh token (see above).
-3. **Phase 3:** suite sync — study blocks/LR checkpoints/restock items as `source:'suite'` background items; hub widget.
-4. **Phase 4:** polish — week-end sidebar rollover review, completion-streak stats, print view.
+3. **Phase 3:** suite sync — dinner-planner meals integration (done, see Meals above); restock/law-school items as `source:'suite'` background items still pending (restock needs more logged data first, law-school largely overlaps the Google Calendar feed).
+4. **Phase 4:** polish — weekly-progress completion % (done), warm/minimal themes (done); week-end sidebar rollover review and print view not pursued.
