@@ -225,7 +225,9 @@ h3 { font-size: 0.85rem; font-weight: 600; margin-bottom: 6px; }
 .meal-chip:hover { transform: translateY(-1px); box-shadow: var(--shadow); }
 .meal-chip.dragging { opacity: 0.35; }
 .meal-chip.made { opacity: var(--done-op); }
-.meal-ico { color: var(--serious); flex: none; display: inline-flex; }
+.meal-chip .drag-handle { color: var(--serious); }
+.meal-chip:hover .drag-handle { opacity: 1; }
+#meal-plan-card.dragover { outline: 2px dashed var(--accent); outline-offset: -2px; background: var(--accent-light); }
 .meal-made { width: 18px; height: 18px; border-radius: 50%; border: 1.5px solid var(--muted); flex: none; display: inline-flex; align-items: center; justify-content: center; cursor: pointer; color: #fff; transition: background 120ms ease, border-color 120ms ease; }
 .meal-made.on { background: var(--good); border-color: var(--good); }
 .meal-body { flex: 1; min-width: 0; }
@@ -485,7 +487,7 @@ footer button { font: inherit; font-size: 0.72rem; border: none; background: non
           <button onclick="quickAddMonthSidebar()">Add</button>
         </div>
       </div>
-      <div class="card">
+      <div class="card" id="meal-plan-card" data-drop="meal-plan">
         <div class="sidebar-head"><h2 style="margin-bottom:0">Meal plan</h2></div>
         <div class="sidebar-sub">Unscheduled meals — drag onto a day</div>
         <div class="sidebar-drop" id="meal-sidebar-list" data-drop="meal-plan"></div>
@@ -1701,7 +1703,7 @@ function mealTitleHtml(m){
 }
 function mealChipHtml(m){
   return `<div class="meal-chip ${m.made?'made':''}" data-id="${m.id}">
-    <span class="meal-ico" data-ico="utensils"></span>
+    <span class="drag-handle" data-ico="grip" title="Drag to move"></span>
     <span class="meal-made ${m.made?'on':''}" title="Mark made">${m.made?ico('check'):''}</span>
     <div class="meal-body">${mealTitleHtml(m)}${m.extras?`<div class="meal-extras">${esc(m.extras)}</div>`:''}</div>
     <button class="meal-del" title="Remove">${ico('trash')}</button>
