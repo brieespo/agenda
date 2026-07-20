@@ -231,6 +231,10 @@ h3 { font-size: 0.85rem; font-weight: 600; margin-bottom: 6px; }
 .meal-body { flex: 1; min-width: 0; }
 .meal-title { font-size: 0.86rem; overflow-wrap: anywhere; }
 .meal-chip.made .meal-title { font-style: italic; color: var(--muted); }
+a.meal-title { color: inherit; text-decoration: none; cursor: pointer; }
+a.meal-title:hover { color: var(--serious); text-decoration: underline; }
+.meal-link-ico { display: inline-block; width: 0.8em; height: 0.8em; margin-left: 3px; vertical-align: -0.05em; opacity: 0.5; }
+a.meal-title:hover .meal-link-ico { opacity: 1; }
 .meal-extras { font-size: 0.72rem; color: var(--muted); margin-top: 1px; }
 .meal-del { border: none; background: none; color: var(--muted); cursor: pointer; flex: none; opacity: 0; padding: 2px; transition: opacity 120ms ease; }
 .meal-chip:hover .meal-del { opacity: 1; }
@@ -680,7 +684,8 @@ const ICONS = {
   "menu": '<line x1="3" y1="12" x2="21" y2="12"/><line x1="3" y1="6" x2="21" y2="6"/><line x1="3" y1="18" x2="21" y2="18"/>',
   "chat": '<path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/>',
   "send": '<line x1="22" y1="2" x2="11" y2="13"/><polygon points="22 2 15 22 11 13 2 9 22 2"/>',
-  "utensils": '<path d="M3 2v7c0 1.1.9 2 2 2h4a2 2 0 0 0 2-2V2"/><path d="M7 2v20"/><path d="M21 15V2a5 5 0 0 0-5 5v6c0 1.1.9 2 2 2h3z"/><path d="M18 15v7"/>'
+  "utensils": '<path d="M3 2v7c0 1.1.9 2 2 2h4a2 2 0 0 0 2-2V2"/><path d="M7 2v20"/><path d="M21 15V2a5 5 0 0 0-5 5v6c0 1.1.9 2 2 2h3z"/><path d="M18 15v7"/>',
+  "external": '<path d="M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6"/><polyline points="15 3 21 3 21 9"/><line x1="10" y1="14" x2="21" y2="3"/>'
 };
 function ico(name){ return `<svg class="icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">${ICONS[name]||''}</svg>`; }
 function paintIcons(root){ (root||document).querySelectorAll('[data-ico]').forEach(el => { if(!el.querySelector('svg')) el.insertAdjacentHTML('afterbegin', ico(el.dataset.ico)); }); }
@@ -1685,11 +1690,20 @@ function importSavedMenu(menu, mondayStr){
 }
 
 // ---- meal rendering ----
+// Deployed dinner planner (sibling GitHub Pages app). A meal snapshotted from
+// a recipe carries that recipe's id, and the dinner planner reads ?recipe=<id>
+// on load to open it — so the title becomes a link straight to the dish.
+const DINNER_PLANNER_URL = 'https://brieespo.github.io/dinner-planner/';
+function mealTitleHtml(m){
+  if(m.recipe_id == null) return `<div class="meal-title">${esc(m.title)}</div>`;
+  const href = `${DINNER_PLANNER_URL}?recipe=${encodeURIComponent(m.recipe_id)}`;
+  return `<a class="meal-title meal-link" href="${href}" target="_blank" rel="noopener" title="Open in dinner planner">${esc(m.title)}<span class="meal-link-ico" data-ico="external"></span></a>`;
+}
 function mealChipHtml(m){
   return `<div class="meal-chip ${m.made?'made':''}" data-id="${m.id}">
     <span class="meal-ico" data-ico="utensils"></span>
     <span class="meal-made ${m.made?'on':''}" title="Mark made">${m.made?ico('check'):''}</span>
-    <div class="meal-body"><div class="meal-title">${esc(m.title)}</div>${m.extras?`<div class="meal-extras">${esc(m.extras)}</div>`:''}</div>
+    <div class="meal-body">${mealTitleHtml(m)}${m.extras?`<div class="meal-extras">${esc(m.extras)}</div>`:''}</div>
     <button class="meal-del" title="Remove">${ico('trash')}</button>
   </div>`;
 }
@@ -1699,7 +1713,10 @@ function attachMealChipHandlers(container, meals){
     if(!m) return;
     row.querySelector('.meal-made').addEventListener('click', e => { e.stopPropagation(); toggleMealMade(m.id); });
     row.querySelector('.meal-del').addEventListener('click', e => { e.stopPropagation(); deleteMeal(m.id); });
-    row.addEventListener('pointerdown', e => { if(!e.target.closest('.meal-made') && !e.target.closest('.meal-del')) startItemDrag(e, m, row); });
+    // Whole chip drags, except the toggle, delete, and the recipe link — so a
+    // tap on the link navigates natively (no popup-blocker risk) while any
+    // other grab still moves the meal.
+    row.addEventListener('pointerdown', e => { if(!e.target.closest('.meal-made') && !e.target.closest('.meal-del') && !e.target.closest('.meal-link')) startItemDrag(e, m, row); });
   });
 }
 function renderMealStrip(){
