@@ -176,6 +176,12 @@ h3 { font-size: 0.85rem; font-weight: 600; margin-bottom: 6px; }
 .grid-block.done { opacity: var(--done-op); text-decoration: line-through; }
 .grid-block .gb-time { font-size: 0.62rem; opacity: 0.8; }
 .grid-block.gcal-event { background: var(--page); border-style: dashed; color: var(--ink-2); cursor: default; border-left-width: 3px; }
+.grid-block.gcal-event.writable { cursor: grab; }
+.grid-block.resizing { transition: none; box-shadow: var(--shadow); z-index: 5; }
+.grid-block.dragging { pointer-events: none; }
+.gb-resize { position: absolute; left: 0; right: 0; bottom: 0; height: 9px; cursor: ns-resize; }
+.gb-resize::after { content: ''; position: absolute; left: 50%; bottom: 2px; width: 22px; height: 3px; transform: translateX(-50%); border-radius: 2px; background: currentColor; opacity: 0; transition: opacity 120ms ease; }
+.grid-block:hover .gb-resize::after { opacity: 0.4; }
 .gcal-allday-row:not(:empty) { border-bottom: 1px solid var(--hairline); }
 .allday-line { display: flex; align-items: center; min-height: 34px; }
 .allday-line + .allday-line { border-top: 1px solid var(--hairline); }
@@ -1201,6 +1207,7 @@ let DRAG = false;
 function startItemDrag(e, item, sourceEl, onTap){
   if(e.pointerType==='mouse' && e.button!==0) return;
   e.preventDefault(); // block native text-selection/drag so our pointermove-based drag owns the gesture
+  _gridGrabOffsetY = 0;   // grid blocks re-set this right after calling; every other source drags with no offset
   const startX = e.clientX, startY = e.clientY;
   let dragging = false, ghost = null;
   function positionGhost(ev){ ghost.style.left = (ev.clientX+14)+'px'; ghost.style.top = (ev.clientY+14)+'px'; }
@@ -1258,6 +1265,16 @@ function handleDrop(item, targetEl, e){
     renderAll();
     return;
   }
+  // A dragged Google Calendar event only ever retimes within the grid — it
+  // can't become an untimed task or move to the sidebar. Read-only events
+  // never get here (their blocks aren't draggable).
+  if(item && item.eventId && item.calendarId){
+    if(kind === 'hour-slot'){
+      const newTime = timeFromGridY(e.clientY) || targetEl.dataset.time;
+      commitGcalReschedule(item, newTime, item.duration_min || 30);
+    }
+    return;
+  }
   let task = null;
   if(kind === 'today-list'){
     task = resolveDraggedTask(item);
@@ -1282,9 +1299,10 @@ function handleDrop(item, targetEl, e){
     }
   } else if(kind === 'hour-slot'){
     task = resolveDraggedTask(item);
-    // Default to a full hour (not 30min) when a task first becomes timed —
+    // Snap to the 15-min mark nearest where the block's top landed, not just
+    // the slot's hour. Default to a full hour when a task first becomes timed —
     // a 30min block at this grid density is too short to read its title.
-    if(task){ task.date = targetEl.dataset.date; task.time = targetEl.dataset.time; if(!task.duration_min) task.duration_min = 60; }
+    if(task){ task.date = targetEl.dataset.date; task.time = timeFromGridY(e.clientY) || targetEl.dataset.time; if(!task.duration_min) task.duration_min = 60; }
   } else if(kind === 'sidebar'){
     task = resolveDraggedTask(item);
     if(task){ task.date = null; task.week = targetEl.dataset.week; task.month = null; task.time = null; task.duration_min = null; }
@@ -1306,10 +1324,79 @@ function handleDrop(item, targetEl, e){
    GRID GEOMETRY
    ===================================================================== */
 const HOUR_PX = 60;
+const SNAP_MIN = 15;             // moves & resizes snap to quarter-hours
+const SNAP_PX = HOUR_PX * SNAP_MIN / 60;
+let _gridStartHour = 6;          // first hour the grid renders — set each render
+let _gridGrabOffsetY = 0;        // where inside a block the drag was grabbed, so the block's top lands where you point
 function gridRangeFor(items){
   let start = 6, end = 22;
   items.forEach(it => { if(it.time){ const h = parseInt(it.time.split(':')[0],10); if(h<start) start=h; if(h+1>end) end=h+1; } });
   return {start, end};
+}
+// Convert a pointer Y (during a grid drag) to a 15-min-snapped "HH:MM", using
+// the grab offset so the block's top — not the cursor — lands on the slot.
+function timeFromGridY(clientY){
+  const grid = document.getElementById('hour-grid');
+  if(!grid) return null;
+  const rect = grid.getBoundingClientRect();
+  const y = clientY - rect.top - _gridGrabOffsetY;
+  const totalMin = _gridStartHour * 60 + Math.round((y / HOUR_PX * 60) / SNAP_MIN) * SNAP_MIN;
+  const clamped = Math.max(0, Math.min(totalMin, 24 * 60 - SNAP_MIN));
+  return `${String(Math.floor(clamped / 60)).padStart(2, '0')}:${String(clamped % 60).padStart(2, '0')}`;
+}
+function isGcalWritable(item){ return !(item.accessRole === 'reader' || item.accessRole === 'freeBusyReader'); }
+
+// Drag the bottom edge of a grid block to change its duration (15-min snap).
+// Works for a timed task (updates duration_min, re-syncs its Agenda-calendar
+// event) or a writable gcal event (PATCHes the event's end).
+function startBlockResize(e, item, el, isGcal){
+  if(e.pointerType === 'mouse' && e.button !== 0) return;
+  e.preventDefault();
+  const startY = e.clientY, startH = el.offsetHeight;
+  el.classList.add('resizing');
+  const snap = px => Math.max(SNAP_PX, Math.round(px / SNAP_PX) * SNAP_PX);
+  function onMove(ev){ DRAG = true; el.style.height = snap(startH + (ev.clientY - startY)) + 'px'; }
+  function onUp(ev){
+    document.removeEventListener('pointermove', onMove);
+    el.classList.remove('resizing');
+    const durMin = Math.max(SNAP_MIN, Math.round(snap(startH + (ev.clientY - startY)) / HOUR_PX * 60 / SNAP_MIN) * SNAP_MIN);
+    setTimeout(() => { DRAG = false; }, 0);
+    if(durMin === (item.duration_min || 30)){ renderAll(); return; }   // no real change; snap block back
+    if(isGcal){ commitGcalReschedule(item, item.time, durMin); }
+    else {
+      const task = resolveDraggedTask(item);
+      if(task){ task.duration_min = durMin; saveToStorage(); renderAll(); syncTaskToGCal(task); }
+      else renderAll();
+    }
+  }
+  document.addEventListener('pointermove', onMove);
+  document.addEventListener('pointerup', onUp, {once:true});
+}
+// Move or resize a writable Google Calendar event: optimistically update the
+// local copy and re-render, then PATCH the real calendar. Read-only calendars
+// are never reachable here (their blocks aren't draggable). A recurring event
+// is edited as just this one occurrence (the instance id), and we say so.
+async function commitGcalReschedule(item, newTime, newDurationMin){
+  if(!isGcalWritable(item)) return;
+  const raw = gEvents.find(x => x.ev.id === item.eventId && x.cal.id === item.calendarId);
+  if(!raw){ renderAll(); return; }
+  const tz = (raw.ev.start && raw.ev.start.timeZone) || Intl.DateTimeFormat().resolvedOptions().timeZone || 'America/New_York';
+  const [hh, mm] = newTime.split(':').map(Number);
+  const startDate = parseLocalDate(item.date); startDate.setHours(hh, mm, 0, 0);
+  const endDate = new Date(startDate.getTime() + (newDurationMin || 30) * 60000);
+  const iso = d => `${fmtDate(d)}T${String(d.getHours()).padStart(2,'0')}:${String(d.getMinutes()).padStart(2,'0')}:00`;
+  const newStart = {dateTime: iso(startDate), timeZone: tz};
+  const newEnd = {dateTime: iso(endDate), timeZone: tz};
+  const oldStart = raw.ev.start, oldEnd = raw.ev.end;
+  raw.ev.start = newStart; raw.ev.end = newEnd;   // optimistic
+  renderAll();
+  try{
+    await gcalApiRequest('PATCH', `calendars/${encodeURIComponent(item.calendarId)}/events/${encodeURIComponent(item.eventId)}`, {start: newStart, end: newEnd});
+    if(item.recurringEventId){ showNotice(`Updated just this occurrence of "${item.title}" — the rest of the series is unchanged.`, 'info'); setTimeout(hideNotice, 6000); }
+  }catch(err){
+    raw.ev.start = oldStart; raw.ev.end = oldEnd; renderAll();   // revert on failure
+    showNotice(`Couldn't update "${item.title}" in Google Calendar: ${err.message}`, 'warn');
+  }
 }
 
 /* =====================================================================
@@ -1422,6 +1509,7 @@ function toggleTodayCollapse(){
 function renderHourGrid(timed, gcalTimed){
   gcalTimed = gcalTimed || [];
   const {start, end} = gridRangeFor(timed.concat(gcalTimed));
+  _gridStartHour = start;
   const grid = document.getElementById('hour-grid');
   let rows = '';
   for(let h=start; h<end; h++){
@@ -1432,22 +1520,33 @@ function renderHourGrid(timed, gcalTimed){
     const [h,m] = it.time.split(':').map(Number);
     const top = ((h - start) * 60 + m) / 60 * HOUR_PX;
     const height = Math.max(20, (it.duration_min||30) / 60 * HOUR_PX);
-    return `<div class="grid-block ${it.done?'done':''}" style="top:${top}px;height:${height}px" data-id="${it.id}" data-kind="${it.virtual?'v':'r'}"><div class="gb-time">${fmtTime(it.time)}${it.source==='template'?' '+ico('repeat'):''}</div>${esc(it.title)}</div>`;
+    return `<div class="grid-block ${it.done?'done':''}" style="top:${top}px;height:${height}px" data-id="${it.id}" data-kind="${it.virtual?'v':'r'}"><div class="gb-time">${fmtTime(it.time)}${it.source==='template'?' '+ico('repeat'):''}</div>${esc(it.title)}<div class="gb-resize"></div></div>`;
   }).join('');
   const gcalBlocks = gcalTimed.map((e,i) => {
     const [h,m] = e.time.split(':').map(Number);
     const top = ((h - start) * 60 + m) / 60 * HOUR_PX;
     const height = Math.max(20, (e.duration_min||30) / 60 * HOUR_PX);
-    return `<div class="grid-block gcal-event" data-gcal-index="${i}" style="top:${top}px;height:${height}px;border-left-color:${calColor(e.cal.slot)}"><div class="gb-time">${fmtTime(e.time)}</div>${esc(e.title)}</div>`;
+    const writable = isGcalWritable(e);
+    return `<div class="grid-block gcal-event ${writable?'writable':''}" data-gcal-index="${i}" style="top:${top}px;height:${height}px;border-left-color:${calColor(e.cal.slot)}"><div class="gb-time">${fmtTime(e.time)}</div>${esc(e.title)}${writable?'<div class="gb-resize"></div>':''}</div>`;
   }).join('');
   grid.innerHTML = rows + `<div class="grid-blocks" style="height:${(end-start)*HOUR_PX}px">${taskBlocks}${gcalBlocks}</div>`;
   grid.querySelectorAll('.grid-block:not(.gcal-event)').forEach(el => {
     const item = timed.find(it => String(it.id)===el.dataset.id);
-    if(item) el.addEventListener('pointerdown', e => startItemDrag(e, item, el, () => openTaskModal(item)));
+    if(!item) return;
+    el.addEventListener('pointerdown', e => { const off = e.clientY - el.getBoundingClientRect().top; startItemDrag(e, item, el, () => openTaskModal(item)); _gridGrabOffsetY = off; });
+    const rz = el.querySelector('.gb-resize');
+    if(rz) rz.addEventListener('pointerdown', e => { e.stopPropagation(); startBlockResize(e, item, el, false); });
   });
   grid.querySelectorAll('.grid-block.gcal-event').forEach(el => {
     const item = gcalTimed[Number(el.dataset.gcalIndex)];
-    if(item) el.addEventListener('click', () => openGcalEventModal(item));
+    if(!item) return;
+    if(isGcalWritable(item)){
+      el.addEventListener('pointerdown', e => { const off = e.clientY - el.getBoundingClientRect().top; startItemDrag(e, item, el, () => openGcalEventModal(item)); _gridGrabOffsetY = off; });
+      const rz = el.querySelector('.gb-resize');
+      if(rz) rz.addEventListener('pointerdown', e => { e.stopPropagation(); startBlockResize(e, item, el, true); });
+    } else {
+      el.addEventListener('click', () => openGcalEventModal(item));
+    }
   });
   paintIcons(grid);
 }

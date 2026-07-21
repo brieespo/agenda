@@ -104,6 +104,13 @@ Settings → Google Calendar shows a sync status line (tasks linked / pending) a
 
 Click any Google Calendar event (grid block, all-day strip, or week-view chip) to open its detail view — the *only* place delete lives; there's no swipe or hover affordance on the grid itself. Deleting requires an explicit confirmation naming the event, date, and calendar. Recurring events only ever offer "delete just this occurrence" (Google's `singleEvents=true` event-list flag already gives each occurrence its own deletable instance id, so no extra work there) plus a link to the event's own `htmlLink` for deleting the whole series in Google Calendar's own UI. The delete option is hidden entirely when the calendar's `accessRole` (from `calendarList.list`) is `reader` or `freeBusyReader`. The feed refreshes after a successful deletion.
 
+### Dragging & resizing on the day timeline
+
+Blocks on the day-view hour grid can be moved (drag the body) and resized (drag the bottom edge), snapping to 15-minute marks. Move uses the existing pointer-drag/drop system, but the `hour-slot` drop now derives the time from where the block's *top* landed (tracking the grab offset via `_gridGrabOffsetY`, snapping off `_gridStartHour`) instead of just the slot's hour, so it's quarter-hour precise. A dragging block gets `pointer-events:none` so hit-testing finds the slot beneath it. Resize is a separate `startBlockResize` on a bottom `.gb-resize` handle (a pure pixel drag, `stopPropagation` so it never also triggers a move).
+
+- **Timed tasks:** move + resize update `time`/`duration_min` and re-sync to the Agenda calendar via `syncTaskToGCal` (a virtual routine instance becomes a `template_exception` first, same as any other edit).
+- **Google Calendar events:** move + resize are allowed only on **writable** calendars (`accessRole` not `reader`/`freeBusyReader` — read-only events stay click-only, no handles). `commitGcalReschedule` optimistically updates the local copy, re-renders, then `PATCH`es the event's start/end; on failure it reverts and warns. A recurring event is edited as just that one occurrence (the `singleEvents=true` instance id), with an informational notice saying the rest of the series is unchanged. This is the one place the app writes to calendars other than its own Agenda calendar — a deliberate exception to the otherwise read-only treatment, gated behind the same `accessRole` guard the delete flow uses.
+
 Redeploy after editing the function:
 ```
 supabase functions deploy gcal --project-ref zymvsdkwmdhrwjycxisr
