@@ -251,9 +251,12 @@ a.meal-title:hover .meal-link-ico { opacity: 1; }
 .meal-add-btn:hover { color: var(--serious); border-color: var(--serious); }
 .meal-picker-opt { display: flex; flex-direction: column; padding: 9px 10px; border-radius: 8px; border: 1px solid var(--border); background: var(--surface); cursor: pointer; margin-bottom: 6px; transition: border-color 120ms ease, background 120ms ease; text-align: left; width: 100%; font: inherit; }
 .meal-picker-opt:hover { border-color: var(--accent); background: var(--accent-light); }
-.meal-picker-opt .mp-name { font-size: 0.86rem; }
+.meal-picker-opt .mp-name { font-size: 0.86rem; display: flex; align-items: center; gap: 5px; }
+.meal-picker-opt .mp-name .icon { width: 0.9em; height: 0.9em; }
 .meal-picker-opt .mp-src { font-size: 0.72rem; color: var(--muted); }
-.meal-picker-list { max-height: 260px; overflow-y: auto; margin-top: 6px; }
+.meal-picker-opt.meal-custom-opt { border-style: dashed; border-color: var(--serious); }
+.meal-picker-opt.meal-custom-opt:hover { background: var(--accent-light); }
+.meal-picker-list { max-height: 300px; overflow-y: auto; margin-top: 6px; }
 
 /* ---- drag ghost ---- */
 .drag-ghost { position: fixed; z-index: 500; pointer-events: none; background: var(--surface); border: 1px solid var(--accent); color: var(--ink); font-size: 0.8rem; padding: 6px 10px; border-radius: 8px; box-shadow: 0 8px 20px rgba(0,0,0,0.18); max-width: 220px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
@@ -525,6 +528,7 @@ footer button { font: inherit; font-size: 0.72rem; border: none; background: non
       <div class="field"><label>Duration (minutes)</label><input type="number" id="tm-duration" min="5" step="5" value="30"></div>
       <div class="field"><label>Category</label><select id="tm-category"></select></div>
       <div class="field"><label>Notes</label><textarea id="tm-notes"></textarea></div>
+      <label id="tm-recur-row" style="display:flex;align-items:center;gap:7px;font-size:0.82rem;color:var(--ink-2)"><input type="checkbox" id="tm-recur-monthly"> Repeat every month — a fresh copy appears in “This month”, and forgotten ones carry over flagged</label>
     </div>
     <div class="modal-foot">
       <button class="danger-ghost" id="tm-delete" onclick="deleteTaskFromModal()">Delete</button>
@@ -612,15 +616,8 @@ footer button { font: inherit; font-size: 0.72rem; border: none; background: non
     <div class="modal-head"><strong id="meal-picker-title">Add a meal</strong><button class="modal-x" data-ico="x" onclick="closeModal('meal-picker-modal')"></button></div>
     <div class="modal-body">
       <div class="field">
-        <label>Custom dish</label>
-        <div class="quick-add-row">
-          <input type="text" id="meal-custom-name" placeholder="e.g. Leftovers, Takeout…" onkeydown="if(event.key==='Enter')addCustomMealFromPicker()">
-          <button onclick="addCustomMealFromPicker()">Add</button>
-        </div>
-      </div>
-      <div class="field" style="margin-top:14px">
-        <label>From your recipes</label>
-        <input type="text" id="meal-recipe-search" placeholder="Search recipes…" oninput="renderMealPickerList()">
+        <label>Meal or recipe</label>
+        <input type="text" id="meal-search" placeholder="Type a meal, or search your recipes…" autocomplete="off" oninput="renderMealPickerList()" onkeydown="if(event.key==='Enter'){event.preventDefault();addTypedMeal();}">
       </div>
       <div class="meal-picker-list" id="meal-recipe-list"></div>
       <div id="meal-import-section" style="margin-top:16px"></div>
@@ -803,6 +800,30 @@ function runRollover(){
   });
   if(changed) saveToStorage();
 }
+// Monthly-recurring tasks (model: a fresh copy every month, forgotten ones
+// still carried over by runRollover). Runs AFTER rollover, so a forgotten
+// instance has already been moved into the current month with rolled_from set;
+// we then add this month's fresh "native" copy (rolled_from null) if one isn't
+// there yet. Idempotent — only creates when the current month lacks a native.
+function ensureMonthlyRecurring(){
+  const curMonth = monthKeyForDate(todayStr());
+  const seriesIds = [...new Set(TASKS.filter(t => t.recurMonthly && t.seriesId).map(t => t.seriesId))];
+  let changed = false;
+  seriesIds.forEach(sid => {
+    const instances = TASKS.filter(t => t.seriesId === sid && t.recurMonthly);
+    const hasNative = instances.some(t => !t.date && t.month === curMonth && !t.rolled_from);
+    if(hasNative) return;
+    const proto = instances.slice().sort((a,b) => (a.month||'').localeCompare(b.month||'')).pop();
+    if(!proto) return;
+    TASKS.push({
+      id: nextId++, title: proto.title, date: null, week: null, month: curMonth,
+      time: null, duration_min: null, done: false, rolled_from: null, source: 'manual',
+      notes: proto.notes || '', category: proto.category || null, recurMonthly: true, seriesId: sid
+    });
+    changed = true;
+  });
+  if(changed) saveToStorage();
+}
 
 /* =====================================================================
    TASK / COMPLETION ACTIONS
@@ -896,6 +917,7 @@ function openTaskModal(item){
   document.getElementById('tm-duration').value = item.duration_min || 30;
   populateCategorySelect(document.getElementById('tm-category'), item.category || '');
   document.getElementById('tm-notes').value = item.notes || '';
+  document.getElementById('tm-recur-monthly').checked = !!item.recurMonthly;
   document.getElementById('tm-delete').style.display = '';
   openModal('task-modal');
 }
@@ -908,25 +930,42 @@ function openNewTaskModal({date=null, time=null}={}){
   document.getElementById('tm-duration').value = time ? 60 : 30;
   populateCategorySelect(document.getElementById('tm-category'), '');
   document.getElementById('tm-notes').value = '';
+  document.getElementById('tm-recur-monthly').checked = false;
   document.getElementById('tm-delete').style.display = 'none';
   openModal('task-modal');
 }
 function saveTaskFromModal(){
   const title = document.getElementById('tm-name').value.trim();
   if(!title) return;
-  const date = document.getElementById('tm-date').value || null;
-  const time = document.getElementById('tm-time').value || null;
+  let date = document.getElementById('tm-date').value || null;
+  let time = document.getElementById('tm-time').value || null;
   const duration = parseInt(document.getElementById('tm-duration').value,10) || 30;
   const category = document.getElementById('tm-category').value || null;
   const notes = document.getElementById('tm-notes').value;
+  const recurMonthly = document.getElementById('tm-recur-monthly').checked;
+  // A monthly-recurring task lives in the "This month" bucket by definition —
+  // it isn't pinned to a day or time, so turning it on moves it there.
+  if(recurMonthly){ date = null; time = null; }
+  const curMonth = monthKeyForDate(currentView==='week'?weekAnchor:currentDate);
   let task;
   if(editingItem){
     task = TASKS.find(t => t.id === editingItem.id);
     if(task){
+      const wasRecurring = !!task.recurMonthly;
       task.title = title; task.date = date; task.time = time;
       task.duration_min = time ? duration : null; task.notes = notes; task.category = category;
-      if(!date) task.week = weekKeyForDate(currentView==='week'?weekAnchor:currentDate);
+      if(recurMonthly){
+        task.week = null; task.month = task.month || curMonth; task.rolled_from = null;
+        task.recurMonthly = true; if(!task.seriesId) task.seriesId = task.id;
+      } else {
+        if(wasRecurring && task.seriesId){ stopMonthlySeries(task.seriesId); }   // unchecking stops the whole series
+        task.recurMonthly = false; task.seriesId = null;
+        if(!date) task.week = weekKeyForDate(currentView==='week'?weekAnchor:currentDate);
+      }
     }
+  } else if(recurMonthly){
+    task = addTask({title, month: curMonth, category});
+    task.notes = notes; task.recurMonthly = true; task.seriesId = task.id;
   } else {
     addTask({title, date, time, category, week: date ? null : weekKeyForDate(currentView==='week'?weekAnchor:currentDate)});
     task = TASKS[TASKS.length-1];
@@ -937,6 +976,11 @@ function saveTaskFromModal(){
   closeModal('task-modal');
   renderAll();
   if(task) syncTaskToGCal(task);
+}
+// Unchecking "repeat monthly" clears the flag across every instance of the
+// series, so no new monthly copies get generated going forward.
+function stopMonthlySeries(seriesId){
+  TASKS.forEach(t => { if(t.seriesId === seriesId){ t.recurMonthly = false; t.seriesId = null; } });
 }
 function deleteTaskFromModal(){
   if(editingItem){
@@ -1641,7 +1685,7 @@ function renderMonthSidebar(){
   listEl.innerHTML = items.length ? items.map(item => `
     <div class="sidebar-task ${item.done?'done':''}" data-id="${item.id}">
       <span class="chk ${item.done?'done':''}" onclick='toggleDoneReal(${item.id})'>${item.done?ico('check'):''}</span>
-      <span class="t-title ${item.done?'done':''}" style="font-size:.82rem">${esc(item.title)}${item.rolled_from?`<span class="rolled-dot" title="Rolled over from last month"></span>`:''}</span>
+      <span class="t-title ${item.done?'done':''}" style="font-size:.82rem">${esc(item.title)}${item.recurMonthly?`<span class="t-recur-ico" title="Repeats every month">${ico('repeat')}</span>`:''}${item.rolled_from?`<span class="rolled-dot" title="Carried over — forgotten from ${esc(fmtMonthLabel(item.rolled_from))}"></span>`:''}</span>
     </div>`).join('') : '<p class="empty-note">Nothing waiting for a week yet.</p>';
   listEl.querySelectorAll('.sidebar-task').forEach(row => {
     const item = items.find(it => String(it.id)===row.dataset.id);
@@ -1701,30 +1745,35 @@ function quickAddMealSidebar(){
   input.value = '';
   addMeal({title, date: null});   // unscheduled -> meal-plan pool
 }
-function addCustomMealFromPicker(){
-  const input = document.getElementById('meal-custom-name');
-  const title = input.value.trim();
+function addTypedMeal(){
+  const title = (document.getElementById('meal-search').value || '').trim();
   if(!title) return;
-  input.value = '';
-  addMeal({title, date: _mealPickerDate});   // honors the day the picker was opened for (null = pool)
+  addMeal({title, date: _mealPickerDate});   // custom dish from whatever's typed; honors the day (null = pool)
   closeModal('meal-picker-modal');
 }
 
 // ---- cross-app read: dinner planner's recipes + saved menus ----
 // Same shared Supabase project + same signed-in user, so a plain owner read
 // of the dinner app's user_data row works under its RLS. Fetched once, lazily,
-// the first time the picker opens.
-let DINNER_RECIPES = null, DINNER_MENUS = null, _dinnerLoading = false;
-async function loadDinnerData(){
-  if(DINNER_RECIPES !== null) return;
-  if(_guestMode || !_currentUser){ DINNER_RECIPES = []; DINNER_MENUS = []; return; }
-  _dinnerLoading = true;
+// the first time the picker opens. _dinnerError holds the read failure (if any)
+// so the picker can say *why* recipes didn't load rather than silently showing
+// "none".
+let DINNER_RECIPES = null, DINNER_MENUS = null, _dinnerLoaded = false, _dinnerError = null;
+async function loadDinnerData(force){
+  if(_dinnerLoaded && !force) return;
+  if(_guestMode || !_currentUser){ DINNER_RECIPES = []; DINNER_MENUS = []; _dinnerLoaded = true; return; }
+  _dinnerError = null;
   try{
-    const {data} = await sb.from('user_data').select('recipes, rules').eq('user_id', _currentUser.id).maybeSingle();
+    const {data, error} = await sb.from('user_data').select('recipes, rules').eq('user_id', _currentUser.id).maybeSingle();
+    if(error) throw error;
     DINNER_RECIPES = (data && Array.isArray(data.recipes)) ? data.recipes : [];
     DINNER_MENUS = (data && data.rules && Array.isArray(data.rules._savedMenus)) ? data.rules._savedMenus : [];
-  }catch(e){ console.error('loadDinnerData error:', e); DINNER_RECIPES = []; DINNER_MENUS = []; }
-  _dinnerLoading = false;
+    _dinnerLoaded = true;
+  }catch(e){
+    console.error('loadDinnerData error:', e);
+    _dinnerError = e.message || String(e);
+    DINNER_RECIPES = DINNER_RECIPES || []; DINNER_MENUS = DINNER_MENUS || [];
+  }
 }
 
 // ---- meal picker modal ----
@@ -1732,31 +1781,56 @@ let _mealPickerDate = null;   // the day being added to (null = meal-plan pool)
 async function openMealPicker(dateStr){
   _mealPickerDate = dateStr || null;
   document.getElementById('meal-picker-title').textContent = _mealPickerDate ? `Add a meal — ${fmtShort(_mealPickerDate)}` : 'Add a meal';
-  document.getElementById('meal-custom-name').value = '';
-  document.getElementById('meal-recipe-search').value = '';
+  document.getElementById('meal-search').value = '';
   document.getElementById('meal-recipe-list').innerHTML = '<p class="empty-note">Loading your recipes…</p>';
   document.getElementById('meal-import-section').innerHTML = '';
   openModal('meal-picker-modal');
+  setTimeout(() => { const s = document.getElementById('meal-search'); if(s) s.focus(); }, 60);
   await loadDinnerData();
   renderMealPickerList();
   renderMealImportSection();
 }
 function renderMealPickerList(){
   const el = document.getElementById('meal-recipe-list');
-  const q = (document.getElementById('meal-recipe-search').value || '').toLowerCase();
+  const raw = (document.getElementById('meal-search').value || '').trim();
+  const q = raw.toLowerCase();
+  // "Add what I typed as a custom dish" — always available once something's typed,
+  // so typing + Enter (or this button) adds a meal whether or not a recipe matches.
+  const customRow = raw
+    ? `<button class="meal-picker-opt meal-custom-opt" onclick="addTypedMeal()"><span class="mp-name">${ico('plus')} Add “${esc(raw)}”</span><span class="mp-src">as a custom dish</span></button>`
+    : '';
+  if(_guestMode){
+    el.innerHTML = customRow + `<p class="empty-note">Sign in with the same account as your dinner planner to search your recipes here.</p>`;
+    return;
+  }
+  if(!_dinnerLoaded && _dinnerError == null){ el.innerHTML = '<p class="empty-note">Loading your recipes…</p>'; return; }
+  if(_dinnerError){
+    el.innerHTML = customRow + `<p class="empty-note">Couldn't load your recipes: ${esc(_dinnerError)} <a href="#" onclick="reloadDinnerData(event)" style="color:var(--accent)">retry</a></p>`;
+    return;
+  }
   if(!DINNER_RECIPES || !DINNER_RECIPES.length){
-    el.innerHTML = `<p class="empty-note">${_guestMode ? 'Sign in with the same account as your dinner planner to pull in your recipes — or just add a custom dish above.' : 'No recipes found in your dinner planner yet. Add a custom dish above, or create recipes over there first.'}</p>`;
+    el.innerHTML = customRow + `<p class="empty-note">No recipes found in your dinner planner (loaded fine, 0 recipes). Type a dish above to add it, or create recipes in the dinner planner first.</p>`;
     return;
   }
   let opts = DINNER_RECIPES.filter(r => r && r.name && (!q || r.name.toLowerCase().includes(q) || (r.src||'').toLowerCase().includes(q)));
+  const total = opts.length;
   if(opts.length > 60) opts = opts.slice(0, 60);
-  el.innerHTML = opts.length
-    ? opts.map(r => `<button class="meal-picker-opt" data-recipe-id="${r.id}"><span class="mp-name">${esc(r.name)}</span>${r.src?`<span class="mp-src">${esc(r.src)}</span>`:''}</button>`).join('')
-    : '<p class="empty-note">No recipes match that search.</p>';
-  el.querySelectorAll('.meal-picker-opt').forEach(btn => {
+  const recipeRows = opts.map(r => `<button class="meal-picker-opt" data-recipe-id="${esc(String(r.id))}"><span class="mp-name">${esc(r.name)}</span>${r.src?`<span class="mp-src">${esc(r.src)}</span>`:''}</button>`).join('');
+  const moreNote = total > 60 ? `<p class="empty-note">${total} recipes match — showing the first 60. Keep typing to narrow it down.</p>` : '';
+  el.innerHTML = customRow + recipeRows + moreNote
+    + (!recipeRows && q ? `<p class="empty-note">No recipes match “${esc(raw)}”.</p>` : '')
+    + (!q ? `<p class="empty-note" style="margin-top:2px">${DINNER_RECIPES.length} recipe${DINNER_RECIPES.length===1?'':'s'} in your database — type to filter.</p>` : '');
+  el.querySelectorAll('.meal-picker-opt[data-recipe-id]').forEach(btn => {
     const r = DINNER_RECIPES.find(x => String(x.id) === btn.dataset.recipeId);
     if(r) btn.addEventListener('click', () => { addMeal({title: r.name, recipe_id: r.id, date: _mealPickerDate}); closeModal('meal-picker-modal'); });
   });
+  paintIcons(el);
+}
+function reloadDinnerData(e){
+  if(e) e.preventDefault();
+  _dinnerLoaded = false; _dinnerError = null; DINNER_RECIPES = null;
+  document.getElementById('meal-recipe-list').innerHTML = '<p class="empty-note">Loading your recipes…</p>';
+  loadDinnerData(true).then(() => { renderMealPickerList(); renderMealImportSection(); });
 }
 function renderMealImportSection(){
   const el = document.getElementById('meal-import-section');
@@ -2541,6 +2615,7 @@ function afterLoad(){
   nextId = Math.max(1, 0, ...TASKS.map(t=>t.id||0), ...TEMPLATES.map(t=>t.id||0), ...SETTINGS.meals.map(m=>m.id||0)) + 1;
   applyTheme();
   runRollover();
+  ensureMonthlyRecurring();
 }
 
 /* ---- sync safety net (same pattern as sibling apps) ---- */
