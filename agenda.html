@@ -236,6 +236,11 @@ h3 { font-size: 0.85rem; font-weight: 600; margin-bottom: 6px; }
 #meal-plan-card.dragover { outline: 2px dashed var(--accent); outline-offset: -2px; background: var(--accent-light); }
 .meal-made { width: 18px; height: 18px; border-radius: 50%; border: 1.5px solid var(--muted); flex: none; display: inline-flex; align-items: center; justify-content: center; cursor: pointer; color: #fff; transition: background 120ms ease, border-color 120ms ease; }
 .meal-made.on { background: var(--good); border-color: var(--good); }
+.meal-type { flex: none; font-size: 0.6rem; font-weight: 700; text-transform: uppercase; letter-spacing: 0.05em; color: var(--muted); background: var(--accent-light); border-radius: 5px; padding: 2px 5px; line-height: 1; }
+.meal-type-pick { display: flex; gap: 6px; }
+.meal-type-pick button { flex: 1; font: inherit; font-size: 0.78rem; padding: 6px 8px; border: 1px solid var(--border); background: var(--surface); color: var(--muted); border-radius: 8px; cursor: pointer; transition: border-color 120ms ease, background 120ms ease, color 120ms ease; }
+.meal-type-pick button:hover { border-color: var(--accent); }
+.meal-type-pick button.on { border-color: var(--accent); background: var(--accent-light); color: var(--ink); font-weight: 600; }
 .meal-body { flex: 1; min-width: 0; }
 .meal-title { font-size: 0.86rem; overflow-wrap: anywhere; }
 .meal-chip.made .meal-title { font-style: italic; color: var(--muted); }
@@ -615,6 +620,14 @@ footer button { font: inherit; font-size: 0.72rem; border: none; background: non
   <div class="modal" style="max-width:480px">
     <div class="modal-head"><strong id="meal-picker-title">Add a meal</strong><button class="modal-x" data-ico="x" onclick="closeModal('meal-picker-modal')"></button></div>
     <div class="modal-body">
+      <div class="field">
+        <label>Meal</label>
+        <div class="meal-type-pick" id="meal-type-pick">
+          <button type="button" data-type="breakfast" onclick="setMealPickerType('breakfast')">Breakfast</button>
+          <button type="button" data-type="lunch" onclick="setMealPickerType('lunch')">Lunch</button>
+          <button type="button" data-type="dinner" class="on" onclick="setMealPickerType('dinner')">Dinner</button>
+        </div>
+      </div>
       <div class="field">
         <label>Meal or recipe</label>
         <input type="text" id="meal-search" placeholder="Type a meal, or search your recipes…" autocomplete="off" oninput="renderMealPickerList()" onkeydown="if(event.key==='Enter'){event.preventDefault();addTypedMeal();}">
@@ -1726,8 +1739,19 @@ function toggleSidebar(open){
 // go stale).
 function getMeals(){ if(!Array.isArray(SETTINGS.meals)) SETTINGS.meals = []; return SETTINGS.meals; }
 function mealsForDate(dateStr){ return getMeals().filter(m => m.date === dateStr); }
-function addMeal({title, recipe_id=null, extras='', date=null}){
-  getMeals().push({id: nextId++, title, recipe_id, extras, date, made: false, source: 'dinner'});
+// meal_type is 'breakfast' | 'lunch' | 'dinner'. ABSENT MEANS DINNER, so every
+// meal saved before this field existed keeps working with no migration.
+const MEAL_TYPE_ORDER = {breakfast: 0, lunch: 1, dinner: 2};
+const MEAL_TYPE_LABEL = {breakfast: 'Breakfast', lunch: 'Lunch', dinner: 'Dinner'};
+function mealType(m){ return m && m.meal_type ? m.meal_type : 'dinner'; }
+// Group by meal type (dinner last), then sink made ones within their group.
+function sortMeals(a, b){
+  const t = (MEAL_TYPE_ORDER[mealType(a)] ?? 2) - (MEAL_TYPE_ORDER[mealType(b)] ?? 2);
+  if(t) return t;
+  return (a.made === b.made) ? 0 : (a.made ? 1 : -1);
+}
+function addMeal({title, recipe_id=null, extras='', date=null, meal_type='dinner'}){
+  getMeals().push({id: nextId++, title, recipe_id, extras, date, meal_type, made: false, source: 'dinner'});
   saveToStorage(); renderAll();
 }
 function deleteMeal(id){
@@ -1748,7 +1772,7 @@ function quickAddMealSidebar(){
 function addTypedMeal(){
   const title = (document.getElementById('meal-search').value || '').trim();
   if(!title) return;
-  addMeal({title, date: _mealPickerDate});   // custom dish from whatever's typed; honors the day (null = pool)
+  addMeal({title, date: _mealPickerDate, meal_type: _mealPickerType});   // custom dish from whatever's typed; honors the day (null = pool)
   closeModal('meal-picker-modal');
 }
 
@@ -1758,28 +1782,37 @@ function addTypedMeal(){
 // the first time the picker opens. _dinnerError holds the read failure (if any)
 // so the picker can say *why* recipes didn't load rather than silently showing
 // "none".
-let DINNER_RECIPES = null, DINNER_MENUS = null, _dinnerLoaded = false, _dinnerError = null;
+let DINNER_RECIPES = null, DINNER_MENUS = null, DINNER_CALENDAR = null, _dinnerLoaded = false, _dinnerError = null;
 async function loadDinnerData(force){
   if(_dinnerLoaded && !force) return;
-  if(_guestMode || !_currentUser){ DINNER_RECIPES = []; DINNER_MENUS = []; _dinnerLoaded = true; return; }
+  if(_guestMode || !_currentUser){ DINNER_RECIPES = []; DINNER_MENUS = []; DINNER_CALENDAR = {}; _dinnerLoaded = true; return; }
   _dinnerError = null;
   try{
     const {data, error} = await sb.from('user_data').select('recipes, rules').eq('user_id', _currentUser.id).maybeSingle();
     if(error) throw error;
     DINNER_RECIPES = (data && Array.isArray(data.recipes)) ? data.recipes : [];
     DINNER_MENUS = (data && data.rules && Array.isArray(data.rules._savedMenus)) ? data.rules._savedMenus : [];
+    // Dated meal calendar the dinner planner owns: {'YYYY-MM-DD': {r,breakfast,lunch,side,dessert}}
+    const cal = data && data.rules && data.rules._calendar;
+    DINNER_CALENDAR = (cal && typeof cal === 'object' && !Array.isArray(cal)) ? cal : {};
     _dinnerLoaded = true;
   }catch(e){
     console.error('loadDinnerData error:', e);
     _dinnerError = e.message || String(e);
-    DINNER_RECIPES = DINNER_RECIPES || []; DINNER_MENUS = DINNER_MENUS || [];
+    DINNER_RECIPES = DINNER_RECIPES || []; DINNER_MENUS = DINNER_MENUS || []; DINNER_CALENDAR = DINNER_CALENDAR || {};
   }
 }
 
 // ---- meal picker modal ----
 let _mealPickerDate = null;   // the day being added to (null = meal-plan pool)
+let _mealPickerType = 'dinner';
+function setMealPickerType(t){
+  _mealPickerType = t;
+  document.querySelectorAll('#meal-type-pick button').forEach(b => b.classList.toggle('on', b.dataset.type === t));
+}
 async function openMealPicker(dateStr){
   _mealPickerDate = dateStr || null;
+  setMealPickerType('dinner');
   document.getElementById('meal-picker-title').textContent = _mealPickerDate ? `Add a meal — ${fmtShort(_mealPickerDate)}` : 'Add a meal';
   document.getElementById('meal-search').value = '';
   document.getElementById('meal-recipe-list').innerHTML = '<p class="empty-note">Loading your recipes…</p>';
@@ -1822,28 +1855,95 @@ function renderMealPickerList(){
     + (!q ? `<p class="empty-note" style="margin-top:2px">${DINNER_RECIPES.length} recipe${DINNER_RECIPES.length===1?'':'s'} in your database — type to filter.</p>` : '');
   el.querySelectorAll('.meal-picker-opt[data-recipe-id]').forEach(btn => {
     const r = DINNER_RECIPES.find(x => String(x.id) === btn.dataset.recipeId);
-    if(r) btn.addEventListener('click', () => { addMeal({title: r.name, recipe_id: r.id, date: _mealPickerDate}); closeModal('meal-picker-modal'); });
+    if(r) btn.addEventListener('click', () => { addMeal({title: r.name, recipe_id: r.id, date: _mealPickerDate, meal_type: _mealPickerType}); closeModal('meal-picker-modal'); });
   });
   paintIcons(el);
 }
 function reloadDinnerData(e){
   if(e) e.preventDefault();
-  _dinnerLoaded = false; _dinnerError = null; DINNER_RECIPES = null;
+  _dinnerLoaded = false; _dinnerError = null; DINNER_RECIPES = null; DINNER_CALENDAR = null;
   document.getElementById('meal-recipe-list').innerHTML = '<p class="empty-note">Loading your recipes…</p>';
   loadDinnerData(true).then(() => { renderMealPickerList(); renderMealImportSection(); });
+}
+// Weeks that actually have meals in the dinner planner's calendar, from last
+// week onward so old planning doesn't clutter the list.
+function dinnerCalendarWeeks(){
+  const cal = DINNER_CALENDAR || {};
+  const byWeek = {};
+  Object.keys(cal).forEach(d => {
+    if(!/^\d{4}-\d{2}-\d{2}$/.test(d)) return;
+    const slots = cal[d] && typeof cal[d] === 'object' ? Object.keys(cal[d]).length : 0;
+    if(!slots) return;
+    const mon = startOfWeek(d, 'mon');
+    byWeek[mon] = (byWeek[mon] || 0) + slots;
+  });
+  const floor = addDays(startOfWeek(todayStr(), 'mon'), -7);
+  return Object.keys(byWeek).filter(w => w >= floor).sort().slice(0, 8)
+    .map(w => ({mon: w, count: byWeek[w]}));
 }
 function renderMealImportSection(){
   const el = document.getElementById('meal-import-section');
   const weekly = (DINNER_MENUS || []).filter(m => m.type === 'weekly' && Array.isArray(m.plan));
-  if(!weekly.length){ el.innerHTML = ''; return; }
+  const calWeeks = dinnerCalendarWeeks();
   const anchor = _mealPickerDate || (currentView==='week' ? weekAnchor : currentDate);
   const mon = startOfWeek(anchor, 'mon');
-  el.innerHTML = `<label style="font-size:0.72rem;color:var(--muted);display:block;margin-bottom:4px">Import a saved week onto ${fmtShort(mon)}–${fmtShort(addDays(mon,6))}</label>
-    ${weekly.map(m => `<button class="meal-picker-opt" data-menu-id="${esc(m.id)}"><span class="mp-name">${esc(m.name)}</span><span class="mp-src">${(m.plan||[]).filter(p=>p&&p.r).length} dinners · saved ${esc(m.savedAt||'')}</span></button>`).join('')}`;
-  el.querySelectorAll('.meal-picker-opt').forEach(btn => {
+  let html = '';
+  if(calWeeks.length){
+    html += `<label style="font-size:0.72rem;color:var(--muted);display:block;margin-bottom:4px">Import from your dinner calendar</label>
+      ${calWeeks.map(w => `<button class="meal-picker-opt" data-cal-week="${w.mon}"><span class="mp-name">Week of ${fmtShort(w.mon)}–${fmtShort(addDays(w.mon,6))}</span><span class="mp-src">${w.count} meal${w.count===1?'':'s'} · replaces imported meals that week</span></button>`).join('')}`;
+  }
+  if(weekly.length){
+    html += `<label style="font-size:0.72rem;color:var(--muted);display:block;margin:${calWeeks.length?'12px':'0'} 0 4px">Import a saved week onto ${fmtShort(mon)}–${fmtShort(addDays(mon,6))}</label>
+      ${weekly.map(m => `<button class="meal-picker-opt" data-menu-id="${esc(m.id)}"><span class="mp-name">${esc(m.name)}</span><span class="mp-src">${(m.plan||[]).filter(p=>p&&p.r).length} dinners · saved ${esc(m.savedAt||'')}</span></button>`).join('')}`;
+  }
+  el.innerHTML = html;
+  el.querySelectorAll('.meal-picker-opt[data-cal-week]').forEach(btn => {
+    btn.addEventListener('click', () => importDinnerCalendarWeek(btn.dataset.calWeek));
+  });
+  el.querySelectorAll('.meal-picker-opt[data-menu-id]').forEach(btn => {
     const menu = weekly.find(m => m.id === btn.dataset.menuId);
     if(menu) btn.addEventListener('click', () => importSavedMenu(menu, mon));
   });
+}
+
+// Dates map straight across — no weekday-name inference needed. Re-importing a
+// week REPLACES its imported meals instead of duplicating them; meals added by
+// hand (source !== 'dinner') are never touched.
+const CAL_SLOT_TYPE = {breakfast: 'breakfast', lunch: 'lunch', r: 'dinner'};
+function importDinnerCalendarWeek(mondayStr){
+  const cal = DINNER_CALENDAR || {};
+  const dates = []; for(let i = 0; i < 7; i++) dates.push(addDays(mondayStr, i));
+  const meals = getMeals();
+  for(let i = meals.length - 1; i >= 0; i--){
+    if(meals[i].source === 'dinner' && dates.indexOf(meals[i].date) >= 0) meals.splice(i, 1);
+  }
+  dates.forEach(date => {
+    const day = cal[date];
+    if(!day || typeof day !== 'object') return;
+    const extras = [];
+    if(day.side && day.side.name) extras.push(`Side: ${day.side.name}`);
+    if(day.dessert && day.dessert.name) extras.push(`Dessert: ${day.dessert.name}`);
+    ['breakfast','lunch','r'].forEach(k => {
+      const v = day[k];
+      if(!v || !v.name) return;
+      meals.push({id: nextId++, title: v.name, recipe_id: v.id == null ? null : v.id,
+        extras: k === 'r' ? extras.join(' · ') : '', date,
+        meal_type: CAL_SLOT_TYPE[k], made: false, source: 'dinner'});
+    });
+    // A side or dessert with no dinner has nothing to attach to — keep it as its
+    // own meal rather than silently dropping what was planned.
+    if(!(day.r && day.r.name)){
+      ['side','dessert'].forEach(k => {
+        const v = day[k];
+        if(!v || !v.name) return;
+        meals.push({id: nextId++, title: v.name, recipe_id: v.id == null ? null : v.id,
+          extras: '', date, meal_type: 'dinner', made: false, source: 'dinner'});
+      });
+    }
+  });
+  saveToStorage();
+  closeModal('meal-picker-modal');
+  renderAll();
 }
 const _DAYS_MON = ['Monday','Tuesday','Wednesday','Thursday','Friday','Saturday','Sunday'];
 function importSavedMenu(menu, mondayStr){
@@ -1856,7 +1956,7 @@ function importSavedMenu(menu, mondayStr){
     const extrasParts = [];
     if(p.side && p.side.name) extrasParts.push(`Side: ${p.side.name}`);
     if(p.dessert && p.dessert.name) extrasParts.push(`Dessert: ${p.dessert.name}`);
-    getMeals().push({id: nextId++, title: p.r.name, recipe_id: p.r.id ?? null, extras: extrasParts.join(' · '), date, made: false, source: 'dinner'});
+    getMeals().push({id: nextId++, title: p.r.name, recipe_id: p.r.id ?? null, extras: extrasParts.join(' · '), date, meal_type: 'dinner', made: false, source: 'dinner'});
     added++;
   });
   saveToStorage();
@@ -1875,9 +1975,13 @@ function mealTitleHtml(m){
   return `<a class="meal-title meal-link" href="${href}" target="_blank" rel="noopener" title="Open in dinner planner">${esc(m.title)}<span class="meal-link-ico" data-ico="external"></span></a>`;
 }
 function mealChipHtml(m){
+  // Dinner is the unmarked default, so existing meals look exactly as before.
+  const t = mealType(m);
+  const typeChip = t !== 'dinner' ? `<span class="meal-type">${MEAL_TYPE_LABEL[t] || esc(t)}</span>` : '';
   return `<div class="meal-chip ${m.made?'made':''}" data-id="${m.id}">
     <span class="drag-handle" data-ico="grip" title="Drag to move"></span>
     <span class="meal-made ${m.made?'on':''}" title="Mark made">${m.made?ico('check'):''}</span>
+    ${typeChip}
     <div class="meal-body">${mealTitleHtml(m)}${m.extras?`<div class="meal-extras">${esc(m.extras)}</div>`:''}</div>
     <button class="meal-del" title="Remove">${ico('trash')}</button>
   </div>`;
@@ -1898,7 +2002,7 @@ function renderMealStrip(){
   const el = document.getElementById('meal-strip');
   if(!el) return;
   el.dataset.date = currentDate;
-  const meals = mealsForDate(currentDate).sort((a,b)=>(a.made===b.made)?0:(a.made?1:-1));
+  const meals = mealsForDate(currentDate).sort(sortMeals);
   el.innerHTML = meals.map(mealChipHtml).join('')
     + `<button class="meal-add-btn" onclick="openMealPicker('${currentDate}')"><span data-ico="utensils"></span> Add a meal</button>`;
   attachMealChipHandlers(el, meals);
@@ -1907,7 +2011,7 @@ function renderMealStrip(){
 function renderMealSidebar(){
   const el = document.getElementById('meal-sidebar-list');
   if(!el) return;
-  const meals = getMeals().filter(m => m.date === null).sort((a,b)=>(a.made===b.made)?0:(a.made?1:-1));
+  const meals = getMeals().filter(m => m.date === null).sort(sortMeals);
   el.innerHTML = meals.length ? meals.map(mealChipHtml).join('') : '<p class="empty-note">No unscheduled meals.</p>';
   attachMealChipHandlers(el, meals);
   paintIcons(el);
@@ -2717,16 +2821,54 @@ sb.auth.getSession().then(({data}) => { if(data.session) handleAuthSession(data.
 // background tab can't run timers reliably anyway, so re-check whenever the
 // tab becomes visible again rather than polling on an interval.
 let _lastKnownDate = todayStr();
-function checkForDateChange(){
+
+// Opening the app should land on today. A fresh load does that already, but an
+// installed PWA is usually *resumed*, not reloaded, so a day view left on
+// Thursday is still on Thursday next time the icon gets tapped. Snap the focus
+// date back on resume — but only after a real absence, since a quick switch to
+// another app to look something up shouldn't yank you off a day you deliberately
+// navigated to.
+const RESUME_SNAP_MS = 30*60*1000;
+const ACTIVE_TICK_MS = 30*1000;
+let _lastActiveAt = Date.now();
+
+function snapToToday(){
   const now = todayStr();
-  if(now === _lastKnownDate) return;
-  _lastKnownDate = now;
-  if(_currentUser){ runRollover(); renderAll(); }
+  if(currentDate === now && weekAnchor === now) return false;
+  currentDate = now; weekAnchor = now;
+  return true;
 }
-document.addEventListener('visibilitychange', () => {
-  if(!document.hidden){ checkForDateChange(); refreshFromSupabase(); }
-});
-window.addEventListener('focus', refreshFromSupabase);
+
+// Runs whenever the app may have been away. Self-deduping: the first call
+// refreshes _lastActiveAt, so the focus + visibilitychange pair that desktop
+// browsers usually fire together only does work once.
+function onResume(){
+  const now = todayStr();
+  const dayFlipped = now !== _lastKnownDate;
+  const awayLong = Date.now() - _lastActiveAt >= RESUME_SNAP_MS;
+  _lastKnownDate = now;
+  _lastActiveAt = Date.now();
+  if(!dayFlipped && !awayLong) return;
+  let dirty = snapToToday();
+  if(dayFlipped && _currentUser){ runRollover(); dirty = true; }
+  if(dirty && _currentUser) renderAll();
+}
+
+// The two events cover different ways of coming back, and neither covers all
+// of them: a phone or a minimized window fires visibilitychange, while a
+// desktop window that merely sat behind another app stays "visible" and only
+// fires focus. The heartbeat catches the last case — a laptop that slept with
+// the tab focused, where nothing fires at all on wake — by noticing the wall
+// clock jumped further than the tick. It only counts time while the app is
+// genuinely in front, so a window left behind another app does age toward the
+// snap threshold.
+document.addEventListener('visibilitychange', () => { if(!document.hidden){ onResume(); refreshFromSupabase(); } });
+window.addEventListener('focus', () => { onResume(); refreshFromSupabase(); });
+setInterval(() => {
+  if(document.hidden || !document.hasFocus()) return;
+  if(Date.now() - _lastActiveAt >= ACTIVE_TICK_MS*2 || todayStr() !== _lastKnownDate) onResume();
+  else _lastActiveAt = Date.now();
+}, ACTIVE_TICK_MS);
 
 if('serviceWorker' in navigator){
   window.addEventListener('load', () => { navigator.serviceWorker.register('./sw.js').catch(e => console.error('sw register failed:', e)); });

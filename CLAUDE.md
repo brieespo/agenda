@@ -130,3 +130,29 @@ Future: read shared tables and surface law school study blocks, Law Review check
 1. Week starts Sunday or Monday?
 2. Should the chat also *answer* about the day ("what's my Wednesday look like?") — read actions, not just writes? (Cheap to add; slightly more prompt work.)
 3. Time grid range — 6am–10pm default with expand, or full 24h?
+
+## Dinner-planner monthly calendar import (planned)
+
+The dinner planner now owns a dated meal calendar at `rules._calendar` in **its** `user_data` row (it is the authoring surface; this app imports snapshots from it, consistent with the existing "snapshot, not live-link" rule). Shape it publishes:
+
+```js
+{ '2026-07-28': {
+    r:         {id:34, name:'Salmon Kebabs'},   // r = dinner
+    breakfast: {id:70, name:'Luckiest Biscuits'},
+    lunch:     {id:null, name:'Leftovers'},     // id null = one-off typed dish
+    side:      {id:68, name:'Frizzled Chickpeas'},
+    dessert:   {id:72, name:'Raspberry-Peach Crumble'}
+} }
+```
+
+Keys are local ISO dates (`YYYY-MM-DD`), sparse. Values are `{id, name}` snapshots — `id` may be null.
+
+Work to do here:
+
+1. **`loadDinnerData()`**: also select `rules._calendar` (same owner read, no new permissions).
+2. **`meal_type` on meals** — `'breakfast' | 'lunch' | 'dinner'`. **Absent means `'dinner'`**, so every existing meal and the pool sidebar keep working with no migration. Day strip groups/labels by type; dinner sorts last.
+3. **`side`/`dessert` still flatten** into the dinner meal's `extras` string (`"Side: X · Dessert: Y"`) — they are not separate meals.
+4. **"Import from dinner calendar"** alongside the existing saved-week import, over a date range. Dates map straight across — no weekday-name inference needed (unlike `importSavedMenu`).
+5. **Replace semantics on import:** within the target range, delete meals where `source === 'dinner'`, then add fresh. Never touch meals the user typed by hand (`source !== 'dinner'`). This fixes the current duplicate-on-reimport behavior of `importSavedMenu`.
+
+Full contract also recorded in the dinner planner's CLAUDE.md.
