@@ -227,6 +227,15 @@ h3 { font-size: 0.85rem; font-weight: 600; margin-bottom: 6px; }
 /* ---- meals (dinner integration) ---- */
 .meal-strip { margin-bottom: 14px; display: flex; flex-direction: column; gap: 5px; border-radius: 10px; padding: 2px; }
 .meal-strip.dragover { outline: 2px dashed var(--accent); outline-offset: 2px; background: var(--accent-light); }
+/* "Your planner has meals for today that aren't here yet" — informational, so it
+   sits a step quieter than a real meal chip: dashed edge, no fill, no drag handle. */
+.meal-nudge { display: flex; align-items: center; gap: 8px; padding: 7px 10px; border: 1px dashed var(--serious); border-radius: 9px; background: var(--accent-light); }
+.meal-nudge .mn-text { flex: 1; font-size: 0.78rem; color: var(--ink); line-height: 1.35; }
+.meal-nudge .mn-import { font: inherit; font-size: 0.76rem; padding: 4px 11px; border-radius: 7px; border: 1px solid var(--serious); background: var(--surface); color: var(--ink); cursor: pointer; white-space: nowrap; transition: background 120ms ease, color 120ms ease; }
+.meal-nudge .mn-import:hover { background: var(--serious); color: var(--surface); }
+.meal-nudge .mn-x { display: flex; align-items: center; border: none; background: none; color: var(--muted); cursor: pointer; padding: 2px; border-radius: 6px; transition: color 120ms ease; }
+.meal-nudge .mn-x:hover { color: var(--ink); }
+.meal-nudge .mn-x .icon { width: 0.85rem; height: 0.85rem; }
 .meal-chip { display: flex; align-items: center; gap: 8px; padding: 8px 10px; border-radius: 9px; background: var(--surface); border: 1px solid var(--border); border-left: 3px solid var(--serious); cursor: grab; transition: transform 120ms ease, box-shadow 120ms ease; touch-action: none; user-select: none; }
 .meal-chip:hover { transform: translateY(-1px); box-shadow: var(--shadow); }
 .meal-chip.dragging { opacity: 0.35; }
@@ -1957,40 +1966,76 @@ function renderMealImportSection(){
 // week REPLACES its imported meals instead of duplicating them; meals added by
 // hand (source !== 'dinner') are never touched.
 const CAL_SLOT_TYPE = {breakfast: 'breakfast', lunch: 'lunch', r: 'dinner'};
-function importDinnerCalendarWeek(mondayStr){
-  const cal = DINNER_CALENDAR || {};
-  const dates = []; for(let i = 0; i < 7; i++) dates.push(addDays(mondayStr, i));
+// What the planner has for one date, in agenda-meal shape. The week import, the
+// day view's one-day import, and the nudge's "is anything missing?" check all
+// read through here, so all three always agree on what a planned day contains.
+function plannedMealsForDate(date){
+  const day = (DINNER_CALENDAR || {})[date];
+  if(!day || typeof day !== 'object') return [];
+  const out = [];
+  const extras = [];
+  if(day.side && day.side.name) extras.push(`Side: ${day.side.name}`);
+  if(day.dessert && day.dessert.name) extras.push(`Dessert: ${day.dessert.name}`);
+  ['breakfast','lunch','r'].forEach(k => {
+    const v = day[k];
+    if(!v || !v.name) return;
+    out.push({title: v.name, recipe_id: v.id == null ? null : v.id,
+      extras: k === 'r' ? extras.join(' · ') : '', date, meal_type: CAL_SLOT_TYPE[k]});
+  });
+  // A side or dessert with no dinner has nothing to attach to — keep it as its
+  // own meal rather than silently dropping what was planned.
+  if(!(day.r && day.r.name)){
+    ['side','dessert'].forEach(k => {
+      const v = day[k];
+      if(!v || !v.name) return;
+      out.push({title: v.name, recipe_id: v.id == null ? null : v.id, extras: '', date, meal_type: 'dinner'});
+    });
+  }
+  return out;
+}
+function importCalendarDates(dates){
   const meals = getMeals();
   for(let i = meals.length - 1; i >= 0; i--){
     if(meals[i].source === 'dinner' && dates.indexOf(meals[i].date) >= 0) meals.splice(i, 1);
   }
-  dates.forEach(date => {
-    const day = cal[date];
-    if(!day || typeof day !== 'object') return;
-    const extras = [];
-    if(day.side && day.side.name) extras.push(`Side: ${day.side.name}`);
-    if(day.dessert && day.dessert.name) extras.push(`Dessert: ${day.dessert.name}`);
-    ['breakfast','lunch','r'].forEach(k => {
-      const v = day[k];
-      if(!v || !v.name) return;
-      meals.push({id: nextId++, title: v.name, recipe_id: v.id == null ? null : v.id,
-        extras: k === 'r' ? extras.join(' · ') : '', date,
-        meal_type: CAL_SLOT_TYPE[k], made: false, source: 'dinner'});
-    });
-    // A side or dessert with no dinner has nothing to attach to — keep it as its
-    // own meal rather than silently dropping what was planned.
-    if(!(day.r && day.r.name)){
-      ['side','dessert'].forEach(k => {
-        const v = day[k];
-        if(!v || !v.name) return;
-        meals.push({id: nextId++, title: v.name, recipe_id: v.id == null ? null : v.id,
-          extras: '', date, meal_type: 'dinner', made: false, source: 'dinner'});
-      });
-    }
-  });
+  dates.forEach(date => plannedMealsForDate(date).forEach(p => {
+    meals.push({id: nextId++, ...p, made: false, source: 'dinner'});
+  }));
+  dates.forEach(undismissCalendarNudge);   // an imported day earned its nudge back
   saveToStorage();
-  closeModal('meal-picker-modal');
   renderAll();
+}
+function importDinnerCalendarWeek(mondayStr){
+  const dates = []; for(let i = 0; i < 7; i++) dates.push(addDays(mondayStr, i));
+  importCalendarDates(dates);
+  closeModal('meal-picker-modal');
+}
+function importDinnerCalendarDay(date){ importCalendarDates([date]); }
+
+// The planner is the authoring surface and this import stays a snapshot, so
+// meals planned there never appear here on their own — easy to miss, and the
+// per-week import means importing one week doesn't keep the next in sync. The
+// day view now says when the planner has meals for the day that aren't here
+// yet: one tap imports that day alone, and the × drops it for that date so a
+// day deliberately kept out of the agenda stops asking.
+function nudgeDismissed(){ return (SETTINGS.calNudgeDismissed = SETTINGS.calNudgeDismissed || []); }
+function dismissCalendarNudge(date){
+  const d = nudgeDismissed();
+  if(d.indexOf(date) < 0) d.push(date);
+  saveToStorage();
+  renderAll();
+}
+function undismissCalendarNudge(date){
+  const d = nudgeDismissed();
+  const i = d.indexOf(date);
+  if(i >= 0) d.splice(i, 1);   // caller saves
+}
+// Compared by title so this stays right after a partial import too: plan a lunch
+// in the planner for a day already imported, and only the lunch is reported.
+function pendingCalendarMeals(date){
+  if(nudgeDismissed().indexOf(date) >= 0) return [];
+  const have = mealsForDate(date).map(m => (m.title || '').trim().toLowerCase());
+  return plannedMealsForDate(date).filter(p => have.indexOf(p.title.trim().toLowerCase()) < 0);
 }
 const _DAYS_MON = ['Monday','Tuesday','Wednesday','Thursday','Friday','Saturday','Sunday'];
 function importSavedMenu(menu, mondayStr){
@@ -2050,7 +2095,13 @@ function renderMealStrip(){
   if(!el) return;
   el.dataset.date = currentDate;
   const meals = mealsForDate(currentDate).sort(sortMeals);
-  el.innerHTML = meals.map(mealChipHtml).join('')
+  const pending = pendingCalendarMeals(currentDate);
+  const nudge = pending.length ? `<div class="meal-nudge">
+      <div class="mn-text"><strong>${pending.length} planned meal${pending.length===1?'':'s'}</strong> in your dinner planner: ${esc(pending.map(p=>p.title).join(', '))}</div>
+      <button class="mn-import" onclick="importDinnerCalendarDay('${currentDate}')">Import</button>
+      <button class="mn-x" title="Not this day" onclick="dismissCalendarNudge('${currentDate}')">${ico('x')}</button>
+    </div>` : '';
+  el.innerHTML = nudge + meals.map(mealChipHtml).join('')
     + `<button class="meal-add-btn" onclick="openMealPicker('${currentDate}')"><span data-ico="utensils"></span> Add a meal</button>`;
   attachMealChipHandlers(el, meals);
   paintIcons(el);
@@ -2767,6 +2818,13 @@ function afterLoad(){
   applyTheme();
   runRollover();
   ensureMonthlyRecurring();
+  // The day-view nudge needs the planner's calendar, which until now was only
+  // fetched when the meal picker first opened — so warm that same cached read
+  // here, off the critical path. Failure is silent by design: no calendar just
+  // means no nudge, and the picker still reports the error where it matters.
+  if(_currentUser && !_guestMode && !_dinnerLoaded){
+    loadDinnerData().then(() => { if(currentView === 'day') renderMealStrip(); });
+  }
 }
 
 /* ---- sync safety net (same pattern as sibling apps) ---- */
