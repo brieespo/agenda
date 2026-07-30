@@ -262,6 +262,13 @@ a.meal-title:hover .meal-link-ico { opacity: 1; }
 .meal-picker-opt.meal-custom-opt { border-style: dashed; border-color: var(--serious); }
 .meal-picker-opt.meal-custom-opt:hover { background: var(--accent-light); }
 .meal-picker-list { max-height: 300px; overflow-y: auto; margin-top: 6px; }
+/* Live recipe matches under the Meal plan quick-add box — the same rows as the
+   picker, just denser, so searching your recipes doesn't require opening a modal. */
+.meal-quick-matches { margin-top: 6px; }
+.meal-quick-matches:empty { display: none; }
+.meal-quick-matches .meal-picker-opt { padding: 6px 9px; margin-bottom: 4px; }
+.meal-quick-matches .meal-picker-opt .mp-name { font-size: 0.8rem; }
+.meal-quick-matches .quick-match-note { font-size: 0.7rem; color: var(--muted); margin: 2px 0 0; }
 
 /* ---- drag ghost ---- */
 .drag-ghost { position: fixed; z-index: 500; pointer-events: none; background: var(--surface); border: 1px solid var(--accent); color: var(--ink); font-size: 0.8rem; padding: 6px 10px; border-radius: 8px; box-shadow: 0 8px 20px rgba(0,0,0,0.18); max-width: 220px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
@@ -506,9 +513,10 @@ footer button { font: inherit; font-size: 0.72rem; border: none; background: non
         <div class="sidebar-sub">Unscheduled meals — drag onto a day</div>
         <div class="sidebar-drop" id="meal-sidebar-list" data-drop="meal-plan"></div>
         <div class="quick-add-row">
-          <input type="text" id="meal-sidebar-quick-add" placeholder="Add a dish…" onkeydown="if(event.key==='Enter')quickAddMealSidebar()">
+          <input type="text" id="meal-sidebar-quick-add" placeholder="Add a dish, or search recipes…" autocomplete="off" oninput="renderMealQuickMatches()" onkeydown="if(event.key==='Enter')quickAddMealSidebar()">
           <button onclick="quickAddMealSidebar()">Add</button>
         </div>
+        <div class="meal-quick-matches" id="meal-quick-matches"></div>
         <button class="meal-add-btn" style="margin-top:8px" onclick="openMealPicker(null)"><span data-ico="utensils"></span> Browse recipes / import a menu</button>
       </div>
     </aside>
@@ -1767,7 +1775,46 @@ function quickAddMealSidebar(){
   const title = input.value.trim();
   if(!title) return;
   input.value = '';
+  clearMealQuickMatches();
   addMeal({title, date: null});   // unscheduled -> meal-plan pool
+}
+function clearMealQuickMatches(){
+  const el = document.getElementById('meal-quick-matches');
+  if(el) el.innerHTML = '';
+}
+// The Meal plan quick-add used to be the one meal entry point that couldn't
+// reach the recipe database — typing here always made a plain text dish, so
+// linking a recipe meant opening the picker instead. Now the same search runs
+// inline: matches appear as you type and add the meal *linked* to the recipe,
+// while Enter still adds exactly what was typed, so the fast path is unchanged.
+let _quickMatchSeq = 0;
+async function renderMealQuickMatches(){
+  const el = document.getElementById('meal-quick-matches');
+  const raw = (document.getElementById('meal-sidebar-quick-add').value || '').trim();
+  if(!el) return;
+  if(!raw || _guestMode || !_currentUser){ el.innerHTML = ''; return; }
+  const seq = ++_quickMatchSeq;
+  await loadDinnerData();                       // cached after the first call
+  if(seq !== _quickMatchSeq) return;            // a newer keystroke already won
+  if((document.getElementById('meal-sidebar-quick-add').value || '').trim() !== raw) return;
+  if(_dinnerError || !DINNER_RECIPES || !DINNER_RECIPES.length){ el.innerHTML = ''; return; }
+  const q = raw.toLowerCase();
+  const hits = DINNER_RECIPES.filter(r => r && r.name &&
+    (r.name.toLowerCase().includes(q) || (r.src||'').toLowerCase().includes(q)));
+  if(!hits.length){ el.innerHTML = ''; return; }
+  const shown = hits.slice(0, 6);
+  el.innerHTML = shown.map(r =>
+    `<button class="meal-picker-opt" data-recipe-id="${esc(String(r.id))}"><span class="mp-name">${esc(r.name)}</span>${r.src?`<span class="mp-src">${esc(r.src)}</span>`:''}</button>`
+  ).join('') + (hits.length > shown.length
+    ? `<p class="quick-match-note">${hits.length} recipes match — showing ${shown.length}. Enter adds “${esc(raw)}” as typed.</p>` : '');
+  el.querySelectorAll('.meal-picker-opt[data-recipe-id]').forEach(btn => {
+    const r = DINNER_RECIPES.find(x => String(x.id) === btn.dataset.recipeId);
+    if(r) btn.addEventListener('click', () => {
+      document.getElementById('meal-sidebar-quick-add').value = '';
+      clearMealQuickMatches();
+      addMeal({title: r.name, recipe_id: r.id, date: null});   // linked, into the pool
+    });
+  });
 }
 function addTypedMeal(){
   const title = (document.getElementById('meal-search').value || '').trim();
