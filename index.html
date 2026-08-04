@@ -2319,12 +2319,38 @@ function getQuickLinks(){
   if(!Array.isArray(SETTINGS.quickLinks)) SETTINGS.quickLinks = [];
   return SETTINGS.quickLinks;
 }
+// Repairs links already saved with a colliding id. Everything here is looked up
+// by id — the assistant's open_link, editing, deleting — so duplicates silently
+// resolved to whichever link came first: asking for the stylist opened the
+// therapy portal, and editing one row rewrote another. The first holder keeps
+// the id so nothing already pointing at it changes meaning.
+function dedupeQuickLinkIds(){
+  const seen = new Set();
+  let changed = false;
+  getQuickLinks().forEach(l => {
+    if(typeof l.id !== 'number' || seen.has(l.id)){ l.id = nextId++; changed = true; }
+    seen.add(l.id);
+  });
+  return changed;
+}
 function normalizeForMatch(s){
   return ' ' + String(s || '').toLowerCase().replace(/[^\w\s]/g, ' ').replace(/\s+/g, ' ').trim() + ' ';
 }
 function linkTerms(l){
   return [l.label].concat(String(l.keywords || '').split(','))
-    .map(t => normalizeForMatch(t)).filter(t => t.trim().length > 1);
+    .map(t => normalizeForMatch(t).trim()).filter(t => t.length > 1);
+}
+// A term matches on whole words, but tolerates the spacing drifting: a keyword
+// saved as "hair cut" still matches "haircut", which is how it actually gets
+// typed. Word boundaries stay mandatory, so "therapy" still refuses to match
+// "therapeutic" — the looseness is only ever about the gaps between words.
+function termToRegex(term){
+  const words = term.split(/\s+/).filter(Boolean).map(w => w.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'));
+  if(!words.length) return null;
+  try{ return new RegExp('\\b' + words.join('\\s*') + '\\b', 'i'); }catch(e){ return null; }
+}
+function linkMatches(l, hay){
+  return linkTerms(l).some(t => { const re = termToRegex(t); return re && re.test(hay); });
 }
 // Deliberately runs BEFORE any assistant call, while still inside the click or
 // Enter that triggered it: a window.open() issued after an await is exactly what
@@ -2341,7 +2367,7 @@ function looksScheduled(text){ return SCHEDULEY.test(String(text || '')); }
 function matchQuickLink(text){
   if(looksScheduled(text)) return null;
   const hay = normalizeForMatch(text);
-  const hits = getQuickLinks().filter(l => safeUrl(l.url) && linkTerms(l).some(term => hay.includes(term)));
+  const hits = getQuickLinks().filter(l => safeUrl(l.url) && linkMatches(l, hay));
   return hits.length === 1 ? hits[0] : null;
 }
 function openLinkNow(link){
@@ -3314,7 +3340,12 @@ function afterLoad(){
   if(!SETTINGS || typeof SETTINGS !== 'object') SETTINGS = {};
   if(!SETTINGS.taskCategories){ SETTINGS.taskCategories = ['Self-care', 'Household', 'Routine']; saveToStorage(); }
   if(!Array.isArray(SETTINGS.meals)) SETTINGS.meals = [];
-  nextId = Math.max(1, 0, ...TASKS.map(t=>t.id||0), ...TEMPLATES.map(t=>t.id||0), ...SETTINGS.meals.map(m=>m.id||0)) + 1;
+  // Quick links must be in this scan too: leaving them out meant nextId reset to
+  // the same value every session, so every link created in a fresh session was
+  // handed an id another link already had.
+  nextId = Math.max(1, 0, ...TASKS.map(t=>t.id||0), ...TEMPLATES.map(t=>t.id||0), ...SETTINGS.meals.map(m=>m.id||0),
+                    ...(Array.isArray(SETTINGS.quickLinks) ? SETTINGS.quickLinks.map(l=>l.id||0) : [])) + 1;
+  if(dedupeQuickLinkIds()) saveToStorage();
   applyTheme();
   runRollover();
   ensureMonthlyRecurring();
