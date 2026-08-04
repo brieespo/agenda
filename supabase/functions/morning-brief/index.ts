@@ -104,6 +104,61 @@ function computeBrief(row: any, today: string) {
   return { title: 'Your morning brief', body, url: './' };
 }
 
+// ---- Suite context ----
+// Everything below lives in other apps' rows on this same project, which this
+// function can already read with the service key. Each source is independently
+// optional: a missing table, an empty row or a shape that doesn't parse drops
+// that line and leaves the rest of the brief intact, because a notification
+// that fails to arrive is worse than one missing its dinner line.
+const LAW_HORIZON_DAYS = 21;
+async function suiteLines(admin: any, userId: string, today: string): Promise<string[]> {
+  const lines: string[] = [];
+
+  // Tonight's dinner, from the dinner planner's dated calendar (the authoring
+  // surface — the agenda only holds imported snapshots, which may lag).
+  try {
+    const { data } = await admin.from('user_data').select('rules').eq('user_id', userId).maybeSingle();
+    const day = data?.rules?._calendar?.[today];
+    const bits = [day?.r?.name, day?.side?.name].filter(Boolean);
+    if (bits.length) lines.push(`Dinner: ${bits.join(' · ')}`);
+  } catch (e) { console.error('dinner lookup failed', e); }
+
+  // Anything actually out of stock — the reason a "buy X" task exists at all.
+  try {
+    const { data } = await admin.from('restock_data').select('staples').eq('user_id', userId).maybeSingle();
+    const out = (data?.staples || []).filter((s: any) => s && s.status === 'out' && s.name).map((s: any) => s.name);
+    if (out.length) lines.push(`Out of: ${out.slice(0, 4).join(', ')}${out.length > 4 ? ` +${out.length - 4}` : ''}`);
+  } catch (e) { console.error('restock lookup failed', e); }
+
+  // The nearest law-school deadline, milestones and their lead-up tasks alike.
+  // Same derivation the hub widget uses, kept to the single closest item so the
+  // notification stays glanceable.
+  try {
+    const { data } = await admin.from('law_school_data').select('milestones').eq('user_id', userId).maybeSingle();
+    const items: {date: string; label: string}[] = [];
+    for (const m of (data?.milestones || [])) {
+      if (!m?.date || m.status === 'done') continue;
+      items.push({ date: m.date, label: m.name });
+      for (const t of (m.lead_tasks || [])) {
+        if (t?.done || !t?.label) continue;
+        items.push({ date: addDaysStr(m.date, -(t.days_before || 0)), label: t.label });
+      }
+    }
+    const next = items.filter(i => i.date >= today).sort((a, b) => a.date.localeCompare(b.date))[0];
+    if (next) {
+      const days = Math.round((Date.parse(next.date + 'T12:00:00Z') - Date.parse(today + 'T12:00:00Z')) / 86400000);
+      // Only when it's actually near. The nearest milestone can be most of a
+      // year out, and a line repeating "in 287 days" every morning is how a
+      // notification teaches you to stop reading it.
+      if (days <= LAW_HORIZON_DAYS) {
+        lines.push(`Law: ${next.label} ${days === 0 ? 'today' : days === 1 ? 'tomorrow' : `in ${days} days`}`);
+      }
+    }
+  } catch (e) { console.error('law lookup failed', e); }
+
+  return lines;
+}
+
 Deno.serve(async (req) => {
   if (req.method === 'OPTIONS') return new Response('ok', { headers: corsHeaders });
 
@@ -130,6 +185,11 @@ Deno.serve(async (req) => {
   let sent = 0, failed = 0;
   for (const row of rows || []) {
     const brief = computeBrief(row, today);
+    // Extra lines are appended rather than folded into the first line, so the
+    // agenda summary still reads as the headline on a locked screen where only
+    // the first line or two survives truncation.
+    const extra = await suiteLines(admin, row.user_id, today);
+    if (extra.length) brief.body += '\n' + extra.join('\n');
     const { data: subs } = await admin.from('push_subscriptions').select('*').eq('user_id', row.user_id);
     for (const sub of subs || []) {
       try {
