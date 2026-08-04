@@ -130,18 +130,20 @@ async function suiteLines(admin: any, userId: string, today: string): Promise<st
     if (out.length) lines.push(`Out of: ${out.slice(0, 4).join(', ')}${out.length > 4 ? ` +${out.length - 4}` : ''}`);
   } catch (e) { console.error('restock lookup failed', e); }
 
-  // The nearest law-school deadline, milestones and their lead-up tasks alike.
-  // Same derivation the hub widget uses, kept to the single closest item so the
-  // notification stays glanceable.
+  // Law Review edit assignments (settings.editDeadlines), NOT milestones —
+  // milestones hold only long-horizon things like professional exams and
+  // graduation, which is why reading them produced a useless "in 287 days".
+  // Each assignment has two halves with their own due dates and a `done` map
+  // keyed by half.
   try {
-    const { data } = await admin.from('law_school_data').select('milestones').eq('user_id', userId).maybeSingle();
+    const { data } = await admin.from('law_school_data').select('settings').eq('user_id', userId).maybeSingle();
     const items: {date: string; label: string}[] = [];
-    for (const m of (data?.milestones || [])) {
-      if (!m?.date || m.status === 'done') continue;
-      items.push({ date: m.date, label: m.name });
-      for (const t of (m.lead_tasks || [])) {
-        if (t?.done || !t?.label) continue;
-        items.push({ date: addDaysStr(m.date, -(t.days_before || 0)), label: t.label });
+    for (const d of (data?.settings?.editDeadlines || [])) {
+      if (!d) continue;
+      const halves: [string, string][] = [['first', d.first_half_due], ['second', d.second_half_due]];
+      for (const [half, due] of halves) {
+        if (!due || (d.done && d.done[half])) continue;
+        items.push({ date: due, label: `${d.assignment || 'Law Review edits'} (${half === 'first' ? '1st' : '2nd'} half)` });
       }
     }
     const next = items.filter(i => i.date >= today).sort((a, b) => a.date.localeCompare(b.date))[0];
@@ -151,7 +153,7 @@ async function suiteLines(admin: any, userId: string, today: string): Promise<st
       // year out, and a line repeating "in 287 days" every morning is how a
       // notification teaches you to stop reading it.
       if (days <= LAW_HORIZON_DAYS) {
-        lines.push(`Law: ${next.label} ${days === 0 ? 'today' : days === 1 ? 'tomorrow' : `in ${days} days`}`);
+        lines.push(`Law Review: ${next.label} ${days === 0 ? 'today' : days === 1 ? 'tomorrow' : `in ${days} days`}`);
       }
     }
   } catch (e) { console.error('law lookup failed', e); }
