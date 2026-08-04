@@ -22,6 +22,9 @@ function json(body: unknown, status = 200) {
 }
 
 const DOW = ['sun', 'mon', 'tue', 'wed', 'thu', 'fri', 'sat'];
+// A push body is glanceable or it's ignored; beyond a handful of lines a phone
+// truncates it anyway.
+const MAX_LISTED = 5;
 
 // ---- Minimal re-implementation of the client's date/recurrence logic,
 // server-side, so the brief can be computed without the app being open. ----
@@ -88,19 +91,33 @@ function computeBrief(row: any, today: string) {
       title: tpl.title, time: tpl.time || null,
       done: completions.some((c: any) => c.template_id === tpl.id && c.date === today),
     }));
-  const allToday = oneOffToday.concat(exceptionToday).concat(virtualToday);
+  // Tagged as they're gathered so the brief can list one-off work ahead of
+  // routines: the routines are the part she already knows about.
+  const allToday = oneOffToday.map((t: any) => ({ ...t, routine: false }))
+    .concat(exceptionToday.map((t: any) => ({ ...t, routine: true })))
+    .concat(virtualToday.map((t: any) => ({ ...t, routine: true })));
   const leftCount = allToday.filter((t: any) => !t.done).length;
-  const timed = allToday.filter((t: any) => t.time).sort((a: any, b: any) => a.time.localeCompare(b.time));
-  const firstEvent = timed[0] || null;
 
   const rolledDate = tasks.filter((t: any) => t.source !== 'template' && t.source !== 'template_exception' && t.date && t.date < today && !t.done).length;
   const rolledWeek = tasks.filter((t: any) => !t.date && t.week && t.week < curWeek && !t.done).length;
   const rolledMonth = tasks.filter((t: any) => !t.date && !t.week && t.month && t.month < curMonth && !t.done).length;
   const rolledOver = rolledDate + rolledWeek + rolledMonth;
 
+  // Naming the tasks beats counting them: most days here are untimed, so a
+  // count alone said "2 tasks today" and left her to open the app to find out
+  // which two. One-off work leads, routines follow, and a time is shown only
+  // when a task actually has one.
+  const undone = allToday.filter((t: any) => !t.done).sort((a: any, b: any) => {
+    if (a.routine !== b.routine) return a.routine ? 1 : -1;      // one-offs first
+    if (!!a.time !== !!b.time) return a.time ? -1 : 1;           // timed first within a group
+    if (a.time && b.time) return a.time.localeCompare(b.time);
+    return 0;
+  });
+  const shown = undone.slice(0, MAX_LISTED);
   let body = `${leftCount} task${leftCount === 1 ? '' : 's'} today`;
-  if (firstEvent) body += ` · first up: ${firstEvent.title} at ${fmtTime12(firstEvent.time)}`;
   if (rolledOver) body += ` · ${rolledOver} rolled over`;
+  for (const t of shown) body += `\n• ${t.time ? fmtTime12(t.time) + ' ' : ''}${t.title}`;
+  if (undone.length > shown.length) body += `\n+ ${undone.length - shown.length} more`;
   return { title: 'Your morning brief', body, url: './' };
 }
 
