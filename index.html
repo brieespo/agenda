@@ -2294,20 +2294,39 @@ function appendChatBubble(role, text, link){
 // which range a given question actually needs.
 /* =====================================================================
    APPS MENU + QUICK LINKS
-   The suite list is duplicated from the hub's own APP REGISTRY rather than
-   fetched, since that registry lives inside the hub's JS, not a table — six
-   entries kept in sync by hand beats a cross-app fetch for a menu. Quick links
-   are hers to add (settings), and both render as real <a target="_blank">, so
-   clicking one is a plain user-initiated navigation with nothing to block.
+   The suite list comes from the hub's apps.json — one source of truth, so
+   adding an app is an edit there rather than one per app that lists it. Same
+   origin, so it's a plain fetch with no CORS or auth, and it works in guest
+   mode. The hard-coded list below is the fallback: offline (this is an
+   installed PWA), a failed fetch, or a bad deploy should leave a slightly
+   stale menu rather than an empty one. Quick links are hers to add, and both
+   render as real <a target="_blank">, so clicking one is plain navigation.
    ===================================================================== */
-const SUITE_APPS = [
-  {name: 'Dinner Planner',  url: 'https://brieespo.github.io/dinner-planner/'},
-  {name: 'Law School',      url: 'https://brieespo.github.io/law-school-tracker/'},
-  {name: 'Restock',         url: 'https://brieespo.github.io/restock/'},
-  {name: 'Perfume Tracker', url: 'https://brieespo.github.io/perfume-tracker/'},
-  {name: 'Sewing Tracker',  url: 'https://brieespo.github.io/sewing-tracker/'},
-  {name: 'Time Tracker',    url: 'https://brieespo.github.io/time-tracker/'}
+const SUITE_APPS_FALLBACK = [
+  {id: 'dinner',  name: 'Dinner Planner',  url: 'https://brieespo.github.io/dinner-planner/'},
+  {id: 'law',     name: 'Law School',      url: 'https://brieespo.github.io/law-school-tracker/'},
+  {id: 'restock', name: 'Restock',         url: 'https://brieespo.github.io/restock/'},
+  {id: 'perfume', name: 'Perfume Tracker', url: 'https://brieespo.github.io/perfume-tracker/'},
+  {id: 'sewing',  name: 'Sewing Tracker',  url: 'https://brieespo.github.io/sewing-tracker/'},
+  {id: 'time',    name: 'Time Tracker',    url: 'https://brieespo.github.io/time-tracker/'}
 ];
+const SUITE_REGISTRY_URL = 'https://brieespo.github.io/apps.json';
+let SUITE_APPS = SUITE_APPS_FALLBACK;
+// Listing this app in its own menu would just be a link to where you already
+// are, so it's filtered out by id.
+async function loadSuiteApps(){
+  try{
+    const res = await fetch(SUITE_REGISTRY_URL, {cache: 'no-cache'});
+    if(!res.ok) throw new Error('HTTP ' + res.status);
+    const j = await res.json();
+    const list = (j && Array.isArray(j.apps) ? j.apps : [])
+      .filter(a => a && a.id !== 'agenda' && a.name && safeUrl(a.url))
+      .map(a => ({id: a.id, name: a.name, url: safeUrl(a.url)}));
+    if(list.length) SUITE_APPS = list;
+  }catch(e){
+    console.error('apps.json unavailable — using the built-in app list', e);
+  }
+}
 // Only http(s) survives. A link is stored from a text field and later fed to
 // window.open and an href, so "javascript:..." must never make it through.
 function safeUrl(u){
@@ -2397,7 +2416,10 @@ function showLinkNotice(link, lead){
 function toggleAppsMenu(open){
   const menu = document.getElementById('apps-menu');
   const show = open === undefined ? !menu.classList.contains('open') : open;
-  if(show) renderAppsMenu();
+  // Refresh on open as well as at load, so a newly registered app shows up in a
+  // long-lived tab without a reload. Renders from whatever's cached right now,
+  // then again if the fetch changes anything.
+  if(show){ renderAppsMenu(); loadSuiteApps().then(() => { if(menu.classList.contains('open')) renderAppsMenu(); }); }
   menu.classList.toggle('open', show);
 }
 // Apps only. Quick links live in their own card (settings → Quick links), which
