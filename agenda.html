@@ -2340,7 +2340,10 @@ function applyAssistantAction(action){
   if(action.type==='add_task' || action.type==='add_timed_task'){
     if(!action.title) return;
     const date = action.date || null;
-    const time = action.type==='add_timed_task' ? (action.time||null) : null;
+    // Honour a time whenever one comes back, not only on add_timed_task: the
+    // model quite reasonably answers "dentist Friday 2pm" with add_task plus a
+    // time, and discarding it silently dropped the time off the task.
+    const time = action.time || null;
     const task = addTask({title: action.title, date, time, week: date ? null : weekKeyForDate(currentView==='week'?weekAnchor:currentDate)});
     syncTaskToGCal(task);
   } else if(action.type==='add_template'){
