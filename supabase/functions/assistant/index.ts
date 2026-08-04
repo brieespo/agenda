@@ -24,8 +24,8 @@ const ACTIONS_TOOL = {
         items: {
           type: 'object',
           properties: {
-            type: { type: 'string', enum: ['add_task', 'add_timed_task', 'add_template', 'complete_task', 'move_task'] },
-            title: { type: 'string', description: 'Task or routine title (add_task/add_timed_task/add_template).' },
+            type: { type: 'string', enum: ['add_task', 'add_timed_task', 'add_template', 'complete_task', 'move_task', 'set_restock_status', 'add_restock_item', 'finish_restock_product'] },
+            title: { type: 'string', description: 'Task or routine title (add_task/add_timed_task/add_template), or the product name (add_restock_item).' },
             date: { type: ['string', 'null'], description: 'YYYY-MM-DD. Omit/null for add_task with no day yet (goes to the weekly sidebar), or for move_task/complete_task when not changing the date.' },
             time: { type: ['string', 'null'], description: 'HH:MM 24h, required for add_timed_task, optional for move_task.' },
             recurrence: {
@@ -37,7 +37,10 @@ const ACTIONS_TOOL = {
                 day: { type: 'number', description: 'monthly only, 1-31' }
               }
             },
-            task_id: { type: ['string', 'number'], description: 'complete_task/move_task only: id of an existing task from the provided context.' }
+            task_id: { type: ['string', 'number'], description: 'complete_task/move_task only: id of an existing task from the provided context.' },
+            item_id: { type: ['string', 'number'], description: 'set_restock_status only: id of an existing staple from the restock list below. Never invent one.' },
+            product_id: { type: ['string', 'number'], description: 'finish_restock_product only: id of a specific variant from a staple\'s "variants" list. Never invent one.' },
+            status: { type: 'string', enum: ['stocked', 'running_low', 'out', 'ordered'], description: 'set_restock_status / add_restock_item: the supply state to record.' }
           },
           required: ['type']
         }
@@ -47,8 +50,25 @@ const ACTIONS_TOOL = {
   }
 };
 
-function systemPrompt(todayDate: string, scheduleContext: unknown[]) {
-  return `You are the assistant behind a personal daily-agenda app's chat and quick-add box. You do two things: (1) turn write requests into structured actions, and (2) answer questions about the schedule directly in the reply. Always call emit_actions exactly once either way — for a pure question, actions is just an empty array and reply carries the actual answer.
+function systemPrompt(todayDate: string, scheduleContext: unknown[], restockContext: unknown[]) {
+  const restockSection = restockContext.length
+    ? `
+
+You can also update a separate household restock list (supplies she keeps stocked). Here it is — use "id" for set_restock_status:
+${JSON.stringify(restockContext)}
+
+Each entry is a staple (the generic supply she keeps stocked). Its "variants" are the specific products she actually buys for it — a staple can have several, e.g. two different dryer sheet scents.
+
+Rules for restock:
+- She named the STAPLE generally ("I'm out of coffee", "we're low on detergent", "bought dryer sheets", "ordered vacuum bags") -> set_restock_status with that staple's id and status out / running_low / stocked / ordered.
+- She named a specific VARIANT ("I ran out of Taunt", "finished the Oribe gel", "used up the Xtra Milk one") -> finish_restock_product with that variant's id. Using up one particular product is an inventory event, not a status change: she may still have other variants of that staple on hand, and the app works out the status from what's left. Match against the variant's brand and name together.
+- Match names loosely ("detergent" -> "Laundry Detergent", "moisturizer" -> "Face Moisturizer", "Taunt" -> the "DedCool 01 Taunt" variant). If two staples or two variants could plausibly match, ask which she means instead of picking.
+- If the named product is NOT anywhere in the list above — neither a staple nor a variant — do NOT invent a set_restock_status and do NOT silently create it. Return an empty actions array and ask, e.g. "Paper towels isn't on your restock list — add it as a new staple, or just add a task to buy some?"
+- Only emit add_restock_item when she has confirmed she wants it tracked as a new staple (usually the turn after the question above). Use her wording for title, and status for the state she described.
+- A one-off purchase is not a staple. "Pick up birthday candles" is an ordinary add_task, not restock — restock is for supplies she re-buys on a rhythm.
+- For finish_restock_product, keep reply neutral about the staple's status ("Logged: finished your DedCool 01 Taunt.") — the app appends what's actually left.`
+    : '';
+  return `You are the assistant behind a personal daily-agenda app's chat and quick-add box. You do two things: (1) turn write requests into structured actions, and (2) answer questions about the schedule directly in the reply. Always call emit_actions exactly once either way — for a pure question, actions is just an empty array and reply carries the actual answer.${restockSection}
 
 Today's date is ${todayDate}. Here is the schedule context — a rolling window from a week ago through five weeks ahead, plus everything waiting in the weekly/monthly sidebars. Undated sidebar items have date:null and instead carry week and/or month; "done" reflects current completion state; use "id" for complete_task/move_task (ids like "tpl-4-2026-07-18" are recurring-routine instances and are valid targets too):
 ${JSON.stringify(scheduleContext)}
@@ -66,6 +86,31 @@ Rules for questions ("what's my Wednesday look like?", "what do I have left this
 - If the question needs a range outside what's in the context above (more than 5 weeks out, or more than a week in the past), say you don't have that far back/ahead rather than guessing.
 
 reply should be short and specific either way: for actions, e.g. "Added: Go to the bank — Wednesday."; for questions, e.g. "Wednesday: dentist at 2pm, and 2 undone tasks — call the bank, pick up dry cleaning."`;
+}
+
+// The chat is a back-and-forth ("that isn't on your list — add it?" / "yes"),
+// which only works if the model can see the turns before this one. Untrusted
+// shape from the client, and the Messages API requires strictly alternating
+// roles starting with user, so rebuild rather than trust: keep only well-formed
+// user/assistant turns, collapse any repeat of the same role, drop leading
+// assistant turns, and cap the window.
+type Turn = { role: 'user' | 'assistant'; content: string };
+function sanitizeHistory(raw: unknown): Turn[] {
+  if (!Array.isArray(raw)) return [];
+  const kept: Turn[] = [];
+  for (const t of raw) {
+    const turn = t as { role?: unknown; content?: unknown };
+    const role = turn?.role;
+    const content = turn?.content;
+    if ((role !== 'user' && role !== 'assistant') || typeof content !== 'string' || !content.trim()) continue;
+    if (kept.length && kept[kept.length - 1].role === role) kept[kept.length - 1] = { role, content };
+    else kept.push({ role, content });
+  }
+  const windowed = kept.slice(-6);
+  while (windowed.length && windowed[0].role !== 'user') windowed.shift();
+  // The caller appends the live user message, so history must not end on one.
+  if (windowed.length && windowed[windowed.length - 1].role === 'user') windowed.pop();
+  return windowed;
 }
 
 Deno.serve(async (req) => {
@@ -88,7 +133,7 @@ Deno.serve(async (req) => {
       return new Response(JSON.stringify({ error: 'Not authorized for this assistant.' }), { status: 401, headers: { ...corsHeaders, 'Content-Type': 'application/json' } });
     }
 
-    const { message, todayDate, scheduleContext } = await req.json();
+    const { message, todayDate, scheduleContext, restockContext, history } = await req.json();
     if (!message || typeof message !== 'string') {
       return new Response(JSON.stringify({ error: 'No message provided' }), { status: 400, headers: { ...corsHeaders, 'Content-Type': 'application/json' } });
     }
@@ -108,8 +153,12 @@ Deno.serve(async (req) => {
       body: JSON.stringify({
         model: 'claude-haiku-4-5-20251001',
         max_tokens: 1024,
-        system: systemPrompt(todayDate || new Date().toISOString().slice(0, 10), Array.isArray(scheduleContext) ? scheduleContext : []),
-        messages: [{ role: 'user', content: message }],
+        system: systemPrompt(
+          todayDate || new Date().toISOString().slice(0, 10),
+          Array.isArray(scheduleContext) ? scheduleContext : [],
+          Array.isArray(restockContext) ? restockContext : [],
+        ),
+        messages: [...sanitizeHistory(history), { role: 'user', content: message }],
         tools: [ACTIONS_TOOL],
         tool_choice: { type: 'tool', name: 'emit_actions' },
       }),

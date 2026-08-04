@@ -2162,6 +2162,147 @@ function appendChatBubble(role, text){
 // currently on screen — personal task volume is low enough that sending a
 // generous window is simpler and more reliable than first figuring out
 // which range a given question actually needs.
+/* ---- cross-app: the restock app's staples ----
+   Same shared project and signed-in user as the dinner-planner read, so plain
+   owner access works under its RLS. This is the suite's first cross-app WRITE,
+   so it stays deliberately narrow: re-read immediately before writing (the
+   restock app may be open in another tab), and update only the staples column
+   so a concurrent products/settings edit over there is never clobbered. */
+let RESTOCK_STAPLES = null, RESTOCK_PRODUCTS = [], RESTOCK_PRODUCT_IDS = [], _restockLoaded = false, _restockError = null;
+const RESTOCK_STATUSES = ['stocked', 'running_low', 'out', 'ordered'];
+const RESTOCK_LABEL = {stocked: 'Stocked', running_low: 'Running low', out: 'Out', ordered: 'Ordered'};
+function readRestockRow(data){
+  RESTOCK_STAPLES = (data && Array.isArray(data.staples)) ? data.staples : [];
+  RESTOCK_PRODUCTS = (data && Array.isArray(data.products)) ? data.products : [];
+  // Staples and products share one id counter over there, so both must be
+  // considered when allocating an id for a staple created from here.
+  RESTOCK_PRODUCT_IDS = RESTOCK_PRODUCTS.map(p => p && p.id).filter(n => typeof n === 'number');
+}
+async function loadRestockData(force){
+  if(_restockLoaded && !force) return;
+  if(_guestMode || !_currentUser){ RESTOCK_STAPLES = []; RESTOCK_PRODUCT_IDS = []; _restockLoaded = true; return; }
+  _restockError = null;
+  try{
+    const {data, error} = await sb.from('restock_data').select('staples, products').eq('user_id', _currentUser.id).maybeSingle();
+    if(error) throw error;
+    readRestockRow(data);
+    _restockLoaded = true;
+  }catch(e){
+    console.error('loadRestockData error:', e);
+    _restockError = e.message || String(e);
+    RESTOCK_STAPLES = RESTOCK_STAPLES || [];
+  }
+}
+// Only what the model needs to resolve a mention to the right row. Variants are
+// nested under their staple rather than sent as a second flat list, because the
+// distinction is the whole point: "we're low on dryer sheets" is a status change
+// on the staple, while "I ran out of Taunt" is one specific product being used
+// up — and a staple can have several variants on hand at once.
+function buildRestockContext(){
+  return (RESTOCK_STAPLES || []).map(s => {
+    const variants = (RESTOCK_PRODUCTS || [])
+      .filter(p => p && p.staple_id === s.id)
+      .map(p => ({id: p.id, name: [p.brand, p.name].filter(Boolean).join(' ').trim(), on_hand: p.on_hand || 0}));
+    const entry = {id: s.id, name: s.name, status: s.status || 'stocked'};
+    if(variants.length) entry.variants = variants;
+    return entry;
+  });
+}
+// Restock tightens its runout estimate when something goes out earlier than it
+// predicted, but that maths needs on-hand quantities and finish events that
+// live in the restock app. Rather than duplicating (and drifting from) that
+// logic here, stamp the date it went out and let restock apply its own
+// adjustment on next load — see applyPaceRecalcMarks() over there.
+function applyStapleStatus(staple, status){
+  if(status === 'out' && staple.status !== 'out') staple.pace_recalc_from = todayStr();
+  staple.status = status;
+  staple.snooze_until = null;
+}
+function isRestockAction(a){
+  return a && (a.type === 'set_restock_status' || a.type === 'add_restock_item' || a.type === 'finish_restock_product');
+}
+async function applyRestockActions(actions){
+  if(!_currentUser || _guestMode) return 'Restock needs you signed in.';
+  let staples, products;
+  try{
+    const {data, error} = await sb.from('restock_data').select('staples, products').eq('user_id', _currentUser.id).maybeSingle();
+    if(error) throw error;
+    staples = (data && Array.isArray(data.staples)) ? data.staples : [];
+    products = (data && Array.isArray(data.products)) ? data.products : [];
+  }catch(e){
+    console.error('restock read error:', e);
+    return "Couldn't reach your restock list, so nothing was changed there.";
+  }
+  const productIds = products.map(p => p && p.id).filter(n => typeof n === 'number');
+  let nextStapleId = Math.max(0, ...staples.map(s => s.id || 0), ...productIds) + 1;
+  const done = [];
+  let touchedStaples = false, touchedProducts = false;
+  actions.forEach(a => {
+    if(a.type === 'finish_restock_product'){
+      // Restock keeps "used one up" (inventory + the finish history its usage
+      // rate is built from) separate from the staple's status, so do the same:
+      // log the finish, and only call the staple Out when nothing is left of
+      // any variant. Finishing the Taunt while a Xtra Milk sits in the cupboard
+      // must not mark dryer sheets Out.
+      const p = products.find(x => String(x.id) === String(a.product_id));
+      if(!p) return;
+      p.on_hand = Math.max(0, (p.on_hand || 0) - 1);
+      (p.finished_events = p.finished_events || []).push({date: todayStr()});
+      touchedProducts = true;
+      const label = [p.brand, p.name].filter(Boolean).join(' ').trim() || 'that one';
+      const staple = staples.find(s => s.id === p.staple_id);
+      const left = products.filter(x => x.staple_id === p.staple_id)
+                           .reduce((n, x) => n + (x.on_hand || 0), 0);
+      if(staple && left === 0){
+        applyStapleStatus(staple, 'out');
+        touchedStaples = true;
+        done.push(`finished your last ${label} — ${staple.name} → Out`);
+      } else {
+        done.push(`finished ${label}` + (staple ? ` — ${staple.name} still has ${left} on hand` : ''));
+      }
+    } else if(a.type === 'set_restock_status'){
+      const s = staples.find(x => String(x.id) === String(a.item_id));
+      if(!s || RESTOCK_STATUSES.indexOf(a.status) < 0) return;
+      applyStapleStatus(s, a.status);
+      done.push(`${s.name} → ${RESTOCK_LABEL[a.status]}`);
+    } else if(a.type === 'add_restock_item'){
+      const title = (a.title || '').trim();
+      if(!title) return;
+      // Guard the model against re-adding something already tracked.
+      const existing = staples.find(x => (x.name || '').trim().toLowerCase() === title.toLowerCase());
+      const status = RESTOCK_STATUSES.indexOf(a.status) >= 0 ? a.status : 'out';
+      if(existing){
+        applyStapleStatus(existing, status);
+        done.push(`${existing.name} → ${RESTOCK_LABEL[status]}`);
+        return;
+      }
+      const s = {id: nextStapleId++, name: title, status: 'stocked', category: '', substitutes: '',
+                 snooze_until: null, interval_adjust: 1, interval_override_days: null};
+      applyStapleStatus(s, status);
+      staples.push(s);
+      touchedStaples = true;
+      done.push(`${title} added → ${RESTOCK_LABEL[status]}`);
+    }
+  });
+  if(!done.length) return '';
+  // Send back only the columns actually changed. The restock app may be open in
+  // another tab working on the others, and this write would otherwise stamp
+  // them with whatever this read happened to see.
+  const patch = {updated_at: new Date().toISOString()};
+  if(touchedStaples) patch.staples = staples;
+  if(touchedProducts) patch.products = products;
+  try{
+    const {error} = await sb.from('restock_data').update(patch).eq('user_id', _currentUser.id);
+    if(error) throw error;
+  }catch(e){
+    console.error('restock write error:', e);
+    return "Couldn't save that to your restock list.";
+  }
+  if(touchedStaples) RESTOCK_STAPLES = staples;
+  if(touchedProducts) RESTOCK_PRODUCTS = products;
+  return 'Restock: ' + done.join(', ') + '.';
+}
+
 function buildAssistantContext(){
   const today = todayStr();
   const rangeStart = addDays(today, -7);
@@ -2175,9 +2316,10 @@ function buildAssistantContext(){
   }));
   return out;
 }
-async function callAssistant(message){
+async function callAssistant(message, history){
   const {data, error} = await sb.functions.invoke('assistant', {
-    body: {message, todayDate: todayStr(), scheduleContext: buildAssistantContext()}
+    body: {message, todayDate: todayStr(), scheduleContext: buildAssistantContext(),
+           restockContext: buildRestockContext(), history: history || []}
   });
   if(error){
     let msg = 'Something went wrong reaching the assistant.';
@@ -2218,23 +2360,50 @@ function applyAssistantAction(action){
     }
   }
 }
-async function runAssistantMessage(message){
-  const result = await callAssistant(message);
-  (result.actions||[]).forEach(applyAssistantAction);
+async function runAssistantMessage(message, history){
+  const result = await callAssistant(message, history);
+  const actions = result.actions || [];
+  actions.filter(a => !isRestockAction(a)).forEach(applyAssistantAction);
   saveToStorage();
   renderAll();
-  return result.reply || 'Done.';
+  let reply = result.reply || 'Done.';
+  // Restock lives in another app's row, so it is written separately (and
+  // asynchronously) rather than through the local save. Its outcome — including
+  // a failure to reach it — is appended to the reply so a cross-app write never
+  // silently does nothing.
+  const restockActions = actions.filter(isRestockAction);
+  if(restockActions.length){
+    const note = await applyRestockActions(restockActions);
+    if(note) reply = reply ? `${reply} ${note}` : note;
+  }
+  return reply;
+}
+// The model only sees turns we send it, and the Messages API wants strictly
+// alternating roles starting with user; the drawer's own list can contain error
+// bubbles and repeats, so hand over a cleaned copy. The edge function re-checks
+// this — the client is not the last word on shape.
+function chatHistoryForModel(){
+  const kept = [];
+  CHAT_HISTORY.forEach(m => {
+    if(m.role !== 'user' && m.role !== 'assistant') return;   // skip error bubbles
+    if(kept.length && kept[kept.length-1].role === m.role) kept[kept.length-1] = {role: m.role, content: m.text};
+    else kept.push({role: m.role, content: m.text});
+  });
+  const windowed = kept.slice(-6);
+  while(windowed.length && windowed[0].role !== 'user') windowed.shift();
+  return windowed;
 }
 async function sendChatMessage(){
   const input = document.getElementById('chat-input');
   const message = input.value.trim();
   if(!message) return;
   input.value = '';
+  const history = chatHistoryForModel();   // before this turn joins the list
   appendChatBubble('user', message);
   const btn = document.getElementById('chat-send-btn');
   btn.disabled = true;
   try{
-    const reply = await runAssistantMessage(message);
+    const reply = await runAssistantMessage(message, history);
     appendChatBubble('assistant', reply);
   }catch(e){
     appendChatBubble('error', e.message);
@@ -2825,6 +2994,11 @@ function afterLoad(){
   if(_currentUser && !_guestMode && !_dinnerLoaded){
     loadDinnerData().then(() => { if(currentView === 'day') renderMealStrip(); });
   }
+  // The assistant needs the restock staple list in its prompt to resolve
+  // "we're low on detergent", and quick-add is one-shot with no chance to
+  // fetch mid-turn, so warm it here too. Nothing renders from it — a failure
+  // just means the assistant has no restock list and says so.
+  if(_currentUser && !_guestMode && !_restockLoaded) loadRestockData();
 }
 
 /* ---- sync safety net (same pattern as sibling apps) ---- */

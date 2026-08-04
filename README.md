@@ -83,6 +83,18 @@ Pointer-events based (not native HTML5 drag/drop), so it works with both mouse a
 
 Read access: the assistant also answers questions ("what's my Wednesday look like?") directly in `reply` with an empty `actions` array — same tool-use call, same endpoint, no separate code path. `buildAssistantContext()` sends a rolling window (a week back through five weeks ahead) plus every undated weekly/monthly sidebar item on every message, rather than just whatever's currently on screen, so a question about a day/week that isn't the one currently displayed still has something to answer from. Personal task volume is low enough that sending this generous a window is simpler and more reliable than first trying to parse a date range out of the question.
 
+Conversation: the drawer sends the recent turns (`chatHistoryForModel()`), not just the latest message, because the prompt's whole ambiguity strategy is to ask a clarifying question — which is useless if the answer arrives with no memory of the question. The Messages API wants strictly alternating roles starting with `user`, and the drawer's own list can hold error bubbles and repeats, so the client cleans it and `sanitizeHistory()` in the function rebuilds it again rather than trusting the caller. Quick-add sends no history by design — it's a one-shot line, not a conversation.
+
+### Restock (cross-app write)
+
+The suite's first cross-app **write**. Actions `set_restock_status`, `finish_restock_product`, and `add_restock_item` reach into the restock app's `restock_data` row — same shared project and signed-in user, so plain owner access works under its RLS, same as the dinner-planner read.
+
+The distinction that makes this correct: restock has **staples** (the generic supply) and **products** (the specific variants bought for it, several per staple). "We're low on dryer sheets" is a status change on the staple; "I ran out of Taunt" is one *variant* being used up. So `buildRestockContext()` nests variants under their staple, and a finish decrements that product's `on_hand` and appends to `finished_events` — the very history restock's usage rate is computed from — while leaving the staple's status alone unless **no** variant has anything left, in which case it flips to `out`. Marking the staple out from here would be wrong while another variant sits in the cupboard.
+
+Safety rules for writing into another app's row: re-read immediately before writing (restock may be open in another tab), and `update()` only the columns actually touched — `products` alone for a finish, `staples` alone for a status change — so a concurrent edit to the others isn't stamped with whatever this read happened to see. Staples and products share one id counter over there, so a staple created from here allocates against both. Unknown ids and invalid statuses no-op rather than guessing, and the outcome (including failure to reach restock) is appended to the assistant's reply so a cross-app write never silently does nothing.
+
+Restock's own `interval_adjust` tightening needs `predictedRunout()`, which reads on-hand quantities and finish events living in that app. Rather than copying (and drifting from) that logic, marking something out from here stamps `pace_recalc_from` with the date, and `applyPaceRecalcMarks()` in the restock app applies its own adjustment on next load, measured from the stamped date so opening it a week later doesn't wash out the signal.
+
 Redeploy after editing the function:
 ```
 supabase functions deploy assistant --project-ref zymvsdkwmdhrwjycxisr
