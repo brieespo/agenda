@@ -105,6 +105,10 @@ Phase 3 suite sync. `loadLawData()` reads `law_school_data.settings` — note ch
 
 They are **facts owned by another app, not intentions managed here**, so they get the Google Calendar treatment: read-only, no checkbox, never written into `TASKS`. Editing one means editing it in the law tracker, which the row's tooltip says. A failed read just means the band is absent.
 
+### Start a timer from a task (cross-app write)
+
+A clock on each undone task row starts that task in the Time Tracker. The tracker keeps one running timer in `time_data.timer` as `{category_id, subcategory, started_at, description}`; this writes that same object, so the tracker picks it up as though it had been started there. Category follows the tracker's *own* idle default — `settings.lastTimerCat` if still valid, else the first unarchived category — rather than inventing a second notion of "which category". A timer already running is left alone with a notice: silently replacing one would discard time actually spent. Only the `timer` column is written.
+
 ### Restock (cross-app write)
 
 The suite's first cross-app **write**. Actions `set_restock_status`, `finish_restock_product`, and `add_restock_item` reach into the restock app's `restock_data` row — same shared project and signed-in user, so plain owner access works under its RLS, same as the dinner-planner read.
