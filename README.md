@@ -85,6 +85,16 @@ Read access: the assistant also answers questions ("what's my Wednesday look lik
 
 Conversation: the drawer sends the recent turns (`chatHistoryForModel()`), not just the latest message, because the prompt's whole ambiguity strategy is to ask a clarifying question — which is useless if the answer arrives with no memory of the question. The Messages API wants strictly alternating roles starting with `user`, and the drawer's own list can hold error bubbles and repeats, so the client cleans it and `sanitizeHistory()` in the function rebuilds it again rather than trusting the caller. Quick-add sends no history by design — it's a one-shot line, not a conversation.
 
+### Apps menu + quick links
+
+The header's grid button lists the sibling apps (order set by Bri: dinner, law, restock, perfume, sewing — no hub) plus her own saved **quick links**. The suite list is duplicated from the hub's `APP REGISTRY` rather than fetched, since that registry lives in the hub's JS and not a table; five entries kept in sync by hand beats a cross-app fetch for a menu. Everything in the menu is a real `<a target="_blank">`, so clicking is plain user-initiated navigation.
+
+Quick links live in `settings.quickLinks` (`{id, label, url, keywords}`) and get their own card — **settings → Quick links** — rather than a section buried in the settings list, since they're edited often. The card is both the store and the launcher: each row is the link itself (tap to open), with editing folded into the same row via `_editingLinkId` (`'new'` = the add form, an id = that row open for editing, `null` = neither), so nothing navigates away mid-edit. The apps menu stays apps-only. `safeUrl()` admits only http(s) and upgrades a bare domain — the value reaches both `window.open` and an `href`, so `javascript:` must never survive.
+
+**Asking for a link is answered without a round trip.** `matchQuickLink()` runs in `quickParseAdd`/`sendChatMessage` *before* any await, still inside the Enter or click, because a `window.open()` issued after an await is exactly what popup blockers exist to stop. It needs a single unambiguous hit — two links matching means falling through to the assistant, which can ask. The assistant also has an `open_link` action for phrasings the keywords miss; that path is necessarily post-gesture, so it tries to open and, failing that, renders the link as one tap rather than silently doing nothing.
+
+`openLinkNow()` deliberately avoids the `'noopener'` feature string: with it `window.open` **always returns null**, making a successful open indistinguishable from a blocked one — measured, not assumed, after a real click opened a tab while the call reported failure. It opens plain and severs `.opener` immediately instead, which protects the same way while leaving the return value meaningful.
+
 ### Restock (cross-app write)
 
 The suite's first cross-app **write**. Actions `set_restock_status`, `finish_restock_product`, and `add_restock_item` reach into the restock app's `restock_data` row — same shared project and signed-in user, so plain owner access works under its RLS, same as the dinner-planner read.

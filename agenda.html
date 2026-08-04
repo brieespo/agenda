@@ -279,6 +279,33 @@ a.meal-title:hover .meal-link-ico { opacity: 1; }
 .meal-quick-matches .meal-picker-opt .mp-name { font-size: 0.8rem; }
 .meal-quick-matches .quick-match-note { font-size: 0.7rem; color: var(--muted); margin: 2px 0 0; }
 
+/* ---- apps menu ---- */
+.apps-menu-wrap { position: relative; display: inline-flex; }
+.apps-menu { position: absolute; top: calc(100% + 6px); right: 0; z-index: 400; min-width: 210px; background: var(--surface); border: 1px solid var(--border); border-radius: 12px; box-shadow: 0 10px 28px rgba(0,0,0,0.14); padding: 6px; display: none; }
+.apps-menu.open { display: block; }
+.apps-menu-label { font-size: 0.68rem; text-transform: uppercase; letter-spacing: 0.05em; color: var(--muted); padding: 6px 8px 3px; }
+.apps-menu-row { display: flex; align-items: center; justify-content: space-between; gap: 10px; padding: 7px 9px; border-radius: 8px; font-size: 0.84rem; color: var(--ink); text-decoration: none; transition: background 120ms ease, color 120ms ease; }
+.apps-menu-row:hover { background: var(--accent-light); color: var(--serious); }
+.apps-menu-row .amr-ico { display: flex; opacity: 0; transition: opacity 120ms ease; }
+.apps-menu-row .amr-ico .icon { width: 0.85rem; height: 0.85rem; }
+.apps-menu-row:hover .amr-ico { opacity: 0.7; }
+.apps-menu-empty { font-size: 0.74rem; color: var(--muted); padding: 2px 9px 6px; margin: 0; line-height: 1.4; }
+.notice-link, .bubble-link { display: inline-flex; align-items: center; gap: 5px; font-weight: 600; color: var(--serious); text-decoration: underline; }
+.notice-link .icon, .bubble-link .icon { width: 0.85rem; height: 0.85rem; }
+.chat-bubble .bubble-link { margin-top: 6px; }
+.link-row { display: flex; align-items: center; gap: 6px; padding: 8px 0; border-bottom: 1px solid var(--border); }
+.link-row.editing { display: block; padding: 4px 0 10px; }
+.link-row .lr-body { flex: 1; min-width: 0; text-decoration: none; color: var(--ink); border-radius: 8px; padding: 4px 6px; margin-left: -6px; transition: background 120ms ease, color 120ms ease; }
+.link-row .lr-body:hover { background: var(--accent-light); color: var(--serious); }
+.link-row .lr-title { font-size: 0.86rem; font-weight: 600; }
+.link-row .lr-sub { font-size: 0.7rem; color: var(--muted); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.link-row .lr-act { flex: none; border: none; background: none; color: var(--muted); cursor: pointer; padding: 5px; border-radius: 6px; display: flex; transition: color 120ms ease, background 120ms ease; }
+.link-row .lr-act:hover { background: var(--accent-light); color: var(--ink); }
+.link-row .lr-del:hover { color: var(--critical); }
+.link-row .lr-act .icon { width: 0.95rem; height: 0.95rem; }
+.link-form-hint { font-size: 0.7rem; color: var(--muted); margin: -2px 0 10px; line-height: 1.4; }
+.link-form-actions { display: flex; gap: 8px; }
+
 /* ---- drag ghost ---- */
 .drag-ghost { position: fixed; z-index: 500; pointer-events: none; background: var(--surface); border: 1px solid var(--accent); color: var(--ink); font-size: 0.8rem; padding: 6px 10px; border-radius: 8px; box-shadow: 0 8px 20px rgba(0,0,0,0.18); max-width: 220px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 
@@ -419,6 +446,10 @@ footer button { font: inherit; font-size: 0.72rem; border: none; background: non
   <div class="header-row">
     <h1><svg class="icon-lg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="4" width="18" height="18" rx="2"/><line x1="16" y1="2" x2="16" y2="6"/><line x1="8" y1="2" x2="8" y2="6"/><line x1="3" y1="10" x2="21" y2="10"/></svg> Agenda</h1>
     <div class="spacer"></div>
+    <div class="apps-menu-wrap">
+      <button class="icon-btn" title="My apps" id="apps-menu-btn" onclick="toggleAppsMenu()" data-ico="grid"></button>
+      <div class="apps-menu" id="apps-menu"></div>
+    </div>
     <button class="icon-btn" title="Assistant" id="chat-toggle-btn" onclick="toggleChat(true)" data-ico="chat" style="display:none"></button>
     <button class="icon-btn" title="Routines & settings" onclick="openRoutinesModal()" data-ico="settings"></button>
     <button class="icon-btn drawer-toggle" title="This week" onclick="toggleSidebar(true)" data-ico="menu"></button>
@@ -575,6 +606,10 @@ footer button { font: inherit; font-size: 0.72rem; border: none; background: non
         <span class="sm-title"><strong>Task categories</strong><span class="sm-sub" id="categories-count-label"></span></span>
         <span class="sm-chevron" data-ico="chevron-right"></span>
       </button>
+      <button class="settings-menu-row" onclick="openQuickLinksSubmodal()">
+        <span class="sm-title"><strong>Quick links</strong><span class="sm-sub" id="links-count-label"></span></span>
+        <span class="sm-chevron" data-ico="chevron-right"></span>
+      </button>
       <button class="settings-menu-row" onclick="openProgressSubmodal()">
         <span class="sm-title"><strong>Weekly progress</strong><span class="sm-sub" id="progress-summary-label"></span></span>
         <span class="sm-chevron" data-ico="chevron-right"></span>
@@ -656,6 +691,18 @@ footer button { font: inherit; font-size: 0.72rem; border: none; background: non
 </div>
 
 <!-- Weekly progress submenu -->
+<!-- Quick links: the card that stores them, doubling as the place they're launched from -->
+<div class="modal-bg" id="links-submodal">
+  <div class="modal" style="max-width:480px">
+    <div class="modal-head"><strong>Quick links</strong><button class="modal-x" data-ico="x" onclick="closeModal('links-submodal')"></button></div>
+    <div class="modal-body">
+      <p class="gcal-status-line" style="margin-top:0">Sites you want one tap away. Tap a name to open it, or just ask the assistant — "I want to schedule a therapy appointment".</p>
+      <div id="quick-links-list"></div>
+      <div id="link-form-wrap"></div>
+    </div>
+  </div>
+</div>
+
 <div class="modal-bg" id="progress-submodal">
   <div class="modal" style="max-width:480px">
     <div class="modal-head"><strong>Weekly progress</strong><button class="modal-x" data-ico="x" onclick="closeModal('progress-submodal')"></button></div>
@@ -711,6 +758,8 @@ const ICONS = {
   "chevron-right": '<polyline points="9 18 15 12 9 6"/>',
   "plus": '<line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/>',
   "x": '<line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/>',
+  "grid": '<rect x="3" y="3" width="7" height="7" rx="1.5"/><rect x="14" y="3" width="7" height="7" rx="1.5"/><rect x="3" y="14" width="7" height="7" rx="1.5"/><rect x="14" y="14" width="7" height="7" rx="1.5"/>',
+  "pencil": '<path d="M12 20h9"/><path d="M16.5 3.5a2.12 2.12 0 0 1 3 3L7 19l-4 1 1-4Z"/>',
   "check": '<polyline points="20 6 9 17 4 12"/>',
   "grip": '<circle cx="9" cy="5" r="1"/><circle cx="9" cy="12" r="1"/><circle cx="9" cy="19" r="1"/><circle cx="15" cy="5" r="1"/><circle cx="15" cy="12" r="1"/><circle cx="15" cy="19" r="1"/>',
   "trash": '<polyline points="3 6 5 6 21 6"/><path d="M19 6l-1 14a2 2 0 0 1-2 2H8a2 2 0 0 1-2-2L5 6"/><path d="M10 11v6"/><path d="M14 11v6"/><path d="M9 6V4a1 1 0 0 1 1-1h4a1 1 0 0 1 1 1v2"/>',
@@ -1108,9 +1157,88 @@ function openRoutinesModal(){
   renderPushSettings();
   openModal('routines-modal');
 }
+// The card is both the store and the launcher: a row is the link itself (tap to
+// open), with editing folded into the same row rather than a separate screen —
+// _editingLinkId 'new' means the add form, a number means that row is open for
+// editing, null means neither.
+let _editingLinkId = null;
+function openQuickLinksSubmodal(){
+  _editingLinkId = null;
+  renderQuickLinks();
+  openModal('links-submodal');
+}
+function linkFormHtml(l){
+  const v = l || {label: '', url: '', keywords: ''};
+  return `<div class="link-form">
+    <div class="field"><label>Name</label><input type="text" id="link-label" value="${esc(v.label)}" placeholder="Therapy scheduling portal"></div>
+    <div class="field"><label>Link</label><input type="text" id="link-url" value="${esc(v.url)}" placeholder="https://…"></div>
+    <div class="field"><label>Also matches (comma separated)</label><input type="text" id="link-keywords" value="${esc(v.keywords || '')}" placeholder="therapy, therapist, counseling"></div>
+    <p class="link-form-hint">Extra words the assistant should recognise. The name always counts.</p>
+    <div class="link-form-actions">
+      <button class="primary" onclick="saveQuickLink()">${l ? 'Save' : 'Add link'}</button>
+      <button class="ghost" onclick="cancelQuickLinkEdit()">Cancel</button>
+    </div>
+  </div>`;
+}
+function renderQuickLinks(){
+  const listEl = document.getElementById('quick-links-list');
+  const formEl = document.getElementById('link-form-wrap');
+  if(!listEl || !formEl) return;
+  const links = getQuickLinks();
+  listEl.innerHTML = links.length
+    ? links.map(l => _editingLinkId === l.id
+        ? `<div class="link-row editing">${linkFormHtml(l)}</div>`
+        : `<div class="link-row">
+             <a class="lr-body" href="${esc(safeUrl(l.url))}" target="_blank" rel="noopener">
+               <div class="lr-title">${esc(l.label)}</div>
+               <div class="lr-sub">${esc(l.url)}${l.keywords ? ` · ${esc(l.keywords)}` : ''}</div>
+             </a>
+             <button class="lr-act" title="Edit" onclick="editQuickLink(${l.id})">${ico('pencil')}</button>
+             <button class="lr-act lr-del" title="Remove" onclick="deleteQuickLink(${l.id})">${ico('trash')}</button>
+           </div>`).join('')
+    : '<p class="empty-note">No links yet — add your first one below.</p>';
+  formEl.innerHTML = _editingLinkId === 'new'
+    ? linkFormHtml(null)
+    : (_editingLinkId === null
+        ? `<button class="ghost" style="margin-top:10px" onclick="startNewQuickLink()">${ico('plus')} Add a link</button>`
+        : '');
+  paintIcons(listEl); paintIcons(formEl);
+  const first = document.getElementById('link-label');
+  if(first && _editingLinkId !== null) first.focus();
+  const label = document.getElementById('links-count-label');
+  if(label) label.textContent = links.length ? `${links.length} link${links.length===1?'':'s'}` : 'None yet';
+}
+function startNewQuickLink(){ _editingLinkId = 'new'; renderQuickLinks(); }
+function editQuickLink(id){ _editingLinkId = id; renderQuickLinks(); }
+function cancelQuickLinkEdit(){ _editingLinkId = null; renderQuickLinks(); hideNotice(); }
+function saveQuickLink(){
+  const label = document.getElementById('link-label').value.trim();
+  const url = safeUrl(document.getElementById('link-url').value.trim());
+  const keywords = document.getElementById('link-keywords').value.trim();
+  if(!label || !url){
+    showNotice(!label ? 'Give the link a name first.' : "That doesn't look like a web address.", 'warn');
+    return;
+  }
+  if(_editingLinkId === 'new') getQuickLinks().push({id: nextId++, label, url, keywords});
+  else {
+    const l = getQuickLinks().find(x => x.id === _editingLinkId);
+    if(l){ l.label = label; l.url = url; l.keywords = keywords; }
+  }
+  _editingLinkId = null;
+  saveToStorage();
+  renderQuickLinks();
+  hideNotice();
+}
+function deleteQuickLink(id){
+  const links = getQuickLinks();
+  const i = links.findIndex(l => l.id === id);
+  if(i >= 0){ links.splice(i, 1); if(_editingLinkId === id) _editingLinkId = null; saveToStorage(); renderQuickLinks(); }
+}
 function updateSettingsMenuCounts(){
   const routineCount = TEMPLATES.length;
   document.getElementById('routines-count-label').textContent = routineCount ? `${routineCount} routine${routineCount===1?'':'s'}` : 'None yet';
+  const linkCount = getQuickLinks().length;
+  document.getElementById('links-count-label').textContent = linkCount ? `${linkCount} link${linkCount===1?'':'s'}` : 'None yet';
   const catCount = (SETTINGS.taskCategories || []).length;
   document.getElementById('categories-count-label').textContent = catCount ? `${catCount} categor${catCount===1?'y':'ies'}` : 'None yet';
   const wp = weeklyProgress();
@@ -2149,10 +2277,12 @@ function toggleChat(open){
   document.getElementById('chat-scrim').classList.toggle('open', open);
   if(open) document.getElementById('chat-input').focus();
 }
-function appendChatBubble(role, text){
-  CHAT_HISTORY.push({role, text});
+function appendChatBubble(role, text, link){
+  CHAT_HISTORY.push({role, text, link: link || null});
   const el = document.getElementById('chat-messages');
-  el.innerHTML = CHAT_HISTORY.map(m => `<div class="chat-bubble ${m.role}">${esc(m.text)}</div>`).join('');
+  el.innerHTML = CHAT_HISTORY.map(m =>
+    `<div class="chat-bubble ${m.role}">${esc(m.text)}${m.link ? linkAnchorHtml(m.link, 'bubble-link') : ''}</div>`).join('');
+  paintIcons(el);
   el.scrollTop = el.scrollHeight;
 }
 // Gives the model something to both resolve references against ("move the
@@ -2162,6 +2292,91 @@ function appendChatBubble(role, text){
 // currently on screen — personal task volume is low enough that sending a
 // generous window is simpler and more reliable than first figuring out
 // which range a given question actually needs.
+/* =====================================================================
+   APPS MENU + QUICK LINKS
+   The suite list is duplicated from the hub's own APP REGISTRY rather than
+   fetched, since that registry lives inside the hub's JS, not a table — six
+   entries kept in sync by hand beats a cross-app fetch for a menu. Quick links
+   are hers to add (settings), and both render as real <a target="_blank">, so
+   clicking one is a plain user-initiated navigation with nothing to block.
+   ===================================================================== */
+const SUITE_APPS = [
+  {name: 'Dinner Planner',  url: 'https://brieespo.github.io/dinner-planner/'},
+  {name: 'Law School',      url: 'https://brieespo.github.io/law-school-tracker/'},
+  {name: 'Restock',         url: 'https://brieespo.github.io/restock/'},
+  {name: 'Perfume Tracker', url: 'https://brieespo.github.io/perfume-tracker/'},
+  {name: 'Sewing Tracker',  url: 'https://brieespo.github.io/sewing-tracker/'}
+];
+// Only http(s) survives. A link is stored from a text field and later fed to
+// window.open and an href, so "javascript:..." must never make it through.
+function safeUrl(u){
+  const s = String(u || '').trim();
+  if(/^https?:\/\//i.test(s)) return s;
+  if(/^[\w-]+(\.[\w-]+)+(\/|$)/.test(s)) return 'https://' + s;   // bare domain typed in settings
+  return '';
+}
+function getQuickLinks(){
+  if(!Array.isArray(SETTINGS.quickLinks)) SETTINGS.quickLinks = [];
+  return SETTINGS.quickLinks;
+}
+function normalizeForMatch(s){
+  return ' ' + String(s || '').toLowerCase().replace(/[^\w\s]/g, ' ').replace(/\s+/g, ' ').trim() + ' ';
+}
+function linkTerms(l){
+  return [l.label].concat(String(l.keywords || '').split(','))
+    .map(t => normalizeForMatch(t)).filter(t => t.trim().length > 1);
+}
+// Deliberately runs BEFORE any assistant call, while still inside the click or
+// Enter that triggered it: a window.open() issued after an await is exactly what
+// popup blockers exist to stop, so the common case never awaits at all. Requires
+// a single unambiguous match — two links matching means we don't know which she
+// meant, so it falls through to the assistant, which can ask.
+function matchQuickLink(text){
+  const hay = normalizeForMatch(text);
+  const hits = getQuickLinks().filter(l => safeUrl(l.url) && linkTerms(l).some(term => hay.includes(term)));
+  return hits.length === 1 ? hits[0] : null;
+}
+function openLinkNow(link){
+  const url = safeUrl(link && link.url);
+  if(!url) return false;
+  // Deliberately NOT the 'noopener' feature string: with it window.open always
+  // returns null, so a perfectly good open is indistinguishable from a blocked
+  // one and the caller offers a pointless "here's the link" fallback every time.
+  // Opening plain and severing .opener straight after gives the same protection
+  // while leaving the return value meaningful.
+  const w = window.open(url, '_blank');
+  if(w){ try{ w.opener = null; }catch(e){} return true; }
+  return false;
+}
+function linkAnchorHtml(link, cls){
+  return `<a class="${cls}" href="${esc(safeUrl(link.url))}" target="_blank" rel="noopener">${ico('external')} ${esc(link.label)}</a>`;
+}
+// Used when an open didn't come from a gesture and the browser refused it — the
+// link becomes one tap instead of silently doing nothing.
+function showLinkNotice(link, lead){
+  const el = document.getElementById('app-notice');
+  el.innerHTML = esc(lead || `Open ${link.label}?`) + ' ' + linkAnchorHtml(link, 'notice-link');
+  el.className = 'app-notice info';
+  el.style.display = '';
+}
+function toggleAppsMenu(open){
+  const menu = document.getElementById('apps-menu');
+  const show = open === undefined ? !menu.classList.contains('open') : open;
+  if(show) renderAppsMenu();
+  menu.classList.toggle('open', show);
+}
+// Apps only. Quick links live in their own card (settings → Quick links), which
+// is where they're both edited and launched from.
+function renderAppsMenu(){
+  document.getElementById('apps-menu').innerHTML =
+    `<div class="apps-menu-label">My apps</div>`
+    + SUITE_APPS.map(a => `<a class="apps-menu-row" href="${esc(a.url)}" target="_blank" rel="noopener">${esc(a.name)}<span class="amr-ico">${ico('external')}</span></a>`).join('');
+}
+document.addEventListener('click', (e) => {
+  const menu = document.getElementById('apps-menu');
+  if(menu && menu.classList.contains('open') && !e.target.closest('#apps-menu') && !e.target.closest('#apps-menu-btn')) toggleAppsMenu(false);
+});
+
 /* ---- cross-app: the restock app's staples ----
    Same shared project and signed-in user as the dinner-planner read, so plain
    owner access works under its RLS. This is the suite's first cross-app WRITE,
@@ -2388,7 +2603,8 @@ function buildAssistantContext(){
 async function callAssistant(message, history){
   const {data, error} = await sb.functions.invoke('assistant', {
     body: {message, todayDate: todayStr(), scheduleContext: buildAssistantContext(),
-           restockContext: buildRestockContext(), history: history || []}
+           restockContext: buildRestockContext(), history: history || [],
+           linkContext: getQuickLinks().filter(l => safeUrl(l.url)).map(l => ({id: l.id, label: l.label, matches: l.keywords || ''}))}
   });
   if(error){
     let msg = 'Something went wrong reaching the assistant.';
@@ -2452,7 +2668,19 @@ async function runAssistantMessage(message, history){
     syncRestockOutTasks();
     renderAll();
   }
-  return reply;
+  // This path is past the gesture that started it, so the browser may well
+  // refuse window.open. Try anyway — it often succeeds on desktop — and hand
+  // back the link either way so the caller can offer it as one tap.
+  let link = null;
+  const linkAction = actions.find(a => a && a.type === 'open_link');
+  if(linkAction){
+    const found = getQuickLinks().find(l => String(l.id) === String(linkAction.link_id));
+    if(found && safeUrl(found.url)){
+      link = found;
+      if(openLinkNow(found)) link = {...found, _opened: true};
+    }
+  }
+  return {reply, link};
 }
 // The model only sees turns we send it, and the Messages API wants strictly
 // alternating roles starting with user; the drawer's own list can contain error
@@ -2473,14 +2701,25 @@ async function sendChatMessage(){
   const input = document.getElementById('chat-input');
   const message = input.value.trim();
   if(!message) return;
+  // Synchronous, still inside the Enter/click: a link she has already saved
+  // opens right now, with no round trip and nothing for a popup blocker to
+  // object to. Anything else goes to the assistant.
+  const quick = matchQuickLink(message);
+  if(quick){
+    input.value = '';
+    appendChatBubble('user', message);
+    const opened = openLinkNow(quick);
+    appendChatBubble('assistant', opened ? `Opened ${quick.label}.` : `Here's ${quick.label}:`, opened ? null : quick);
+    return;
+  }
   input.value = '';
   const history = chatHistoryForModel();   // before this turn joins the list
   appendChatBubble('user', message);
   const btn = document.getElementById('chat-send-btn');
   btn.disabled = true;
   try{
-    const reply = await runAssistantMessage(message, history);
-    appendChatBubble('assistant', reply);
+    const {reply, link} = await runAssistantMessage(message, history);
+    appendChatBubble('assistant', link && link._opened ? `${reply} (opened)` : reply, link && !link._opened ? link : null);
   }catch(e){
     appendChatBubble('error', e.message);
   }
@@ -2490,11 +2729,19 @@ async function quickParseAdd(){
   const input = document.getElementById('quick-parse-input');
   const message = input.value.trim();
   if(!message) return;
+  const quick = matchQuickLink(message);   // same in-gesture fast path as the chat
+  if(quick){
+    input.value = '';
+    if(openLinkNow(quick)) showNotice(`Opened ${quick.label}.`, 'info');
+    else showLinkNotice(quick, `Here's ${quick.label}:`);
+    return;
+  }
   input.value = '';
   input.disabled = true;
   try{
-    const reply = await runAssistantMessage(message);
-    showNotice(reply, 'info');
+    const {reply, link} = await runAssistantMessage(message);
+    if(link && !link._opened) showLinkNotice(link, reply);
+    else showNotice(reply, 'info');
   }catch(e){
     showNotice(e.message, 'warn');
   }

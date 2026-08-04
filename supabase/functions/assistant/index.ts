@@ -24,7 +24,7 @@ const ACTIONS_TOOL = {
         items: {
           type: 'object',
           properties: {
-            type: { type: 'string', enum: ['add_task', 'add_timed_task', 'add_template', 'complete_task', 'move_task', 'set_restock_status', 'add_restock_item', 'finish_restock_product', 'log_restock_purchase'] },
+            type: { type: 'string', enum: ['add_task', 'add_timed_task', 'add_template', 'complete_task', 'move_task', 'set_restock_status', 'add_restock_item', 'finish_restock_product', 'log_restock_purchase', 'open_link'] },
             title: { type: 'string', description: 'Task or routine title (add_task/add_timed_task/add_template), or the product name (add_restock_item).' },
             date: { type: ['string', 'null'], description: 'YYYY-MM-DD. Omit/null for add_task with no day yet (goes to the weekly sidebar), or for move_task/complete_task when not changing the date.' },
             time: { type: ['string', 'null'], description: 'HH:MM 24h, required for add_timed_task, optional for move_task.' },
@@ -45,7 +45,8 @@ const ACTIONS_TOOL = {
             price: { type: 'number', description: 'log_restock_purchase: price paid, only if she actually said one. Never guess.' },
             store: { type: 'string', description: 'log_restock_purchase: where she bought it, only if she said. Never guess.' },
             on_sale: { type: 'boolean', description: 'log_restock_purchase: true only if she said it was on sale/discounted.' },
-            status: { type: 'string', enum: ['stocked', 'running_low', 'out', 'ordered'], description: 'set_restock_status / add_restock_item: the supply state to record.' }
+            status: { type: 'string', enum: ['stocked', 'running_low', 'out', 'ordered'], description: 'set_restock_status / add_restock_item: the supply state to record.' },
+            link_id: { type: ['string', 'number'], description: 'open_link only: id of a saved quick link from the list below. Never invent one.' }
           },
           required: ['type']
         }
@@ -55,7 +56,7 @@ const ACTIONS_TOOL = {
   }
 };
 
-function systemPrompt(todayDate: string, scheduleContext: unknown[], restockContext: unknown[]) {
+function systemPrompt(todayDate: string, scheduleContext: unknown[], restockContext: unknown[], linkContext: unknown[]) {
   const restockSection = restockContext.length
     ? `
 
@@ -76,7 +77,20 @@ Rules for restock:
 - A one-off purchase is not a staple. "Pick up birthday candles" is an ordinary add_task, not restock — restock is for supplies she re-buys on a rhythm.
 - For finish_restock_product, keep reply neutral about the staple's status ("Logged: finished your DedCool 01 Taunt.") — the app appends what's actually left.`
     : '';
-  return `You are the assistant behind a personal daily-agenda app's chat and quick-add box. You do two things: (1) turn write requests into structured actions, and (2) answer questions about the schedule directly in the reply. Always call emit_actions exactly once either way — for a pure question, actions is just an empty array and reply carries the actual answer.${restockSection}
+  const linkSection = linkContext.length
+    ? `
+
+She has saved these quick links — sites she wants to reach by asking. Use "id" for open_link:
+${JSON.stringify(linkContext)}
+
+Rules for links:
+- Wanting to be somewhere counts as asking for it: "I want to schedule a therapy appointment", "open my therapy portal", "I need to book therapy" -> open_link with that link's id. She does not have to say "open".
+- Only ever use an id from the list above. If nothing in it plausibly matches, do NOT emit open_link — treat the message as an ordinary agenda request instead.
+- If two links could match, ask which she means rather than picking.
+- open_link is about *going* somewhere. "Therapy Thursday at 3" is scheduling an appointment she already has — that is an ordinary add_task, not a link. If she clearly wants both (e.g. "book therapy and remind me to pay the invoice"), emit both.
+- Keep reply short, e.g. "Opening your therapy scheduling portal."`
+    : '';
+  return `You are the assistant behind a personal daily-agenda app's chat and quick-add box. You do two things: (1) turn write requests into structured actions, and (2) answer questions about the schedule directly in the reply. Always call emit_actions exactly once either way — for a pure question, actions is just an empty array and reply carries the actual answer.${restockSection}${linkSection}
 
 Today's date is ${todayDate}. Here is the schedule context — a rolling window from a week ago through five weeks ahead, plus everything waiting in the weekly/monthly sidebars. Undated sidebar items have date:null and instead carry week and/or month; "done" reflects current completion state; use "id" for complete_task/move_task (ids like "tpl-4-2026-07-18" are recurring-routine instances and are valid targets too):
 ${JSON.stringify(scheduleContext)}
@@ -141,7 +155,7 @@ Deno.serve(async (req) => {
       return new Response(JSON.stringify({ error: 'Not authorized for this assistant.' }), { status: 401, headers: { ...corsHeaders, 'Content-Type': 'application/json' } });
     }
 
-    const { message, todayDate, scheduleContext, restockContext, history } = await req.json();
+    const { message, todayDate, scheduleContext, restockContext, linkContext, history } = await req.json();
     if (!message || typeof message !== 'string') {
       return new Response(JSON.stringify({ error: 'No message provided' }), { status: 400, headers: { ...corsHeaders, 'Content-Type': 'application/json' } });
     }
@@ -165,6 +179,7 @@ Deno.serve(async (req) => {
           todayDate || new Date().toISOString().slice(0, 10),
           Array.isArray(scheduleContext) ? scheduleContext : [],
           Array.isArray(restockContext) ? restockContext : [],
+          Array.isArray(linkContext) ? linkContext : [],
         ),
         messages: [...sanitizeHistory(history), { role: 'user', content: message }],
         tools: [ACTIONS_TOOL],
