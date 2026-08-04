@@ -2218,8 +2218,49 @@ function applyStapleStatus(staple, status){
   staple.status = status;
   staple.snooze_until = null;
 }
+// A staple going Out is a thing to buy, so mirror it into the weekly sidebar —
+// wherever it was marked, the AI bar here or a tap in the restock app itself.
+// SETTINGS.restockTasked remembers which staples already produced a task, so
+// checking that task off (or deleting it) doesn't make it reappear on the next
+// load. The record is dropped once the staple is no longer out, so the *next*
+// time it runs out earns a fresh task. Unfinished sidebar tasks already roll to
+// the following week on their own, so a staple that stays out keeps nagging.
+function syncRestockOutTasks(){
+  if(!Array.isArray(RESTOCK_STAPLES)) return false;
+  const seen = SETTINGS.restockTasked = SETTINGS.restockTasked || {};
+  const stillOut = [];
+  let changed = false;
+  RESTOCK_STAPLES.forEach(s => {
+    if(!s || !s.name || (s.status || '') !== 'out') return;
+    const key = String(s.id);
+    stillOut.push(key);
+    if(seen[key]) return;
+    const task = addTask({title: `Buy ${s.name}`, week: weekKeyForDate(todayStr())});
+    task.source = 'restock';
+    task.restock_staple_id = s.id;
+    seen[key] = todayStr();
+    changed = true;
+  });
+  Object.keys(seen).forEach(k => {
+    if(stillOut.indexOf(k) < 0){ delete seen[k]; changed = true; }
+  });
+  if(changed) saveToStorage();
+  return changed;
+}
 function isRestockAction(a){
-  return a && (a.type === 'set_restock_status' || a.type === 'add_restock_item' || a.type === 'finish_restock_product');
+  return a && (a.type === 'set_restock_status' || a.type === 'add_restock_item'
+            || a.type === 'finish_restock_product' || a.type === 'log_restock_purchase');
+}
+// Telling the app you bought the thing is the same statement the "Buy X" task
+// was asking for, so close that task here. This is not the reverse of ticking
+// the task off, which deliberately does NOT touch restock: buying something and
+// putting it away are different moments, but saying "I bought it" is not.
+function completeBuyTasksFor(stapleIds){
+  let changed = false;
+  TASKS.forEach(t => {
+    if(t.source === 'restock' && !t.done && stapleIds.indexOf(t.restock_staple_id) >= 0){ t.done = true; changed = true; }
+  });
+  return changed;
 }
 async function applyRestockActions(actions){
   if(!_currentUser || _guestMode) return 'Restock needs you signed in.';
@@ -2236,9 +2277,36 @@ async function applyRestockActions(actions){
   const productIds = products.map(p => p && p.id).filter(n => typeof n === 'number');
   let nextStapleId = Math.max(0, ...staples.map(s => s.id || 0), ...productIds) + 1;
   const done = [];
+  const purchasedStapleIds = [];
   let touchedStaples = false, touchedProducts = false;
   actions.forEach(a => {
-    if(a.type === 'finish_restock_product'){
+    if(a.type === 'log_restock_purchase'){
+      // Mirrors restock's own confirmBuy(): append the purchase, add to on_hand,
+      // and mark the staple stocked. Price and store are recorded only when she
+      // actually said them — the modal over there prefills from the last
+      // purchase because a human then confirms it, but nothing is confirming
+      // here, and an invented price would quietly pollute her price history.
+      const p = products.find(x => String(x.id) === String(a.product_id));
+      if(!p) return;
+      const qty = Math.max(1, Math.round(Number(a.qty) || 1));
+      const price = (a.price === 0 || a.price) && isFinite(Number(a.price)) ? Number(a.price) : null;
+      const purchase = {date: todayStr(), price, store: (a.store || '').trim(),
+                        size: (a.size || '').trim() || p.size || '', on_sale: !!a.on_sale};
+      (p.purchases = p.purchases || []).push(purchase);
+      p.on_hand = (p.on_hand || 0) + qty;
+      touchedProducts = true;
+      const label = [p.brand, p.name].filter(Boolean).join(' ').trim() || 'it';
+      const staple = staples.find(s => s.id === p.staple_id);
+      if(staple){
+        applyStapleStatus(staple, 'stocked');
+        touchedStaples = true;
+        purchasedStapleIds.push(staple.id);
+      }
+      const bits = [purchase.size, purchase.store, purchase.price != null ? `$${purchase.price}` : '']
+        .filter(Boolean).join(', ');
+      done.push(`bought ${qty > 1 ? qty + ' × ' : ''}${label}${bits ? ` (${bits})` : ''}`
+        + (staple ? ` — ${staple.name} → Stocked` : ''));
+    } else if(a.type === 'finish_restock_product'){
       // Restock keeps "used one up" (inventory + the finish history its usage
       // rate is built from) separate from the staple's status, so do the same:
       // log the finish, and only call the staple Out when nothing is left of
@@ -2300,6 +2368,7 @@ async function applyRestockActions(actions){
   }
   if(touchedStaples) RESTOCK_STAPLES = staples;
   if(touchedProducts) RESTOCK_PRODUCTS = products;
+  if(purchasedStapleIds.length && completeBuyTasksFor(purchasedStapleIds)) saveToStorage();
   return 'Restock: ' + done.join(', ') + '.';
 }
 
@@ -2378,6 +2447,10 @@ async function runAssistantMessage(message, history){
   if(restockActions.length){
     const note = await applyRestockActions(restockActions);
     if(note) reply = reply ? `${reply} ${note}` : note;
+    // Anything that just went Out becomes a "Buy X" task; render again because
+    // the earlier pass ran before this cross-app round trip finished.
+    syncRestockOutTasks();
+    renderAll();
   }
   return reply;
 }
@@ -3001,7 +3074,9 @@ function afterLoad(){
   // "we're low on detergent", and quick-add is one-shot with no chance to
   // fetch mid-turn, so warm it here too. Nothing renders from it — a failure
   // just means the assistant has no restock list and says so.
-  if(_currentUser && !_guestMode && !_restockLoaded) loadRestockData();
+  if(_currentUser && !_guestMode && !_restockLoaded){
+    loadRestockData().then(() => { if(syncRestockOutTasks()) renderAll(); });
+  }
 }
 
 /* ---- sync safety net (same pattern as sibling apps) ---- */
@@ -3076,6 +3151,10 @@ async function refreshFromSupabase(){
     writeLocalCache(_currentUser.id, {tasks:TASKS, templates:TEMPLATES, completions:COMPLETIONS, settings:SETTINGS});
     afterLoad();
     renderAll();
+    // Tapping something Out in the restock app on the phone should surface here
+    // on the next return to this tab, not only after a full reload — so re-read
+    // restock too, not just this app's own row.
+    loadRestockData(true).then(() => { if(syncRestockOutTasks()) renderAll(); });
   }catch(e){ console.error('refreshFromSupabase error:', e); }
 }
 let _realtimeChannel = null;

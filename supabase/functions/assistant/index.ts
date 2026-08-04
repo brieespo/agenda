@@ -24,7 +24,7 @@ const ACTIONS_TOOL = {
         items: {
           type: 'object',
           properties: {
-            type: { type: 'string', enum: ['add_task', 'add_timed_task', 'add_template', 'complete_task', 'move_task', 'set_restock_status', 'add_restock_item', 'finish_restock_product'] },
+            type: { type: 'string', enum: ['add_task', 'add_timed_task', 'add_template', 'complete_task', 'move_task', 'set_restock_status', 'add_restock_item', 'finish_restock_product', 'log_restock_purchase'] },
             title: { type: 'string', description: 'Task or routine title (add_task/add_timed_task/add_template), or the product name (add_restock_item).' },
             date: { type: ['string', 'null'], description: 'YYYY-MM-DD. Omit/null for add_task with no day yet (goes to the weekly sidebar), or for move_task/complete_task when not changing the date.' },
             time: { type: ['string', 'null'], description: 'HH:MM 24h, required for add_timed_task, optional for move_task.' },
@@ -39,7 +39,12 @@ const ACTIONS_TOOL = {
             },
             task_id: { type: ['string', 'number'], description: 'complete_task/move_task only: id of an existing task from the provided context.' },
             item_id: { type: ['string', 'number'], description: 'set_restock_status only: id of an existing staple from the restock list below. Never invent one.' },
-            product_id: { type: ['string', 'number'], description: 'finish_restock_product only: id of a specific variant from a staple\'s "variants" list. Never invent one.' },
+            product_id: { type: ['string', 'number'], description: 'finish_restock_product / log_restock_purchase: id of a specific variant from a staple\'s "variants" list. Never invent one.' },
+            qty: { type: 'number', description: 'log_restock_purchase: how many units/packages were bought. Default 1. This is a count of items, never a package size.' },
+            size: { type: 'string', description: 'log_restock_purchase: the package size as she said it, e.g. "1lb", "32oz", "2L". Omit if she did not say one.' },
+            price: { type: 'number', description: 'log_restock_purchase: price paid, only if she actually said one. Never guess.' },
+            store: { type: 'string', description: 'log_restock_purchase: where she bought it, only if she said. Never guess.' },
+            on_sale: { type: 'boolean', description: 'log_restock_purchase: true only if she said it was on sale/discounted.' },
             status: { type: 'string', enum: ['stocked', 'running_low', 'out', 'ordered'], description: 'set_restock_status / add_restock_item: the supply state to record.' }
           },
           required: ['type']
@@ -61,6 +66,9 @@ Each entry is a staple (the generic supply she keeps stocked). Its "variants" ar
 
 Rules for restock:
 - She named the STAPLE generally ("I'm out of coffee", "we're low on detergent", "bought dryer sheets", "ordered vacuum bags") -> set_restock_status with that staple's id and status out / running_low / stocked / ordered.
+- She BOUGHT something ("I bought 1lb of Good Folks coffee", "picked up more Taunt", "got detergent, $14 at Kroger, on sale") -> log_restock_purchase with that variant's id. This records the purchase and marks the staple stocked by itself, so never pair it with a set_restock_status.
+- qty vs size: qty counts units/packages, size is the package size. "1lb of Good Folks coffee" is qty 1 with size "1lb" — never qty 1lb. "Two bags of coffee" is qty 2. Only fill price/store/on_sale when she actually says them; leave them out otherwise rather than guessing.
+- If she says she bought something and names only the staple, and that staple has more than one variant, ask which one she bought instead of picking.
 - She named a specific VARIANT ("I ran out of Taunt", "finished the Oribe gel", "used up the Xtra Milk one") -> finish_restock_product with that variant's id. Using up one particular product is an inventory event, not a status change: she may still have other variants of that staple on hand, and the app works out the status from what's left. Match against the variant's brand and name together.
 - Match names loosely ("detergent" -> "Laundry Detergent", "moisturizer" -> "Face Moisturizer", "Taunt" -> the "DedCool 01 Taunt" variant). If two staples or two variants could plausibly match, ask which she means instead of picking.
 - If the named product is NOT anywhere in the list above — neither a staple nor a variant — do NOT invent a set_restock_status and do NOT silently create it. Return an empty actions array and ask, e.g. "Paper towels isn't on your restock list — add it as a new staple, or just add a task to buy some?"
