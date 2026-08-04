@@ -155,6 +155,14 @@ async function suiteLines(admin: any, userId: string, today: string): Promise<st
   try {
     const { data } = await admin.from('law_school_data').select('settings').eq('user_id', userId).maybeSingle();
     const items: {date: string; label: string}[] = [];
+    // Note-writing checkpoints (topic selection, prospectus, drafts). These
+    // used to exist only as a hardcoded constant inside the law tracker, so
+    // nothing out here could see them; they're stored data now.
+    for (const st of (data?.settings?.noteStages || [])) {
+      for (const cp of (st?.cps || [])) {
+        if (cp?.date && cp?.label) items.push({ date: cp.date, label: cp.label });
+      }
+    }
     for (const d of (data?.settings?.editDeadlines || [])) {
       if (!d) continue;
       const halves: [string, string][] = [['first', d.first_half_due], ['second', d.second_half_due]];
