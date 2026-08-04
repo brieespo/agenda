@@ -110,7 +110,7 @@ function computeBrief(row: any, today: string) {
 // optional: a missing table, an empty row or a shape that doesn't parse drops
 // that line and leaves the rest of the brief intact, because a notification
 // that fails to arrive is worse than one missing its dinner line.
-const LAW_HORIZON_DAYS = 21;
+const LAW_HORIZON_DAYS = 3;
 async function suiteLines(admin: any, userId: string, today: string): Promise<string[]> {
   const lines: string[] = [];
 
