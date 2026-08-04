@@ -87,7 +87,7 @@ Conversation: the drawer sends the recent turns (`chatHistoryForModel()`), not j
 
 ### Apps menu + quick links
 
-The header's grid button lists the sibling apps (order set by Bri: dinner, law, restock, perfume, sewing — no hub) plus her own saved **quick links**. The suite list is duplicated from the hub's `APP REGISTRY` rather than fetched, since that registry lives in the hub's JS and not a table; five entries kept in sync by hand beats a cross-app fetch for a menu. Everything in the menu is a real `<a target="_blank">`, so clicking is plain user-initiated navigation.
+The header's grid button lists the sibling apps (order set by Bri: dinner, law, restock, perfume, sewing, time — no hub) plus her own saved **quick links**. The suite list is duplicated from the hub's `APP REGISTRY` rather than fetched, since that registry lives in the hub's JS and not a table; five entries kept in sync by hand beats a cross-app fetch for a menu. Everything in the menu is a real `<a target="_blank">`, so clicking is plain user-initiated navigation.
 
 Quick-link ids must be included in `afterLoad`'s `nextId` scan — leaving them out reset `nextId` to the same value every session, so every link created in a fresh session collided with an existing one. Since everything here is looked up by id (the assistant's `open_link`, editing, deleting), duplicates silently resolved to whichever link came first: asking for the stylist opened the therapy portal, and editing one row rewrote another. `dedupeQuickLinkIds()` repairs already-saved collisions on load, first holder keeping its id.
 
