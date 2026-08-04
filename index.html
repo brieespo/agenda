@@ -2331,7 +2331,15 @@ function linkTerms(l){
 // popup blockers exist to stop, so the common case never awaits at all. Requires
 // a single unambiguous match — two links matching means we don't know which she
 // meant, so it falls through to the assistant, which can ask.
+// "therapy Thursday at 3" is an appointment, not a request to visit a website —
+// but it contains "therapy", so the keyword match alone would open the portal
+// and never create the task. A day or a time is a strong signal she's scheduling
+// something rather than trying to go somewhere, so hand those to the assistant,
+// which weighs the whole sentence and gets the distinction right.
+const SCHEDULEY = /\b(mon|tue|tues|wed|weds|thu|thur|thurs|fri|sat|sun)(day|nesday|rsday|urday)?\b|\b(today|tonight|tomorrow|yesterday)\b|\bnext (week|month|year)\b|\bthis (week|month|morning|afternoon|evening)\b|\b\d{1,2}\s*(am|pm)\b|\b\d{1,2}:\d{2}\b|\bat \d{1,2}\b/i;
+function looksScheduled(text){ return SCHEDULEY.test(String(text || '')); }
 function matchQuickLink(text){
+  if(looksScheduled(text)) return null;
   const hay = normalizeForMatch(text);
   const hits = getQuickLinks().filter(l => safeUrl(l.url) && linkTerms(l).some(term => hay.includes(term)));
   return hits.length === 1 ? hits[0] : null;
