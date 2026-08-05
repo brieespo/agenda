@@ -301,7 +301,10 @@ a.meal-title:hover .meal-link-ico { opacity: 1; }
 .apps-menu { position: absolute; top: calc(100% + 6px); right: 0; z-index: 400; min-width: 210px; background: var(--surface); border: 1px solid var(--border); border-radius: 12px; box-shadow: 0 10px 28px rgba(0,0,0,0.14); padding: 6px; display: none; }
 .apps-menu.open { display: block; }
 .apps-menu-label { font-size: 0.68rem; text-transform: uppercase; letter-spacing: 0.05em; color: var(--muted); padding: 6px 8px 3px; }
-.apps-menu-row { display: flex; align-items: center; justify-content: space-between; gap: 10px; padding: 7px 9px; border-radius: 8px; font-size: 0.84rem; color: var(--ink); text-decoration: none; transition: background 120ms ease, color 120ms ease; }
+/* Used by both <a> (app links) and <button> (timer actions). The button resets
+   are what keep the two identical — without them a button here renders with the
+   browser's default chrome, which is a heavy border this app never uses. */
+.apps-menu-row { display: flex; align-items: center; justify-content: space-between; gap: 10px; width: 100%; padding: 7px 9px; border: none; border-radius: 8px; background: none; font: inherit; font-size: 0.84rem; text-align: left; color: var(--ink); text-decoration: none; cursor: pointer; transition: background 120ms ease, color 120ms ease; }
 .apps-menu-row:hover { background: var(--accent-light); color: var(--serious); }
 .apps-menu-row .amr-ico { display: flex; opacity: 0; transition: opacity 120ms ease; }
 .apps-menu-row .amr-ico .icon { width: 0.85rem; height: 0.85rem; }
