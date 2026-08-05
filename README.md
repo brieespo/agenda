@@ -105,6 +105,14 @@ Phase 3 suite sync. `loadLawData()` reads `law_school_data.settings` — note ch
 
 They are **facts owned by another app, not intentions managed here**, so they get the Google Calendar treatment: read-only, no checkbox, never written into `TASKS`. Editing one means editing it in the law tracker, which the row's tooltip says. A failed read just means the band is absent.
 
+### Time tracking (cross-app write)
+
+`time_data` stays the single store — this app starts, stops and writes entries in the tracker's own shapes, so the Time Tracker remains the reporting surface and neither app keeps a private copy.
+
+A header control is the whole footprint: an ordinary icon button when idle, a live chip (`1:04 · Footnote pass`) when running, ticking every 30s. Tapping it opens a category list (unarchived only, category-only — sub-types get refined in the tracker) or, while running, "stop and log it". The clock on a task row is the same action with the title pre-filled and the tracker's own `settings.lastTimerCat` as the category.
+
+Stop writes one entry per date via `splitRange`, mirroring the tracker: an overnight run becomes `23:40–24:00` on one day and `00:00–…` on the next rather than a single impossible entry. The tracker's "under a minute is a misclick, log nothing" rule carries over. Start re-reads `timer` first rather than trusting the cached copy, since the tracker may have started something on another device and clobbering it would discard real time.
+
 ### Start a timer from a task (cross-app write)
 
 A clock on each undone task row starts that task in the Time Tracker. The tracker keeps one running timer in `time_data.timer` as `{category_id, subcategory, started_at, description}`; this writes that same object, so the tracker picks it up as though it had been started there. Category follows the tracker's *own* idle default — `settings.lastTimerCat` if still valid, else the first unarchived category — rather than inventing a second notion of "which category". A timer already running is left alone with a notice: silently replacing one would discard time actually spent. Only the `timer` column is written.

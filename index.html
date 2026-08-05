@@ -290,6 +290,12 @@ a.meal-title:hover .meal-link-ico { opacity: 1; }
 .task-row .t-timer:hover { color: var(--accent); }
 .task-row .t-timer .icon { width: 0.9rem; height: 0.9rem; }
 
+.timer-chip { display: inline-flex; align-items: center; gap: 6px; padding: 5px 10px; border-radius: 999px; border: 1px solid var(--serious); background: var(--accent-light); color: var(--serious); font: inherit; font-size: 0.78rem; font-variant-numeric: tabular-nums; cursor: pointer; }
+.timer-chip .tc-dot { width: 6px; height: 6px; border-radius: 50%; background: var(--serious); flex: none; animation: tcpulse 2s ease-in-out infinite; }
+@keyframes tcpulse { 0%, 100% { opacity: 1; } 50% { opacity: 0.35; } }
+.timer-chip .tc-label { max-width: 12ch; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; opacity: 0.85; }
+.timer-menu-note { font-size: 0.72rem; color: var(--muted); padding: 2px 9px 6px; margin: 0; line-height: 1.4; }
+
 /* ---- apps menu ---- */
 .apps-menu-wrap { position: relative; display: inline-flex; }
 .apps-menu { position: absolute; top: calc(100% + 6px); right: 0; z-index: 400; min-width: 210px; background: var(--surface); border: 1px solid var(--border); border-radius: 12px; box-shadow: 0 10px 28px rgba(0,0,0,0.14); padding: 6px; display: none; }
@@ -457,6 +463,10 @@ footer button { font: inherit; font-size: 0.72rem; border: none; background: non
   <div class="header-row">
     <h1><svg class="icon-lg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="4" width="18" height="18" rx="2"/><line x1="16" y1="2" x2="16" y2="6"/><line x1="8" y1="2" x2="8" y2="6"/><line x1="3" y1="10" x2="21" y2="10"/></svg> Agenda</h1>
     <div class="spacer"></div>
+    <div class="apps-menu-wrap">
+      <button class="icon-btn" title="Track time" id="timer-btn" onclick="toggleTimerMenu()" data-ico="clock"></button>
+      <div class="apps-menu" id="timer-menu"></div>
+    </div>
     <div class="apps-menu-wrap">
       <button class="icon-btn" title="My apps" id="apps-menu-btn" onclick="toggleAppsMenu()" data-ico="grid"></button>
       <div class="apps-menu" id="apps-menu"></div>
@@ -1659,7 +1669,7 @@ function taskRowHtml(item){
     <span class="chk ${item.done?'done':''}" onclick='${doneCall}'>${item.done?ico('check'):''}</span>
     <span class="t-title" onclick='${openCall}'>${esc(item.title)}</span>
     ${recurIco}${rolledChip}
-    ${item.done ? '' : `<button class="t-timer" title="Start timing this in Time Tracker" onclick='startTimerForTask(${JSON.stringify(item.title)})'>${ico('clock')}</button>`}
+    ${item.done ? '' : `<button class="t-timer" title="Start timing this in Time Tracker" onclick='startTrackingForTask(${JSON.stringify(item.title)})'>${ico('clock')}</button>`}
   </div>`;
 }
 function attachRowDrag(container, items){
@@ -2447,39 +2457,194 @@ function renderAppsMenu(){
 document.addEventListener('click', (e) => {
   const menu = document.getElementById('apps-menu');
   if(menu && menu.classList.contains('open') && !e.target.closest('#apps-menu') && !e.target.closest('#apps-menu-btn')) toggleAppsMenu(false);
+  const tmenu = document.getElementById('timer-menu');
+  if(tmenu && tmenu.classList.contains('open') && !e.target.closest('#timer-menu') && !e.target.closest('#timer-btn')) toggleTimerMenu(false);
 });
 
-/* ---- cross-app write: start a timer in the time tracker ----
-   The tracker keeps a single running timer in time_data.timer as
-   {category_id, subcategory, started_at, description}; starting one from here
-   just writes that same object, so the tracker picks it up as if it had been
-   started there. Category follows the tracker's own idle default — the last one
-   used, else the first active one — rather than inventing a second notion of
-   "which category", and a timer already running is left alone: silently
-   replacing it would throw away time she'd actually spent. */
-async function startTimerForTask(title){
-  if(!_currentUser || _guestMode){ showNotice('Sign in to start a timer.', 'warn'); return; }
+/* ---- time tracking, run from here ----
+   time_data stays the single store: this app starts, stops and writes entries
+   in the tracker's own shapes, so the tracker remains the reporting and
+   analysis surface and neither app keeps a private copy. Category only —
+   sub-types get refined over there. An overnight run is split per-day by the
+   same rule the tracker uses, so a timer left going past midnight becomes one
+   entry per date rather than a single impossible one. */
+let TIME_CATS = [], RUNNING_TIMER = null, _timeLoaded = false, _timerTick = null;
+const pad2 = n => String(n).padStart(2, '0');
+const hhmmOf = d => `${pad2(d.getHours())}:${pad2(d.getMinutes())}`;
+const localDateStr = d => `${d.getFullYear()}-${pad2(d.getMonth() + 1)}-${pad2(d.getDate())}`;
+// Mirrors the tracker's splitRange: local midnight boundaries, a segment ending
+// at a boundary is written as 24:00 so the day reads as full rather than empty.
+function splitRange(startDt, endDt){
+  const segs = [];
+  let cur = new Date(startDt);
+  if(endDt <= cur) return segs;
+  let guard = 0;
+  while(cur < endDt && guard++ < 400){
+    const nextMidnight = new Date(cur.getFullYear(), cur.getMonth(), cur.getDate() + 1, 0, 0, 0, 0);
+    const segEnd = endDt < nextMidnight ? endDt : nextMidnight;
+    const endsAtMidnight = segEnd.getTime() === nextMidnight.getTime();
+    segs.push({
+      date: localDateStr(cur),
+      start: hhmmOf(cur),
+      end: endsAtMidnight ? '24:00' : hhmmOf(segEnd),
+      minutes: Math.max(0, Math.round((segEnd - cur) / 60000))
+    });
+    cur = nextMidnight;
+  }
+  return segs;
+}
+async function loadTimeData(force){
+  if(_timeLoaded && !force) return;
+  if(_guestMode || !_currentUser){ TIME_CATS = []; RUNNING_TIMER = null; _timeLoaded = true; return; }
   try{
-    const {data, error} = await sb.from('time_data').select('categories, timer, settings').eq('user_id', _currentUser.id).maybeSingle();
+    const {data, error} = await sb.from('time_data').select('categories, timer').eq('user_id', _currentUser.id).maybeSingle();
+    if(error) throw error;
+    TIME_CATS = (data && data.categories || []).filter(c => c && !c.archived);
+    RUNNING_TIMER = (data && data.timer && data.timer.started_at) ? data.timer : null;
+    _timeLoaded = true;
+    renderTimerButton();
+  }catch(e){ console.error('loadTimeData error:', e); }
+}
+function elapsedMinutes(){
+  if(!RUNNING_TIMER) return 0;
+  return Math.max(0, Math.floor((Date.now() - Date.parse(RUNNING_TIMER.started_at)) / 60000));
+}
+function elapsedLabel(){
+  const m = elapsedMinutes();
+  return `${Math.floor(m / 60)}:${pad2(m % 60)}`;
+}
+// Idle it is an ordinary icon button and takes no more room than the others;
+// running it becomes a live chip. Nothing else on the page changes.
+function renderTimerButton(){
+  const btn = document.getElementById('timer-btn');
+  if(!btn) return;
+  if(RUNNING_TIMER){
+    const cat = TIME_CATS.find(c => c.id === RUNNING_TIMER.category_id);
+    btn.className = 'timer-chip';
+    btn.removeAttribute('data-ico');
+    btn.innerHTML = `<span class="tc-dot"></span>${esc(elapsedLabel())}<span class="tc-label">${esc(RUNNING_TIMER.description || (cat ? cat.name : 'tracking'))}</span>`;
+    btn.title = 'Tracking — tap to stop';
+    if(!_timerTick) _timerTick = setInterval(renderTimerButton, 30000);
+  } else {
+    btn.className = 'icon-btn';
+    btn.innerHTML = '';
+    btn.dataset.ico = 'clock';
+    btn.title = 'Track time';
+    paintIcons(btn.parentElement);
+    if(_timerTick){ clearInterval(_timerTick); _timerTick = null; }
+  }
+}
+function toggleTimerMenu(open){
+  const menu = document.getElementById('timer-menu');
+  if(!menu) return;
+  const show = open === undefined ? !menu.classList.contains('open') : open;
+  if(show){
+    renderTimerMenu();
+    loadTimeData(true).then(() => { if(menu.classList.contains('open')) renderTimerMenu(); });
+  }
+  menu.classList.toggle('open', show);
+}
+function renderTimerMenu(){
+  const menu = document.getElementById('timer-menu');
+  if(!menu) return;
+  if(RUNNING_TIMER){
+    const cat = TIME_CATS.find(c => c.id === RUNNING_TIMER.category_id);
+    menu.innerHTML = `<div class="apps-menu-label">Tracking ${esc(elapsedLabel())}</div>`
+      + `<p class="timer-menu-note">${esc(RUNNING_TIMER.description || '(no description)')}${cat ? ' · ' + esc(cat.name) : ''}</p>`
+      + `<button class="apps-menu-row" onclick="stopTracking()">Stop and log it<span class="amr-ico">${ico('check')}</span></button>`;
+  } else if(!TIME_CATS.length){
+    menu.innerHTML = `<div class="apps-menu-label">Track time</div>`
+      + `<p class="timer-menu-note">No categories yet — add one in Time Tracker.</p>`;
+  } else {
+    menu.innerHTML = `<div class="apps-menu-label">Start tracking</div>`
+      + TIME_CATS.map(c => `<button class="apps-menu-row" onclick="startTracking(${c.id})">${esc(c.name)}</button>`).join('')
+      + `<p class="timer-menu-note">Sub-types get set in Time Tracker.</p>`;
+  }
+  paintIcons(menu);
+}
+async function startTracking(categoryId, description){
+  toggleTimerMenu(false);
+  if(!_currentUser || _guestMode){ showNotice('Sign in to track time.', 'warn'); return; }
+  try{
+    // Re-read rather than trust the cached copy: the tracker may have started
+    // something on another device, and clobbering that would discard real time.
+    const {data, error} = await sb.from('time_data').select('timer').eq('user_id', _currentUser.id).maybeSingle();
     if(error) throw error;
     if(data && data.timer && data.timer.started_at){
-      showNotice(`A timer is already running in Time Tracker (${esc(data.timer.description || 'no description')}). Stop it there first.`, 'warn');
+      RUNNING_TIMER = data.timer;
+      renderTimerButton();
+      showNotice(`Already tracking "${data.timer.description || 'something'}" — stop that first.`, 'warn');
       return;
     }
-    const cats = (data && data.categories || []).filter(c => c && !c.archived);
-    if(!cats.length){ showNotice('No categories in Time Tracker yet — add one there first.', 'warn'); return; }
-    const lastId = data && data.settings && data.settings.lastTimerCat;
-    const cat = cats.find(c => c.id === lastId) || cats[0];
-    const timer = {category_id: cat.id, subcategory: null, started_at: new Date().toISOString(), description: title};
+    const timer = {category_id: categoryId, subcategory: null, started_at: new Date().toISOString(),
+                   description: (description || '').trim()};
     const {error: werr} = await sb.from('time_data')
-      .update({timer, updated_at: new Date().toISOString()})
-      .eq('user_id', _currentUser.id);
+      .update({timer, updated_at: new Date().toISOString()}).eq('user_id', _currentUser.id);
     if(werr) throw werr;
-    showNotice(`Timing "${title}" under ${cat.name}. Stop it in Time Tracker.`, 'info');
+    RUNNING_TIMER = timer;
+    renderTimerButton();
+    const cat = TIME_CATS.find(c => c.id === categoryId);
+    showNotice(`Tracking${cat ? ' ' + cat.name : ''}${timer.description ? ' — ' + timer.description : ''}.`, 'info');
   }catch(e){
-    console.error('start timer error:', e);
-    showNotice("Couldn't reach Time Tracker to start a timer.", 'warn');
+    console.error('startTracking error:', e);
+    showNotice("Couldn't start the timer.", 'warn');
   }
+}
+async function stopTracking(){
+  toggleTimerMenu(false);
+  if(!_currentUser || _guestMode) return;
+  try{
+    const {data, error} = await sb.from('time_data').select('entries, timer').eq('user_id', _currentUser.id).maybeSingle();
+    if(error) throw error;
+    const timer = data && data.timer;
+    if(!timer || !timer.started_at){ RUNNING_TIMER = null; renderTimerButton(); return; }
+    const startDt = new Date(Date.parse(timer.started_at));
+    const endDt = new Date();
+    // The tracker's own rule: a start immediately followed by a stop is a
+    // misclick, not a record.
+    if(endDt - startDt < 60000){
+      await sb.from('time_data').update({timer: null, updated_at: new Date().toISOString()}).eq('user_id', _currentUser.id);
+      RUNNING_TIMER = null;
+      renderTimerButton();
+      showNotice('Timer ran less than a minute — nothing logged.', 'info');
+      return;
+    }
+    const entries = Array.isArray(data.entries) ? data.entries : [];
+    let nextEntryId = Math.max(0, ...entries.map(e => (e && e.id) || 0)) + 1;
+    const segs = splitRange(startDt, endDt);
+    segs.forEach(seg => entries.push({
+      id: nextEntryId++, category_id: timer.category_id, subcategory: timer.subcategory || null,
+      date: seg.date, start: seg.start, end: seg.end, minutes: seg.minutes,
+      description: timer.description || '', source: 'timer'
+    }));
+    const {error: werr} = await sb.from('time_data')
+      .update({entries, timer: null, updated_at: new Date().toISOString()}).eq('user_id', _currentUser.id);
+    if(werr) throw werr;
+    RUNNING_TIMER = null;
+    renderTimerButton();
+    const total = segs.reduce((n, sg) => n + sg.minutes, 0);
+    const h = Math.floor(total / 60), m = total % 60;
+    showNotice(`Logged ${h ? h + 'h ' : ''}${m}m${segs.length > 1 ? ` across ${segs.length} days` : ''}.`, 'info');
+  }catch(e){
+    console.error('stopTracking error:', e);
+    showNotice("Couldn't stop the timer.", 'warn');
+  }
+}
+// The task-row clock is the same action with a different starting point: it
+// carries the task title through as the description and takes the tracker's own
+// idle default for the category, rather than this app inventing a second answer
+// to "which category".
+async function startTrackingForTask(title){
+  if(!_currentUser || _guestMode){ showNotice('Sign in to track time.', 'warn'); return; }
+  await loadTimeData(true);
+  if(!TIME_CATS.length){ showNotice('No categories in Time Tracker yet — add one there first.', 'warn'); return; }
+  let lastId = null;
+  try{
+    const {data} = await sb.from('time_data').select('settings').eq('user_id', _currentUser.id).maybeSingle();
+    lastId = data && data.settings && data.settings.lastTimerCat;
+  }catch(e){ /* fall through to the first category */ }
+  const cat = TIME_CATS.find(c => c.id === lastId) || TIME_CATS[0];
+  await startTracking(cat.id, title);
 }
 
 /* ---- cross-app read: law school deadlines ----
@@ -3480,6 +3645,8 @@ function afterLoad(){
   // Law deadlines are read-only context owned by the law tracker; a failure
   // just means the band is absent, so this stays off the critical path too.
   if(_currentUser && !_guestMode && !_lawLoaded) loadLawData().then(renderAll);
+  // Categories for the picker, and any timer already running on another device.
+  if(_currentUser && !_guestMode && !_timeLoaded) loadTimeData();
 }
 
 /* ---- sync safety net (same pattern as sibling apps) ---- */
