@@ -294,6 +294,8 @@ a.meal-title:hover .meal-link-ico { opacity: 1; }
 .timer-chip .tc-dot { width: 6px; height: 6px; border-radius: 50%; background: var(--serious); flex: none; animation: tcpulse 2s ease-in-out infinite; }
 @keyframes tcpulse { 0%, 100% { opacity: 1; } 50% { opacity: 0.35; } }
 .timer-chip .tc-label { max-width: 12ch; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; opacity: 0.85; }
+.timer-desc { width: 100%; font: inherit; font-size: 0.82rem; padding: 6px 9px; margin: 2px 0 6px; border-radius: 8px; border: 1px solid var(--border); background: var(--page); color: var(--ink); }
+.timer-desc:focus { outline: none; border-color: var(--accent); }
 .timer-menu-note { font-size: 0.72rem; color: var(--muted); padding: 2px 9px 6px; margin: 0; line-height: 1.4; }
 
 /* ---- apps menu ---- */
@@ -2472,6 +2474,7 @@ document.addEventListener('click', (e) => {
    same rule the tracker uses, so a timer left going past midnight becomes one
    entry per date rather than a single impossible one. */
 let TIME_CATS = [], RUNNING_TIMER = null, _timeLoaded = false, _timerTick = null;
+let _timerDraft = '';   // kept across the menu's reload-and-rerender
 const pad2 = n => String(n).padStart(2, '0');
 const hhmmOf = d => `${pad2(d.getHours())}:${pad2(d.getMinutes())}`;
 const localDateStr = d => `${d.getFullYear()}-${pad2(d.getMonth() + 1)}-${pad2(d.getDate())}`;
@@ -2559,13 +2562,24 @@ function renderTimerMenu(){
     menu.innerHTML = `<div class="apps-menu-label">Track time</div>`
       + `<p class="timer-menu-note">No categories yet — add one in Time Tracker.</p>`;
   } else {
+    // The description is captured before the category, because picking the
+    // category is the action that starts the timer — asking afterwards would
+    // mean either a second step or a timer already running while she types.
+    const draft = _timerDraft || '';
     menu.innerHTML = `<div class="apps-menu-label">Start tracking</div>`
-      + TIME_CATS.map(c => `<button class="apps-menu-row" onclick="startTracking(${c.id})">${esc(c.name)}</button>`).join('')
-      + `<p class="timer-menu-note">Sub-types get set in Time Tracker.</p>`;
+      + `<input type="text" id="timer-desc" class="timer-desc" placeholder="What are you working on?" value="${esc(draft)}" autocomplete="off" oninput="_timerDraft = this.value">`
+      + TIME_CATS.map(c => `<button class="apps-menu-row" onclick="startTracking(${c.id})">${esc(c.name)}</button>`).join('');
   }
   paintIcons(menu);
 }
 async function startTracking(categoryId, description){
+  // Read before closing: the menu's input is what carries an unplanned
+  // description, and a task-row start passes its title instead.
+  if(description === undefined){
+    const f = document.getElementById('timer-desc');
+    description = f ? f.value : '';
+  }
+  _timerDraft = '';
   toggleTimerMenu(false);
   if(!_currentUser || _guestMode){ showNotice('Sign in to track time.', 'warn'); return; }
   try{

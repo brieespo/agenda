@@ -109,7 +109,7 @@ They are **facts owned by another app, not intentions managed here**, so they ge
 
 `time_data` stays the single store — this app starts, stops and writes entries in the tracker's own shapes, so the Time Tracker remains the reporting surface and neither app keeps a private copy.
 
-A header control is the whole footprint: an ordinary icon button when idle, a live chip (`1:04 · Footnote pass`) when running, ticking every 30s. Tapping it opens a category list (unarchived only, category-only — sub-types get refined in the tracker) or, while running, "stop and log it". The clock on a task row is the same action with the title pre-filled and the tracker's own `settings.lastTimerCat` as the category.
+A header control is the whole footprint: an ordinary icon button when idle, a live chip (`1:04 · Footnote pass`) when running, ticking every 30s. Tapping it opens a description field plus a category list (unarchived only, category-only — sub-types get refined in the tracker) or, while running, "stop and log it". The description is captured *before* the category because picking a category is what starts the timer; it flows onto the entry and shows in the chip. The clock on a task row is the same action with the title pre-filled and the tracker's own `settings.lastTimerCat` as the category.
 
 Stop writes one entry per date via `splitRange`, mirroring the tracker: an overnight run becomes `23:40–24:00` on one day and `00:00–…` on the next rather than a single impossible entry. The tracker's "under a minute is a misclick, log nothing" rule carries over. Start re-reads `timer` first rather than trusting the cached copy, since the tracker may have started something on another device and clobbering it would discard real time.
 
