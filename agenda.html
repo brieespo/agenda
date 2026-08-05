@@ -2553,10 +2553,15 @@ function toggleTimerMenu(open){
 function renderTimerMenu(){
   const menu = document.getElementById('timer-menu');
   if(!menu) return;
+  // The lazy reload re-renders shortly after open; if she's already typing in
+  // the running description, leave it alone rather than replacing the node.
+  const active = document.activeElement;
+  if(active && active.id === 'timer-desc-running') return;
   if(RUNNING_TIMER){
     const cat = TIME_CATS.find(c => c.id === RUNNING_TIMER.category_id);
     menu.innerHTML = `<div class="apps-menu-label">Tracking ${esc(elapsedLabel())}</div>`
-      + `<p class="timer-menu-note">${esc(RUNNING_TIMER.description || '(no description)')}${cat ? ' · ' + esc(cat.name) : ''}</p>`
+      + `<input type="text" id="timer-desc-running" class="timer-desc" value="${esc(RUNNING_TIMER.description || '')}" placeholder="What are you working on?" autocomplete="off" onkeydown="if(event.key==='Enter'){event.preventDefault();this.blur();}" onblur="saveRunningDescription()">`
+      + (cat ? `<p class="timer-menu-note">${esc(cat.name)}</p>` : '')
       + `<button class="apps-menu-row" onclick="stopTracking()">Stop and log it<span class="amr-ico">${ico('check')}</span></button>`;
   } else if(!TIME_CATS.length){
     menu.innerHTML = `<div class="apps-menu-label">Track time</div>`
@@ -2607,8 +2612,32 @@ async function startTracking(categoryId, description){
     showNotice("Couldn't start the timer.", 'warn');
   }
 }
+// Editing while running writes only the description back onto the timer,
+// preserving started_at and category by re-reading first. _descSave is the
+// in-flight write: stopping awaits it, because blurring the field to hit stop
+// fires both at once and the entry must log what she actually typed.
+let _descSave = null;
+async function saveRunningDescription(){
+  const field = document.getElementById('timer-desc-running');
+  if(!field || !RUNNING_TIMER) return;
+  const next = field.value.trim();
+  if(next === (RUNNING_TIMER.description || '')) return;
+  RUNNING_TIMER.description = next;
+  renderTimerButton();
+  _descSave = (async () => {
+    try{
+      const {data} = await sb.from('time_data').select('timer').eq('user_id', _currentUser.id).maybeSingle();
+      if(!data || !data.timer || !data.timer.started_at) return;
+      const timer = {...data.timer, description: next};
+      await sb.from('time_data').update({timer, updated_at: new Date().toISOString()}).eq('user_id', _currentUser.id);
+    }catch(e){ console.error('saveRunningDescription error:', e); }
+  })();
+  await _descSave;
+  _descSave = null;
+}
 async function stopTracking(){
   toggleTimerMenu(false);
+  if(_descSave) await _descSave;   // let a just-typed description land first
   if(!_currentUser || _guestMode) return;
   try{
     const {data, error} = await sb.from('time_data').select('entries, timer').eq('user_id', _currentUser.id).maybeSingle();
