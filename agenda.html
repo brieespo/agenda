@@ -3163,10 +3163,92 @@ function buildAssistantContext(){
   }));
   return out;
 }
+/* ---- assistant: time tracking ----
+   Time lives in the tracker's row, not this app's, so these follow the restock
+   pattern rather than applyAssistantAction: written separately, asynchronously,
+   with the outcome appended to the reply so a cross-app write never silently
+   does nothing. */
+function buildTimeContext(){
+  return {
+    categories: TIME_CATS.map(c => ({id: c.id, name: c.name})),
+    running: RUNNING_TIMER ? {
+      description: RUNNING_TIMER.description || '',
+      category: (TIME_CATS.find(c => c.id === RUNNING_TIMER.category_id) || {}).name || '',
+      started_at: RUNNING_TIMER.started_at
+    } : null
+  };
+}
+function isTimeAction(a){ return a && (a.type === 'start_timer' || a.type === 'stop_timer'); }
+// A backdated start is the point of this — "start logging the courthouse at 9am
+// and keep it running" — so date/time are honoured rather than clamped to now.
+// A start in the future is the one thing that can't be meant: it would render as
+// negative elapsed, so it falls back to now and says so.
+function resolveTimerStart(action){
+  if(!action.time) return {at: new Date(), note: ''};
+  const date = action.date || todayStr();
+  const [h, m] = String(action.time).split(':').map(Number);
+  const [y, mo, d] = date.split('-').map(Number);
+  if([h, m, y, mo, d].some(n => !Number.isFinite(n))) return {at: new Date(), note: ''};
+  const at = new Date(y, mo - 1, d, h, m, 0, 0);
+  if(at.getTime() > Date.now()) return {at: new Date(), note: "That start time is in the future, so it's counting from now instead."};
+  return {at, note: ''};
+}
+async function assistantStartTimer(action){
+  await loadTimeData(true);   // categories, and whatever is running right now
+  if(!TIME_CATS.length) return 'No categories in Time Tracker yet — add one there first, then I can start timers.';
+  if(RUNNING_TIMER){
+    const runCat = TIME_CATS.find(c => c.id === RUNNING_TIMER.category_id);
+    return `A timer for "${RUNNING_TIMER.description || (runCat ? runCat.name : 'something')}" is already running — stop that one first.`;
+  }
+  let cat = action.category ? TIME_CATS.find(c => c.name.toLowerCase() === String(action.category).toLowerCase()) : null;
+  let catNote = '';
+  if(!cat){
+    let lastId = null;
+    try{
+      const {data} = await sb.from('time_data').select('settings').eq('user_id', _currentUser.id).maybeSingle();
+      lastId = data && data.settings && data.settings.lastTimerCat;
+    }catch(e){ /* fall through to the first category */ }
+    cat = TIME_CATS.find(c => c.id === lastId) || TIME_CATS[0];
+    catNote = `Using your ${cat.name} category.`;   // named, since she didn't pick it
+  }
+  const {at, note} = resolveTimerStart(action);
+  const timer = {category_id: cat.id, subcategory: null, started_at: at.toISOString(),
+                 description: (action.description || action.title || '').trim()};
+  try{
+    const {error} = await sb.from('time_data')
+      .update({timer, updated_at: new Date().toISOString()}).eq('user_id', _currentUser.id);
+    if(error) throw error;
+    RUNNING_TIMER = timer;
+    renderTimerButton();
+    // The model's reply already confirms the start, so add only what it couldn't
+    // know: a category it didn't choose, or a start time we had to override.
+    return [catNote, note].filter(Boolean).join(' ');
+  }catch(e){
+    console.error('assistantStartTimer error:', e);
+    return "Couldn't start the timer.";
+  }
+}
+async function assistantStopTimer(){
+  await loadTimeData(true);
+  if(!RUNNING_TIMER) return 'No timer was running.';
+  const mins = elapsedMinutes();
+  await stopTracking();
+  return RUNNING_TIMER ? "Couldn't stop the timer." : `Stopped the timer — ${fmtMins(mins)} logged.`;
+}
+async function applyTimeActions(actions){
+  if(!_currentUser || _guestMode) return 'Sign in to track time.';
+  const notes = [];
+  for(const a of actions){
+    if(a.type === 'start_timer') notes.push(await assistantStartTimer(a));
+    else if(a.type === 'stop_timer') notes.push(await assistantStopTimer());
+  }
+  return notes.filter(Boolean).join(' ');
+}
 async function callAssistant(message, history){
   const {data, error} = await sb.functions.invoke('assistant', {
     body: {message, todayDate: todayStr(), scheduleContext: buildAssistantContext(),
            restockContext: buildRestockContext(), history: history || [],
+           timeContext: buildTimeContext(),
            linkContext: getQuickLinks().filter(l => safeUrl(l.url)).map(l => ({id: l.id, label: l.label, matches: l.keywords || ''}))}
   });
   if(error){
@@ -3214,7 +3296,7 @@ function applyAssistantAction(action){
 async function runAssistantMessage(message, history){
   const result = await callAssistant(message, history);
   const actions = result.actions || [];
-  actions.filter(a => !isRestockAction(a)).forEach(applyAssistantAction);
+  actions.filter(a => !isRestockAction(a) && !isTimeAction(a)).forEach(applyAssistantAction);
   saveToStorage();
   renderAll();
   let reply = result.reply || 'Done.';
@@ -3229,6 +3311,14 @@ async function runAssistantMessage(message, history){
     // Anything that just went Out becomes a "Buy X" task; render again because
     // the earlier pass ran before this cross-app round trip finished.
     syncRestockOutTasks();
+    renderAll();
+  }
+  // Time lives in the tracker's row too, same reasoning: write it separately and
+  // report the outcome, so "start a timer" never appears to work when it didn't.
+  const timeActions = actions.filter(isTimeAction);
+  if(timeActions.length){
+    const note = await applyTimeActions(timeActions);
+    if(note) reply = reply ? `${reply} ${note}` : note;
     renderAll();
   }
   // This path is past the gesture that started it, so the browser may well

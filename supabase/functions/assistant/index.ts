@@ -24,10 +24,12 @@ const ACTIONS_TOOL = {
         items: {
           type: 'object',
           properties: {
-            type: { type: 'string', enum: ['add_task', 'add_timed_task', 'add_template', 'complete_task', 'move_task', 'set_restock_status', 'add_restock_item', 'finish_restock_product', 'log_restock_purchase', 'open_link'] },
+            type: { type: 'string', enum: ['add_task', 'add_timed_task', 'add_template', 'complete_task', 'move_task', 'set_restock_status', 'add_restock_item', 'finish_restock_product', 'log_restock_purchase', 'open_link', 'start_timer', 'stop_timer'] },
             title: { type: 'string', description: 'Task or routine title (add_task/add_timed_task/add_template), or the product name (add_restock_item).' },
-            date: { type: ['string', 'null'], description: 'YYYY-MM-DD. Omit/null for add_task with no day yet (goes to the weekly sidebar), or for move_task/complete_task when not changing the date.' },
-            time: { type: ['string', 'null'], description: 'HH:MM 24h, required for add_timed_task, optional for move_task.' },
+            date: { type: ['string', 'null'], description: 'YYYY-MM-DD. Omit/null for add_task with no day yet (goes to the weekly sidebar), or for move_task/complete_task when not changing the date. For start_timer: the day the timer should count from, omit for today.' },
+            time: { type: ['string', 'null'], description: 'HH:MM 24h, required for add_timed_task, optional for move_task. For start_timer: the clock time the timer should count from, omit to start from right now.' },
+            description: { type: 'string', description: 'start_timer only: what the time is being spent on, in her words, e.g. "Washington County Courthouse".' },
+            category: { type: 'string', description: 'start_timer only: the name of one of her time categories listed below, matched exactly. Omit if none clearly fits — the app falls back to her last-used category and says which it used.' },
             recurrence: {
               type: 'object',
               description: 'add_template only.',
@@ -56,7 +58,31 @@ const ACTIONS_TOOL = {
   }
 };
 
-function systemPrompt(todayDate: string, scheduleContext: unknown[], restockContext: unknown[], linkContext: unknown[]) {
+type TimeContext = { categories?: { id: number; name: string }[]; running?: { description?: string; category?: string; started_at?: string } | null };
+
+function systemPrompt(todayDate: string, scheduleContext: unknown[], restockContext: unknown[], linkContext: unknown[], timeContext: TimeContext) {
+  const cats = timeContext && Array.isArray(timeContext.categories) ? timeContext.categories : [];
+  const running = timeContext && timeContext.running;
+  const timeSection = cats.length
+    ? `
+
+She also tracks time in a separate Time Tracker, sharing one timer with this app. Her time categories:
+${JSON.stringify(cats.map(c => c.name))}
+${running ? `A timer is ALREADY RUNNING: ${JSON.stringify(running)}` : 'No timer is running right now.'}
+
+Rules for time tracking:
+- "start a timer for X", "start tracking X", "start logging time for X" -> start_timer with description X.
+- A start time she names goes in time (24h HH:MM), and the day in date if she says one. "Start logging time for the courthouse at 9am this morning and keep it running" -> start_timer, description "Washington County Courthouse", time "09:00", date ${todayDate}. The timer then counts from 9am and keeps running — that is a normal, supported request, not something to question.
+- Omit time to start from right now. Never invent a start time she did not say.
+- Only ever put a name from the category list above in category, matched exactly. If nothing clearly fits, omit it — the app falls back to her last-used category and tells her which one it used. Never invent a category name.
+- "stop the timer", "stop tracking" -> stop_timer. The app works out what to log.
+- Never emit start_timer while a timer is already running. Say what is running and ask whether to stop it first.
+- Keep reply short and factual: "Started a timer for Washington County Courthouse, counting from 9:00am."`
+    : '';
+  return systemPromptBody(todayDate, scheduleContext, restockContext, linkContext, timeSection);
+}
+
+function systemPromptBody(todayDate: string, scheduleContext: unknown[], restockContext: unknown[], linkContext: unknown[], timeSection: string) {
   const restockSection = restockContext.length
     ? `
 
@@ -90,7 +116,7 @@ Rules for links:
 - open_link is about *going* somewhere. "Therapy Thursday at 3" is scheduling an appointment she already has — that is an ordinary add_task, not a link. If she clearly wants both (e.g. "book therapy and remind me to pay the invoice"), emit both.
 - Keep reply short, e.g. "Opening your therapy scheduling portal."`
     : '';
-  return `You are the assistant behind a personal daily-agenda app's chat and quick-add box. You do two things: (1) turn write requests into structured actions, and (2) answer questions about the schedule directly in the reply. Always call emit_actions exactly once either way — for a pure question, actions is just an empty array and reply carries the actual answer.${restockSection}${linkSection}
+  return `You are the assistant behind a personal daily-agenda app's chat and quick-add box. You do two things: (1) turn write requests into structured actions, and (2) answer questions about the schedule directly in the reply. Always call emit_actions exactly once either way — for a pure question, actions is just an empty array and reply carries the actual answer.${restockSection}${linkSection}${timeSection}
 
 Today's date is ${todayDate}. Here is the schedule context — a rolling window from a week ago through five weeks ahead, plus everything waiting in the weekly/monthly sidebars. Undated sidebar items have date:null and instead carry week and/or month; "done" reflects current completion state; use "id" for complete_task/move_task (ids like "tpl-4-2026-07-18" are recurring-routine instances and are valid targets too):
 ${JSON.stringify(scheduleContext)}
@@ -155,7 +181,7 @@ Deno.serve(async (req) => {
       return new Response(JSON.stringify({ error: 'Not authorized for this assistant.' }), { status: 401, headers: { ...corsHeaders, 'Content-Type': 'application/json' } });
     }
 
-    const { message, todayDate, scheduleContext, restockContext, linkContext, history } = await req.json();
+    const { message, todayDate, scheduleContext, restockContext, linkContext, timeContext, history } = await req.json();
     if (!message || typeof message !== 'string') {
       return new Response(JSON.stringify({ error: 'No message provided' }), { status: 400, headers: { ...corsHeaders, 'Content-Type': 'application/json' } });
     }
@@ -180,6 +206,7 @@ Deno.serve(async (req) => {
           Array.isArray(scheduleContext) ? scheduleContext : [],
           Array.isArray(restockContext) ? restockContext : [],
           Array.isArray(linkContext) ? linkContext : [],
+          (timeContext && typeof timeContext === 'object') ? timeContext : {},
         ),
         messages: [...sanitizeHistory(history), { role: 'user', content: message }],
         tools: [ACTIONS_TOOL],
