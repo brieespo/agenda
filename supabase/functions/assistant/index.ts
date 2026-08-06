@@ -24,12 +24,15 @@ const ACTIONS_TOOL = {
         items: {
           type: 'object',
           properties: {
-            type: { type: 'string', enum: ['add_task', 'add_timed_task', 'add_template', 'complete_task', 'move_task', 'set_restock_status', 'add_restock_item', 'finish_restock_product', 'log_restock_purchase', 'open_link', 'start_timer', 'stop_timer'] },
+            type: { type: 'string', enum: ['add_task', 'add_timed_task', 'add_template', 'complete_task', 'move_task', 'set_restock_status', 'add_restock_item', 'finish_restock_product', 'log_restock_purchase', 'open_link', 'start_timer', 'stop_timer', 'log_time'] },
             title: { type: 'string', description: 'Task or routine title (add_task/add_timed_task/add_template), or the product name (add_restock_item).' },
             date: { type: ['string', 'null'], description: 'YYYY-MM-DD. Omit/null for add_task with no day yet (goes to the weekly sidebar), or for move_task/complete_task when not changing the date. For start_timer: the day the timer should count from, omit for today.' },
             time: { type: ['string', 'null'], description: 'HH:MM 24h, required for add_timed_task, optional for move_task. For start_timer: the clock time the timer should count from, omit to start from right now.' },
-            description: { type: 'string', description: 'start_timer only: what the time is being spent on, in her words, e.g. "Washington County Courthouse".' },
-            category: { type: 'string', description: 'start_timer only: the name of one of her time categories listed below, matched exactly. Omit if none clearly fits — the app falls back to her last-used category and says which it used.' },
+            description: { type: 'string', description: 'start_timer/log_time: what the time is being spent on, in her words, e.g. "Washington County Courthouse".' },
+            category: { type: 'string', description: 'start_timer/log_time: the name of one of her time categories listed below, matched exactly. Omit if none clearly fits — the app falls back to her last-used category and says which it used.' },
+            end_time: { type: 'string', description: 'log_time only: HH:MM 24h end of a finished block, when she gave both ends ("9 to 11:30").' },
+            minutes: { type: 'number', description: 'log_time only: length in minutes when she gave a duration ("2 hours", "45 minutes") rather than an end time.' },
+            part_of_day: { type: 'string', enum: ['morning', 'afternoon', 'evening', 'night'], description: 'log_time only: set when she gave a duration with a vague time ("2 hours yesterday afternoon") and no clock time. The app picks a conventional start hour and tells her which. Never set this alongside time.' },
             recurrence: {
               type: 'object',
               description: 'add_template only.',
@@ -76,6 +79,11 @@ Rules for time tracking:
 - Omit time to start from right now. Never invent a start time she did not say.
 - Only ever put a name from the category list above in category, matched exactly. If nothing clearly fits, omit it — the app falls back to her last-used category and tells her which one it used. Never invent a category name.
 - "stop the timer", "stop tracking" -> stop_timer. The app works out what to log.
+- Time she already spent, described in the past, is log_time — a finished block, no timer. "I was at the courthouse 9 to 11:30 this morning", "log 2 hours of Law Review yesterday afternoon", "put down 45 minutes for reading". Never start a timer for time that is already over.
+- log_time needs a length. Both ends given ("9 to 11:30") -> time and end_time. A duration ("2 hours", "45 minutes") -> minutes. If she gave a clock start and a duration, send time and minutes.
+- If she gave a duration with only a vague time of day, send minutes plus part_of_day and NO time — the app picks a conventional start hour and tells her which one it used. "2 hours yesterday afternoon" -> minutes 120, part_of_day "afternoon", date yesterday. Do not invent a clock time yourself, and never send part_of_day together with time.
+- If she gave neither an end nor a duration ("log some Law Review time yesterday"), return empty actions and ask how long it was.
+- date is the day the time was spent; omit for today.
 - Never emit start_timer while a timer is already running. Say what is running and ask whether to stop it first.
 - Keep reply short and factual: "Started a timer for Washington County Courthouse, counting from 9:00am."`
     : '';

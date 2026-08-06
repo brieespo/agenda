@@ -3178,7 +3178,14 @@ function buildTimeContext(){
     } : null
   };
 }
-function isTimeAction(a){ return a && (a.type === 'start_timer' || a.type === 'stop_timer'); }
+function isTimeAction(a){ return a && (a.type === 'start_timer' || a.type === 'stop_timer' || a.type === 'log_time'); }
+// Hand-logged time often has a length but no clock time — "2 hours yesterday
+// afternoon". The grid needs a start, so rather than interrogate her for one,
+// pick a conventional hour and say which was used, the same bargain the category
+// fallback makes. The convention lives here, not in the prompt: it should be
+// deterministic and the same every time, not re-reasoned per message.
+const PART_OF_DAY_START = {morning: '09:00', afternoon: '13:00', evening: '18:00', night: '20:00'};
+const PART_OF_DAY_DEFAULT = 'morning';
 // A backdated start is the point of this — "start logging the courthouse at 9am
 // and keep it running" — so date/time are honoured rather than clamped to now.
 // A start in the future is the one thing that can't be meant: it would render as
@@ -3235,12 +3242,83 @@ async function assistantStopTimer(){
   await stopTracking();
   return RUNNING_TIMER ? "Couldn't stop the timer." : `Stopped the timer — ${fmtMins(mins)} logged.`;
 }
+// Resolves the four shapes a spoken block arrives in — both ends, start plus a
+// duration, a duration with a vague time of day, or a bare duration — into a
+// real start/end pair, plus a note naming anything we chose for her.
+function resolveLoggedBlock(action){
+  const date = action.date || todayStr();
+  const [y, mo, d] = date.split('-').map(Number);
+  const mk = hhmm => { const [h, m] = String(hhmm).split(':').map(Number); return new Date(y, mo - 1, d, h, m, 0, 0); };
+  const mins = Number(action.minutes);
+  let startDt = null, endDt = null, note = '';
+  if(action.time && action.end_time){
+    startDt = mk(action.time); endDt = mk(action.end_time);
+    // "10pm to 1am" is a real thing she might say; the end landing before the
+    // start means it belongs to the next day, not that she misspoke.
+    if(endDt <= startDt) endDt = new Date(endDt.getTime() + 24 * 3600 * 1000);
+  } else if(action.time && Number.isFinite(mins) && mins > 0){
+    startDt = mk(action.time); endDt = new Date(startDt.getTime() + mins * 60000);
+  } else if(Number.isFinite(mins) && mins > 0){
+    const part = PART_OF_DAY_START[action.part_of_day] ? action.part_of_day : PART_OF_DAY_DEFAULT;
+    startDt = mk(PART_OF_DAY_START[part]);
+    endDt = new Date(startDt.getTime() + mins * 60000);
+    note = `Put it at ${fmtTime(PART_OF_DAY_START[part])} since you didn't say a time — move it in Time Tracker if that's off.`;
+  }
+  if(!startDt || !endDt || !(endDt > startDt)) return {error: "I need to know how long that was — say a length or both ends, like \"9 to 11:30\" or \"2 hours\"."};
+  if(endDt - startDt > 24 * 3600 * 1000) return {error: "That works out to more than a day, so I didn't log it — worth checking the times."};
+  return {startDt, endDt, note};
+}
+async function assistantLogTime(action){
+  await loadTimeData(true);
+  if(!TIME_CATS.length) return 'No categories in Time Tracker yet — add one there first.';
+  const block = resolveLoggedBlock(action);
+  if(block.error) return block.error;
+  let cat = action.category ? TIME_CATS.find(c => c.name.toLowerCase() === String(action.category).toLowerCase()) : null;
+  let catNote = '';
+  if(!cat){
+    let lastId = null;
+    try{
+      const {data} = await sb.from('time_data').select('settings').eq('user_id', _currentUser.id).maybeSingle();
+      lastId = data && data.settings && data.settings.lastTimerCat;
+    }catch(e){ /* fall through to the first category */ }
+    cat = TIME_CATS.find(c => c.id === lastId) || TIME_CATS[0];
+    catNote = `Using your ${cat.name} category.`;
+  }
+  try{
+    // Re-read before writing, exactly as deleting does: this list belongs to the
+    // tracker, and sending back a stale copy would drop whatever it added since.
+    const {data, error} = await sb.from('time_data').select('entries').eq('user_id', _currentUser.id).maybeSingle();
+    if(error) throw error;
+    const entries = Array.isArray(data && data.entries) ? data.entries : [];
+    let nextEntryId = Math.max(0, ...entries.map(e => (e && e.id) || 0)) + 1;
+    // Same per-day split stopping a timer uses, so a block spanning midnight
+    // becomes one entry per date rather than a single impossible one.
+    const segs = splitRange(block.startDt, block.endDt);
+    segs.forEach(seg => entries.push({
+      id: nextEntryId++, category_id: cat.id, subcategory: null,
+      date: seg.date, start: seg.start, end: seg.end, minutes: seg.minutes,
+      description: (action.description || action.title || '').trim(), source: 'manual'
+    }));
+    const {error: werr} = await sb.from('time_data')
+      .update({entries, updated_at: new Date().toISOString()}).eq('user_id', _currentUser.id);
+    if(werr) throw werr;
+    TIME_ENTRIES = entries;
+    if(currentView === 'day') renderDay();
+    const total = segs.reduce((n, sg) => n + sg.minutes, 0);
+    const when = segs[0].date === todayStr() ? '' : ` on ${fmtShort(segs[0].date)}`;
+    return [`Logged ${fmtMins(total)}${when}.`, catNote, block.note].filter(Boolean).join(' ');
+  }catch(e){
+    console.error('assistantLogTime error:', e);
+    return "Couldn't log that time.";
+  }
+}
 async function applyTimeActions(actions){
   if(!_currentUser || _guestMode) return 'Sign in to track time.';
   const notes = [];
   for(const a of actions){
     if(a.type === 'start_timer') notes.push(await assistantStartTimer(a));
     else if(a.type === 'stop_timer') notes.push(await assistantStopTimer());
+    else if(a.type === 'log_time') notes.push(await assistantLogTime(a));
   }
   return notes.filter(Boolean).join(' ');
 }
