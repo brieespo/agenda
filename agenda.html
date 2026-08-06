@@ -932,7 +932,52 @@ let TASKS = [];       // one-time tasks + template_exception rows
 let TEMPLATES = [];   // recurring templates
 let COMPLETIONS = []; // {template_id, date} done-marks for virtual instances
 let SETTINGS = {};    // {weekStart}
-let nextId = 1;
+
+/* ==== SYNC-CORE v3 — sync metadata =====================================
+   Phase A of cross-device merge: every one of these is WRITTEN and none is
+   READ. Turning on the merge that consumes them is a later, separate change,
+   and it must not happen until both devices have been writing this for a
+   while — otherwise a device still on the old build deletes without leaving a
+   tombstone and the merge resurrects what it deleted.
+
+   `nextId` used to live here as `Math.max(...existing ids) + 1`, recomputed at
+   load. Two devices offline at once inevitably mint the same id for different
+   items, which is a real bug today and one that merge would make far worse.
+   It is deliberately deleted rather than kept alongside newId(): with the
+   variable gone, any minting site missed in this pass is a loud ReferenceError
+   on first use instead of silently producing sequential colliding ids.
+   ====================================================================== */
+const SYNC_PROTOCOL_V = 2;
+const DEVICE_ID = (() => {
+  try{
+    let d = localStorage.getItem('agenda-device-id');
+    if(!d){ d = Math.random().toString(36).slice(2,10) + Date.now().toString(36).slice(-4);
+            localStorage.setItem('agenda-device-id', d); }
+    return d;
+  }catch(e){ return 'nostore'; }
+})();
+// Numeric on purpose. Ids are interpolated straight into inline handlers and
+// are foreign keys across columns and across apps, so changing their TYPE would
+// mean a coordinated multi-repo migration. Seconds-since-epoch × 1e6 plus a
+// random tail stays well inside Number.MAX_SAFE_INTEGER for the next 200 years,
+// and colliding needs two devices minting in the same second AND drawing the
+// same one-in-a-million tail.
+function newId(){ return Math.floor(Date.now()/1000) * 1e6 + Math.floor(Math.random()*1e6); }
+const nowStamp = () => new Date().toISOString();
+// Stamps a user-initiated content change, and ONLY that. Never call it from
+// load-time normalization (rollover, dedupe, backfills): if a plain reload
+// stamped everything, the last device to open the app would win every future
+// merge, which is precisely the bug this replaces.
+function touch(o){ if(o && typeof o === 'object') o._u = nowStamp(); return o; }
+// Absence can't be told apart from "never seen", so a delete has to leave a
+// mark. Lives in settings because every app version round-trips that column
+// untouched — a new column would come back NULL from any older build.
+function tombstone(list, key){
+  if(!SETTINGS._tomb) SETTINGS._tomb = {};
+  if(!SETTINGS._tomb[list]) SETTINGS._tomb[list] = {};
+  SETTINGS._tomb[list][String(key)] = nowStamp();
+}
+const completionKey = (templateId, date) => `${templateId}|${date}`;
 
 let currentView = 'day';
 let currentDate = todayStr();   // day view focus date
@@ -1012,11 +1057,11 @@ function ensureMonthlyRecurring(){
     if(hasNative) return;
     const proto = instances.slice().sort((a,b) => (a.month||'').localeCompare(b.month||'')).pop();
     if(!proto) return;
-    TASKS.push({
-      id: nextId++, title: proto.title, date: null, week: null, month: curMonth,
+    TASKS.push(touch({
+      id: newId(), title: proto.title, date: null, week: null, month: curMonth,
       time: null, duration_min: null, done: false, rolled_from: null, source: 'manual',
       notes: proto.notes || '', category: proto.category || null, recurMonthly: true, seriesId: sid
-    });
+    }));
     changed = true;
   });
   if(changed) saveToStorage();
@@ -1026,24 +1071,28 @@ function ensureMonthlyRecurring(){
    TASK / COMPLETION ACTIONS
    ===================================================================== */
 function createExceptionFromInstance(item){
-  const id = nextId++;
+  const id = newId();
   const task = {
     id, title: item.title, date: item.date, week: null, time: item.time, duration_min: item.duration_min||30,
     done: item.done, rolled_from: null, source: 'template_exception', notes: '', category: item.category || null,
     template_id: item.template_id, exception_date: item.date
   };
-  TASKS.push(task);
+  TASKS.push(touch(task));
   const cIdx = COMPLETIONS.findIndex(c => c.template_id===item.template_id && c.date===item.date);
-  if(cIdx>=0) COMPLETIONS.splice(cIdx,1);
+  if(cIdx>=0){ COMPLETIONS.splice(cIdx,1); tombstone('completions', completionKey(item.template_id, item.date)); }
   return task;
 }
 function toggleItemDone(item){
   if(item.virtual){
     const idx = COMPLETIONS.findIndex(c => c.template_id===item.template_id && c.date===item.date);
-    if(idx>=0) COMPLETIONS.splice(idx,1); else COMPLETIONS.push({template_id:item.template_id, date:item.date});
+    // A completion's identity is its content, so unchecking is a deletion and
+    // needs a tombstone — otherwise a merge would just re-add it from the other
+    // device and the routine would silently re-check itself.
+    if(idx>=0){ COMPLETIONS.splice(idx,1); tombstone('completions', completionKey(item.template_id, item.date)); }
+    else COMPLETIONS.push({template_id:item.template_id, date:item.date});
   } else {
     const task = TASKS.find(t => t.id===item.id);
-    if(task) task.done = !task.done;
+    if(task){ task.done = !task.done; touch(task); }
   }
   saveToStorage(); renderAll();
 }
@@ -1066,7 +1115,7 @@ function toggleDoneVirtual(templateId, date){ const it = itemByVirtual(templateI
 function openTaskReal(id){ const t = itemByRealId(id); if(t) openTaskModal(t); }
 function openTaskVirtual(templateId, date){ const it = itemByVirtual(templateId, date); if(it) openTaskModal(it); }
 function addTask({title, date=null, week=null, month=null, time=null, category=null}){
-  const task = { id: nextId++, title, date, week, month, time, duration_min: time?30:null, done:false, rolled_from:null, source:'manual', notes:'', category };
+  const task = touch({ id: newId(), title, date, week, month, time, duration_min: time?30:null, done:false, rolled_from:null, source:'manual', notes:'', category });
   TASKS.push(task);
   saveToStorage();
   return task;
@@ -1169,6 +1218,7 @@ function saveTaskFromModal(){
     if(time) task.duration_min = duration;
     task.notes = notes;
   }
+  if(task) touch(task);
   saveToStorage();
   closeModal('task-modal');
   renderAll();
@@ -1177,7 +1227,7 @@ function saveTaskFromModal(){
 // Unchecking "repeat monthly" clears the flag across every instance of the
 // series, so no new monthly copies get generated going forward.
 function stopMonthlySeries(seriesId){
-  TASKS.forEach(t => { if(t.seriesId === seriesId){ t.recurMonthly = false; t.seriesId = null; } });
+  TASKS.forEach(t => { if(t.seriesId === seriesId){ t.recurMonthly = false; t.seriesId = null; touch(t); } });
 }
 function deleteTaskFromModal(){
   if(editingItem){
@@ -1186,6 +1236,7 @@ function deleteTaskFromModal(){
       const task = TASKS[idx];
       if(task.gcal_event_id) deleteGCalEventSafe(task.gcal_event_id);
       TASKS.splice(idx,1);
+      tombstone('tasks', task.id);
     }
     saveToStorage();
   }
@@ -1245,8 +1296,9 @@ function saveTemplateFromModal(){
   }
   if(editingTemplate){
     editingTemplate.title = title; editingTemplate.recurrence = recurrence; editingTemplate.time = time; editingTemplate.category = category; editingTemplate.include_in_brief = includeInBrief;
+    touch(editingTemplate);
   } else {
-    TEMPLATES.push({id: nextId++, title, recurrence, time, active:true, category, include_in_brief: includeInBrief});
+    TEMPLATES.push(touch({id: newId(), title, recurrence, time, active:true, category, include_in_brief: includeInBrief}));
   }
   saveToStorage();
   closeModal('template-modal');
@@ -1256,7 +1308,7 @@ function saveTemplateFromModal(){
 function deleteTemplateFromModal(){
   if(editingTemplate){
     const idx = TEMPLATES.findIndex(t=>t.id===editingTemplate.id);
-    if(idx>=0) TEMPLATES.splice(idx,1);
+    if(idx>=0){ TEMPLATES.splice(idx,1); tombstone('templates', editingTemplate.id); }
     saveToStorage();
   }
   closeModal('template-modal');
@@ -1337,10 +1389,10 @@ function saveQuickLink(){
     showNotice(!label ? 'Give the link a name first.' : "That doesn't look like a web address.", 'warn');
     return;
   }
-  if(_editingLinkId === 'new') getQuickLinks().push({id: nextId++, label, url, keywords});
+  if(_editingLinkId === 'new') getQuickLinks().push(touch({id: newId(), label, url, keywords}));
   else {
     const l = getQuickLinks().find(x => x.id === _editingLinkId);
-    if(l){ l.label = label; l.url = url; l.keywords = keywords; }
+    if(l){ l.label = label; l.url = url; l.keywords = keywords; touch(l); }
   }
   _editingLinkId = null;
   saveToStorage();
@@ -1350,7 +1402,7 @@ function saveQuickLink(){
 function deleteQuickLink(id){
   const links = getQuickLinks();
   const i = links.findIndex(l => l.id === id);
-  if(i >= 0){ links.splice(i, 1); if(_editingLinkId === id) _editingLinkId = null; saveToStorage(); renderQuickLinks(); }
+  if(i >= 0){ links.splice(i, 1); tombstone('quickLinks', id); if(_editingLinkId === id) _editingLinkId = null; saveToStorage(); renderQuickLinks(); }
 }
 function updateSettingsMenuCounts(){
   const routineCount = TEMPLATES.length;
@@ -1442,6 +1494,7 @@ function addCategory(){
   renderAll();
 }
 function deleteCategory(idx){
+  tombstone('taskCategories', SETTINGS.taskCategories[idx]);
   SETTINGS.taskCategories.splice(idx,1);
   saveToStorage();
   renderCategoriesList();
@@ -1644,6 +1697,7 @@ function handleDrop(item, targetEl, e){
   } else {
     return;
   }
+  if(task) touch(task);
   saveToStorage();
   renderAll();
   if(task) syncTaskToGCal(task);
@@ -1703,7 +1757,7 @@ function startBlockResize(e, item, el, isGcal){
     if(isGcal){ commitGcalReschedule(item, item.time, durMin); }
     else {
       const task = resolveDraggedTask(item);
-      if(task){ task.duration_min = durMin; saveToStorage(); renderAll(); syncTaskToGCal(task); }
+      if(task){ task.duration_min = durMin; touch(task); saveToStorage(); renderAll(); syncTaskToGCal(task); }
       else renderAll();
     }
   }
@@ -2073,16 +2127,16 @@ function sortMeals(a, b){
   return (a.made === b.made) ? 0 : (a.made ? 1 : -1);
 }
 function addMeal({title, recipe_id=null, extras='', date=null, meal_type='dinner'}){
-  getMeals().push({id: nextId++, title, recipe_id, extras, date, meal_type, made: false, source: 'dinner'});
+  getMeals().push(touch({id: newId(), title, recipe_id, extras, date, meal_type, made: false, source: 'dinner'}));
   saveToStorage(); renderAll();
 }
 function deleteMeal(id){
   const meals = getMeals(); const i = meals.findIndex(m => m.id===id);
-  if(i>=0){ meals.splice(i,1); saveToStorage(); renderAll(); }
+  if(i>=0){ meals.splice(i,1); tombstone('meals', id); saveToStorage(); renderAll(); }
 }
 function toggleMealMade(id){
   const m = getMeals().find(x => x.id===id);
-  if(m){ m.made = !m.made; saveToStorage(); renderAll(); }
+  if(m){ m.made = !m.made; touch(m); saveToStorage(); renderAll(); }
 }
 function quickAddMealSidebar(){
   const input = document.getElementById('meal-sidebar-quick-add');
@@ -2301,10 +2355,10 @@ function plannedMealsForDate(date){
 function importCalendarDates(dates){
   const meals = getMeals();
   for(let i = meals.length - 1; i >= 0; i--){
-    if(meals[i].source === 'dinner' && dates.indexOf(meals[i].date) >= 0) meals.splice(i, 1);
+    if(meals[i].source === 'dinner' && dates.indexOf(meals[i].date) >= 0){ tombstone('meals', meals[i].id); meals.splice(i, 1); }
   }
   dates.forEach(date => plannedMealsForDate(date).forEach(p => {
-    meals.push({id: nextId++, ...p, made: false, source: 'dinner'});
+    meals.push(touch({id: newId(), ...p, made: false, source: 'dinner'}));
   }));
   dates.forEach(undismissCalendarNudge);   // an imported day earned its nudge back
   saveToStorage();
@@ -2353,7 +2407,7 @@ function importSavedMenu(menu, mondayStr){
     const extrasParts = [];
     if(p.side && p.side.name) extrasParts.push(`Side: ${p.side.name}`);
     if(p.dessert && p.dessert.name) extrasParts.push(`Dessert: ${p.dessert.name}`);
-    getMeals().push({id: nextId++, title: p.r.name, recipe_id: p.r.id ?? null, extras: extrasParts.join(' · '), date, meal_type: 'dinner', made: false, source: 'dinner'});
+    getMeals().push(touch({id: newId(), title: p.r.name, recipe_id: p.r.id ?? null, extras: extrasParts.join(' · '), date, meal_type: 'dinner', made: false, source: 'dinner'}));
     added++;
   });
   saveToStorage();
@@ -2528,7 +2582,7 @@ function dedupeQuickLinkIds(){
   const seen = new Set();
   let changed = false;
   getQuickLinks().forEach(l => {
-    if(typeof l.id !== 'number' || seen.has(l.id)){ l.id = nextId++; changed = true; }
+    if(typeof l.id !== 'number' || seen.has(l.id)){ l.id = newId(); changed = true; }
     seen.add(l.id);
   });
   return changed;
@@ -2713,10 +2767,29 @@ async function ackRunningTimer(){
   try{
     const {data} = await sb.from('time_data').select('timer').eq('user_id', _currentUser.id).maybeSingle();
     if(!data || !data.timer || !data.timer.started_at) return;
-    await sb.from('time_data')
-      .update({timer: {...data.timer, ack_at: stamp}, updated_at: new Date().toISOString()})
-      .eq('user_id', _currentUser.id);
+    await writeTimerSlot({...data.timer, ack_at: stamp});
   }catch(e){ console.error('ackRunningTimer error:', e); }
+}
+// Every timer decision — start, stop, discard, ack, description edit — stamps
+// settings.timerAt in the tracker's row. The timer is a mutex, not a
+// collection: a future merge takes whichever side decided last, which is the
+// only way "stopped" (timer: null) can win an argument against "running".
+// Absence can't compete on recency by itself, so without this stamp a merge
+// carrying a stale row would resurrect a timer she'd already stopped.
+// Phase A writes it; nothing reads it yet.
+async function timeSettingsWithSlot(){
+  let settings = {};
+  try{
+    const {data} = await sb.from('time_data').select('settings').eq('user_id', _currentUser.id).maybeSingle();
+    if(data && data.settings && typeof data.settings === 'object') settings = data.settings;
+  }catch(e){ /* a failed read just means we write a settings object holding only the stamp */ }
+  settings.timerAt = nowStamp();
+  return settings;
+}
+async function writeTimerSlot(timer, extra){
+  return sb.from('time_data')
+    .update({timer, settings: await timeSettingsWithSlot(), updated_at: nowStamp(), ...(extra || {})})
+    .eq('user_id', _currentUser.id);
 }
 function elapsedMinutes(){
   if(!RUNNING_TIMER) return 0;
@@ -2815,8 +2888,7 @@ async function startTracking(categoryId, description){
     }
     const timer = {category_id: categoryId, subcategory: null, started_at: new Date().toISOString(),
                    description: (description || '').trim()};
-    const {error: werr} = await sb.from('time_data')
-      .update({timer, updated_at: new Date().toISOString()}).eq('user_id', _currentUser.id);
+    const {error: werr} = await writeTimerSlot(timer);
     if(werr) throw werr;
     RUNNING_TIMER = timer;
     renderTimerButton();
@@ -2844,7 +2916,7 @@ async function saveRunningDescription(){
       const {data} = await sb.from('time_data').select('timer').eq('user_id', _currentUser.id).maybeSingle();
       if(!data || !data.timer || !data.timer.started_at) return;
       const timer = {...data.timer, description: next};
-      await sb.from('time_data').update({timer, updated_at: new Date().toISOString()}).eq('user_id', _currentUser.id);
+      await writeTimerSlot(timer);
     }catch(e){ console.error('saveRunningDescription error:', e); }
   })();
   await _descSave;
@@ -2864,22 +2936,21 @@ async function stopTracking(){
     // The tracker's own rule: a start immediately followed by a stop is a
     // misclick, not a record.
     if(endDt - startDt < 60000){
-      await sb.from('time_data').update({timer: null, updated_at: new Date().toISOString()}).eq('user_id', _currentUser.id);
+      await writeTimerSlot(null);
       RUNNING_TIMER = null;
       renderTimerButton();
       showNotice('Timer ran less than a minute — nothing logged.', 'info');
       return;
     }
     const entries = Array.isArray(data.entries) ? data.entries : [];
-    let nextEntryId = Math.max(0, ...entries.map(e => (e && e.id) || 0)) + 1;
     const segs = splitRange(startDt, endDt);
-    segs.forEach(seg => entries.push({
-      id: nextEntryId++, category_id: timer.category_id, subcategory: timer.subcategory || null,
+    segs.forEach(seg => entries.push(touch({
+      id: newId(), category_id: timer.category_id, subcategory: timer.subcategory || null,
       date: seg.date, start: seg.start, end: seg.end, minutes: seg.minutes,
       description: timer.description || '', source: 'timer'
-    }));
+    })));
     const {error: werr} = await sb.from('time_data')
-      .update({entries, timer: null, updated_at: new Date().toISOString()}).eq('user_id', _currentUser.id);
+      .update({entries, timer: null, settings: await timeSettingsWithSlot(), updated_at: nowStamp()}).eq('user_id', _currentUser.id);
     if(werr) throw werr;
     RUNNING_TIMER = null;
     TIME_ENTRIES = entries;   // so what was just logged shows on the day at once
@@ -2922,8 +2993,7 @@ async function discardTracking(){
   if(_descSave) await _descSave;
   if(!_currentUser || _guestMode) return;
   try{
-    const {error} = await sb.from('time_data')
-      .update({timer: null, updated_at: new Date().toISOString()}).eq('user_id', _currentUser.id);
+    const {error} = await writeTimerSlot(null);
     if(error) throw error;
     RUNNING_TIMER = null;
     renderTimerButton();
@@ -3070,6 +3140,7 @@ async function commitTimeEntryPlacement(entryId, newTime){
     const startMin = Math.max(0, Math.min(hhmmToMin(newTime), 24 * 60 - mins));
     en.start = minToHHMM(startMin);
     en.end = minToHHMM(startMin + mins);
+    touch(en);
     const {error: werr} = await sb.from('time_data')
       .update({entries, updated_at: new Date().toISOString()}).eq('user_id', _currentUser.id);
     if(werr) throw werr;
@@ -3106,7 +3177,7 @@ async function deleteTimeEntry(id){
     // Re-read rather than write back a filtered copy of what we loaded: the
     // tracker owns this list and may have added entries since. Sending our
     // stale array would delete those too.
-    const {data, error} = await sb.from('time_data').select('entries').eq('user_id', _currentUser.id).maybeSingle();
+    const {data, error} = await sb.from('time_data').select('entries, settings').eq('user_id', _currentUser.id).maybeSingle();
     if(error) throw error;
     const entries = Array.isArray(data && data.entries) ? data.entries : [];
     const gone = entries.find(e => e && e.id === id);
@@ -3116,8 +3187,16 @@ async function deleteTimeEntry(id){
       showNotice('That entry is already gone.', 'info');
       return;
     }
+    // The tombstone belongs in the tracker's row, not this app's — it records a
+    // deletion from the tracker's list. Without it, a merge would see an entry
+    // the tracker still has and this app doesn't, and put it back: deleting a
+    // time entry from the agenda would silently stop working.
+    const tSettings = (data && data.settings && typeof data.settings === 'object') ? data.settings : {};
+    if(!tSettings._tomb) tSettings._tomb = {};
+    if(!tSettings._tomb.entries) tSettings._tomb.entries = {};
+    tSettings._tomb.entries[String(id)] = nowStamp();
     const {error: werr} = await sb.from('time_data')
-      .update({entries: next, updated_at: new Date().toISOString()}).eq('user_id', _currentUser.id);
+      .update({entries: next, settings: tSettings, updated_at: nowStamp()}).eq('user_id', _currentUser.id);
     if(werr) throw werr;
     TIME_ENTRIES = next;
     renderDay();
@@ -3288,8 +3367,6 @@ async function applyRestockActions(actions){
     console.error('restock read error:', e);
     return "Couldn't reach your restock list, so nothing was changed there.";
   }
-  const productIds = products.map(p => p && p.id).filter(n => typeof n === 'number');
-  let nextStapleId = Math.max(0, ...staples.map(s => s.id || 0), ...productIds) + 1;
   const done = [];
   const purchasedStapleIds = [];
   let touchedStaples = false, touchedProducts = false;
@@ -3358,8 +3435,8 @@ async function applyRestockActions(actions){
         done.push(`${existing.name} → ${RESTOCK_LABEL[status]}`);
         return;
       }
-      const s = {id: nextStapleId++, name: title, status: 'stocked', category: '', substitutes: '',
-                 snooze_until: null, interval_adjust: 1, interval_override_days: null};
+      const s = touch({id: newId(), name: title, status: 'stocked', category: '', substitutes: '',
+                 snooze_until: null, interval_adjust: 1, interval_override_days: null});
       applyStapleStatus(s, status);
       staples.push(s);
       touchedStaples = true;
@@ -3458,8 +3535,7 @@ async function assistantStartTimer(action){
   const timer = {category_id: cat.id, subcategory: null, started_at: at.toISOString(),
                  description: (action.description || action.title || '').trim()};
   try{
-    const {error} = await sb.from('time_data')
-      .update({timer, updated_at: new Date().toISOString()}).eq('user_id', _currentUser.id);
+    const {error} = await writeTimerSlot(timer);
     if(error) throw error;
     RUNNING_TIMER = timer;
     renderTimerButton();
@@ -3526,15 +3602,14 @@ async function assistantLogTime(action){
     const {data, error} = await sb.from('time_data').select('entries').eq('user_id', _currentUser.id).maybeSingle();
     if(error) throw error;
     const entries = Array.isArray(data && data.entries) ? data.entries : [];
-    let nextEntryId = Math.max(0, ...entries.map(e => (e && e.id) || 0)) + 1;
     // Same per-day split stopping a timer uses, so a block spanning midnight
     // becomes one entry per date rather than a single impossible one.
     const segs = splitRange(block.startDt, block.endDt);
-    segs.forEach(seg => entries.push({
-      id: nextEntryId++, category_id: cat.id, subcategory: null,
+    segs.forEach(seg => entries.push(touch({
+      id: newId(), category_id: cat.id, subcategory: null,
       date: seg.date, start: seg.start, end: seg.end, minutes: seg.minutes,
       description: (action.description || action.title || '').trim(), source: 'manual'
-    }));
+    })));
     const {error: werr} = await sb.from('time_data')
       .update({entries, updated_at: new Date().toISOString()}).eq('user_id', _currentUser.id);
     if(werr) throw werr;
@@ -3592,7 +3667,7 @@ function applyAssistantAction(action){
     syncTaskToGCal(task);
   } else if(action.type==='add_template'){
     if(!action.title || !action.recurrence) return;
-    TEMPLATES.push({id: nextId++, title: action.title, recurrence: action.recurrence, time: action.time||null, active:true, include_in_brief:false});
+    TEMPLATES.push(touch({id: newId(), title: action.title, recurrence: action.recurrence, time: action.time||null, active:true, include_in_brief:false}));
   } else if(action.type==='complete_task'){
     const item = resolveIdToItem(action.task_id);
     if(item) toggleItemDone(item);
@@ -3603,6 +3678,7 @@ function applyAssistantAction(action){
     if(task){
       if(action.date!==undefined) task.date = action.date || null;
       if(action.time!==undefined) task.time = action.time || null;
+      touch(task);
       syncTaskToGCal(task);
     }
   }
@@ -4273,11 +4349,9 @@ function afterLoad(){
   if(!SETTINGS || typeof SETTINGS !== 'object') SETTINGS = {};
   if(!SETTINGS.taskCategories){ SETTINGS.taskCategories = ['Self-care', 'Household', 'Routine']; saveToStorage(); }
   if(!Array.isArray(SETTINGS.meals)) SETTINGS.meals = [];
-  // Quick links must be in this scan too: leaving them out meant nextId reset to
-  // the same value every session, so every link created in a fresh session was
-  // handed an id another link already had.
-  nextId = Math.max(1, 0, ...TASKS.map(t=>t.id||0), ...TEMPLATES.map(t=>t.id||0), ...SETTINGS.meals.map(m=>m.id||0),
-                    ...(Array.isArray(SETTINGS.quickLinks) ? SETTINGS.quickLinks.map(l=>l.id||0) : [])) + 1;
+  // The seed scan that used to be here is gone with nextId. It only ever made
+  // ids unique within one device's row, which is exactly the guarantee that
+  // fails when two devices are both offline.
   if(dedupeQuickLinkIds()) saveToStorage();
   applyTheme();
   runRollover();
@@ -4344,6 +4418,11 @@ async function _doSave(){
   }
   // One stamp for both copies, so a later load can compare them directly.
   const stamp = new Date().toISOString();
+  // The protocol marker rides in settings, which every app version round-trips
+  // untouched. A future merge reads it and refuses to merge a row written by a
+  // build older than v2 — that gate is what makes mixed versions safe while one
+  // device is still on yesterday's code.
+  SETTINGS._sync = {v: SYNC_PROTOCOL_V, w: DEVICE_ID, at: stamp};
   writeLocalCache(_currentUser.id, stamp, false);
   try{
     const {error} = await sb.from('agenda_data').upsert(
