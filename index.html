@@ -311,6 +311,12 @@ a.meal-title:hover .meal-link-ico { opacity: 1; }
 .apps-menu-row .amr-ico { display: flex; opacity: 0; transition: opacity 120ms ease; }
 .apps-menu-row .amr-ico .icon { width: 0.85rem; height: 0.85rem; }
 .apps-menu-row:hover .amr-ico { opacity: 0.7; }
+/* The discard sits directly under the button she presses every day, so it stays
+   quiet until hovered and only turns critical once armed. */
+.apps-menu-row.quiet { color: var(--muted); }
+.apps-menu-row.quiet:hover { background: var(--surface-2, var(--accent-light)); color: var(--critical); }
+.apps-menu-row.armed, .apps-menu-row.armed:hover { color: var(--critical); background: color-mix(in srgb, var(--critical) 10%, transparent); }
+.apps-menu-row.armed .amr-ico { opacity: 0.9; }
 .apps-menu-empty { font-size: 0.74rem; color: var(--muted); padding: 2px 9px 6px; margin: 0; line-height: 1.4; }
 .notice-link, .bubble-link { display: inline-flex; align-items: center; gap: 5px; font-weight: 600; color: var(--serious); text-decoration: underline; }
 .notice-link .icon, .bubble-link .icon { width: 0.85rem; height: 0.85rem; }
@@ -2475,6 +2481,11 @@ document.addEventListener('click', (e) => {
    entry per date rather than a single impossible one. */
 let TIME_CATS = [], RUNNING_TIMER = null, _timeLoaded = false, _timerTick = null;
 let _timerDraft = '';   // kept across the menu's reload-and-rerender
+let _discardArmed = false, _discardArmTimer = null;   // first tap arms Discard, second acts
+// Long enough to read the confirmation and decide, short enough that a row left
+// armed and forgotten disarms before it can catch a stray tap. Erring short is
+// the safe direction: the cost is tapping twice again.
+const DISCARD_ARM_MS = 8000;
 const pad2 = n => String(n).padStart(2, '0');
 const hhmmOf = d => `${pad2(d.getHours())}:${pad2(d.getMinutes())}`;
 const localDateStr = d => `${d.getFullYear()}-${pad2(d.getMonth() + 1)}-${pad2(d.getDate())}`;
@@ -2544,6 +2555,8 @@ function toggleTimerMenu(open){
   const menu = document.getElementById('timer-menu');
   if(!menu) return;
   const show = open === undefined ? !menu.classList.contains('open') : open;
+  // Arming never survives the menu closing and reopening.
+  _discardArmed = false; clearTimeout(_discardArmTimer); _discardArmTimer = null;
   if(show){
     renderTimerMenu();
     loadTimeData(true).then(() => { if(menu.classList.contains('open')) renderTimerMenu(); });
@@ -2562,7 +2575,10 @@ function renderTimerMenu(){
     menu.innerHTML = `<div class="apps-menu-label">Tracking ${esc(elapsedLabel())}</div>`
       + `<input type="text" id="timer-desc-running" class="timer-desc" value="${esc(RUNNING_TIMER.description || '')}" placeholder="What are you working on?" autocomplete="off" onkeydown="if(event.key==='Enter'){event.preventDefault();this.blur();}" onblur="saveRunningDescription()">`
       + (cat ? `<p class="timer-menu-note">${esc(cat.name)}</p>` : '')
-      + `<button class="apps-menu-row" onclick="stopTracking()">Stop and log it<span class="amr-ico">${ico('check')}</span></button>`;
+      + `<button class="apps-menu-row" onclick="stopTracking()">Stop and log it<span class="amr-ico">${ico('check')}</span></button>`
+      + `<button class="apps-menu-row ${_discardArmed ? 'armed' : 'quiet'}" onclick="discardTracking()">`
+      + (_discardArmed ? `Tap again to discard ${esc(elapsedLabel())}` : 'Discard without logging')
+      + `<span class="amr-ico">${ico('x')}</span></button>`;
   } else if(!TIME_CATS.length){
     menu.innerHTML = `<div class="apps-menu-label">Track time</div>`
       + `<p class="timer-menu-note">No categories yet — add one in Time Tracker.</p>`;
@@ -2674,6 +2690,46 @@ async function stopTracking(){
   }catch(e){
     console.error('stopTracking error:', e);
     showNotice("Couldn't stop the timer.", 'warn');
+  }
+}
+// Stopping was the only way out of a running timer, so a timer started on the
+// wrong thing — or left running overnight — could only be turned into a false
+// entry and then deleted in the tracker. That time never happened; losing it is
+// the correct outcome. Two steps because it is irreversible and the row sits
+// directly under the one she presses every day; a second tap is cheaper than a
+// modal and keeps the menu's own language. It disarms itself after a few
+// seconds so a row armed and forgotten can't turn a later stray tap into lost
+// time.
+async function discardTracking(){
+  if(!_discardArmed){
+    _discardArmed = true;
+    clearTimeout(_discardArmTimer);
+    _discardArmTimer = setTimeout(() => {
+      _discardArmed = false;
+      if(document.getElementById('timer-menu')?.classList.contains('open')) renderTimerMenu();
+    }, DISCARD_ARM_MS);
+    renderTimerMenu();
+    return;
+  }
+  clearTimeout(_discardArmTimer); _discardArmTimer = null;
+  _discardArmed = false;
+  const label = elapsedLabel();
+  toggleTimerMenu(false);
+  // Same wait as stopTracking, for the opposite reason: an in-flight description
+  // save re-reads the timer and writes it back, which would resurrect the one we
+  // are about to clear.
+  if(_descSave) await _descSave;
+  if(!_currentUser || _guestMode) return;
+  try{
+    const {error} = await sb.from('time_data')
+      .update({timer: null, updated_at: new Date().toISOString()}).eq('user_id', _currentUser.id);
+    if(error) throw error;
+    RUNNING_TIMER = null;
+    renderTimerButton();
+    showNotice(`Discarded ${label} — nothing logged.`, 'info');
+  }catch(e){
+    console.error('discardTracking error:', e);
+    showNotice("Couldn't discard the timer.", 'warn');
   }
 }
 // The task-row clock is the same action with a different starting point: it
