@@ -183,11 +183,52 @@ Rules to preserve:
   suspended the moment it is locked, often inside the debounce window.
 - Never let a refetch or Realtime update replace memory while a save is pending.
 
-Known limitation, deliberately deferred: a device with a newer unsynced write
-wins *wholesale* rather than merging, so if two devices edited during a network
-gap one side's changes are still lost. A real fix needs per-item timestamps and
-deletion tombstones across all the apps sharing this block — plan it, don't bolt
-it on.
+## Cross-device merge — where it stands
+
+Resolution is still *wholesale* last-write-wins at the row level: if two devices
+both edited during a network gap, one side's changes are lost entirely. The fix
+is phased.
+
+**Phase A — SHIPPED 2026-08-06, all three apps.** Metadata only: written
+everywhere, read nowhere.
+
+- `newId()` — clock-seeded plus a random tail, replacing `max(id)+1`. The old
+  scheme only made ids unique *within one device's row*, so two devices offline
+  at once minted the same id for different items. Numeric on purpose: ids are
+  interpolated into inline handlers and are foreign keys across apps, so
+  changing their type would be a coordinated multi-repo migration.
+- `nextId` is **deleted**, not kept alongside. A minting site missed in a future
+  edit is then a loud `ReferenceError` rather than silent sequential collisions.
+  This caught a real self-shadowing bug in restock the day it shipped.
+- `_u` — timestamp of the last user-initiated content change. **Never set by
+  load-time normalization** (rollover, dedupe, migrations, backfills). If a
+  plain reload restamped everything, the last device to open the app would win
+  every future merge, which is the original data-loss bug in a new costume.
+- `settings._tomb` — deletion tombstones. Absence is never a delete without one.
+  Lives in `settings` because every app version round-trips that column
+  untouched; a new column would come back NULL from an older build.
+- `settings._sync = {v:2, w:deviceId, at:stamp}` — protocol marker. A future
+  merge must refuse to merge any row whose `_sync.v` is missing or < 2. That
+  gate is what makes mixed versions safe while one device runs older code.
+- `settings.timerAt` (time-tracker's row) — stamped at every timer decision. The
+  timer is a mutex, not a collection, and **must never be merged**: that stamp
+  is the only way a stopped timer can beat a running one, since absence cannot
+  win on recency by itself.
+
+**Phase B — not started.** Write `mergeRow()` as a pure function, wire it to a
+dry run that logs the diff it *would* have produced, and discard the result.
+
+**Phase C — not started.** Turn merge on. The first phase that can lose or
+resurrect data. Do not start it until both devices have been running Phase A for
+a while — a device on the old build deletes without leaving a tombstone, and a
+merge that trusted absence would resurrect what it deleted.
+
+**Open gap found during Phase A:** agenda's `ensureMonthlyRecurring` creates
+this month's copy of a monthly task when one is missing. Two devices both
+offline at the start of a month each create their own with different ids, and
+Phase C's merge would keep both → duplicate monthly tasks. Harmless today.
+Needs a deterministic identity (id derived from `seriesId + month`), handled in
+Phase B while merge is still a dry run.
 
 This sync block is copied between apps in the suite. Apps carrying it: agenda,
 restock, time-tracker. Copy the corrected version, not an older sibling.
