@@ -189,6 +189,14 @@ h3 { font-size: 0.85rem; font-weight: 600; margin-bottom: 6px; }
 .gcal-allday-chip { font-size: 0.72rem; padding: 4px 9px; border-radius: 8px; background: var(--page); border: 1px dashed var(--border); color: var(--ink-2); border-left-width: 3px; }
 .evt-dot { width: 8px; height: 8px; border-radius: 50%; display: inline-block; flex: none; margin-right: 4px; }
 
+/* ---- ghosted calendar events ---- */
+/* Faded to the edge of legible, not hidden: a ghosted block still says what it
+   is, so the day reads correctly, it just stops competing with what she's
+   actually tracking underneath it. Hovering brings it back up to readable. */
+.ghosted { opacity: 0.22; filter: saturate(0.35); transition: opacity 120ms ease; }
+.ghosted:hover { opacity: 0.62; }
+.grid-block.ghosted:hover { transform: none; box-shadow: none; }
+
 /* ---- google calendar settings ---- */
 .cal-toggle-list { display: flex; flex-direction: column; gap: 6px; margin: 8px 0; }
 .cal-toggle { display: flex; align-items: center; gap: 7px; font-size: 0.82rem; cursor: pointer; }
@@ -367,6 +375,13 @@ body.time-view .sidebar-col { display: none; }
 /* The discard sits directly under the button she presses every day, so it stays
    quiet until hovered and only turns critical once armed. */
 .apps-menu-row.quiet { color: var(--muted); }
+/* Right-click menu — same chrome as the apps menu, but positioned at the
+   pointer rather than anchored to a button. */
+/* right:auto matters — .apps-menu pins itself to its wrapper's right edge, and
+   left+right together on a fixed element stretch it across the viewport. */
+.ctx-menu { position: fixed; top: 0; left: 0; right: auto; bottom: auto; min-width: 190px; max-width: 240px; }
+.ctx-menu .amr-ico { opacity: 0.7; }
+.ctx-menu-title { font-size: 0.72rem; color: var(--muted); padding: 5px 9px 4px; max-width: 220px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .apps-menu-row.quiet:hover { background: var(--surface-2, var(--accent-light)); color: var(--critical); }
 .apps-menu-row.armed, .apps-menu-row.armed:hover { color: var(--critical); background: color-mix(in srgb, var(--critical) 10%, transparent); }
 .apps-menu-row.armed .amr-ico { opacity: 0.9; }
@@ -550,6 +565,8 @@ footer button { font: inherit; font-size: 0.72rem; border: none; background: non
 </header>
 
 <div class="sidebar-scrim" id="sidebar-scrim" onclick="toggleSidebar(false)"></div>
+
+<div class="apps-menu ctx-menu" id="ctx-menu"></div>
 
 <div class="chat-scrim" id="chat-scrim" onclick="toggleChat(false)"></div>
 <div class="chat-drawer" id="chat-drawer">
@@ -884,7 +901,9 @@ const ICONS = {
   "chat": '<path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/>',
   "send": '<line x1="22" y1="2" x2="11" y2="13"/><polygon points="22 2 15 22 11 13 2 9 22 2"/>',
   "utensils": '<path d="M3 2v7c0 1.1.9 2 2 2h4a2 2 0 0 0 2-2V2"/><path d="M7 2v20"/><path d="M21 15V2a5 5 0 0 0-5 5v6c0 1.1.9 2 2 2h3z"/><path d="M18 15v7"/>',
-  "external": '<path d="M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6"/><polyline points="15 3 21 3 21 9"/><line x1="10" y1="14" x2="21" y2="3"/>'
+  "external": '<path d="M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6"/><polyline points="15 3 21 3 21 9"/><line x1="10" y1="14" x2="21" y2="3"/>',
+  "eye": '<path d="M2 12s3.5-7 10-7 10 7 10 7-3.5 7-10 7-10-7-10-7z"/><circle cx="12" cy="12" r="3"/>',
+  "eye-off": '<path d="M17.9 17.9A10.4 10.4 0 0 1 12 19c-6.5 0-10-7-10-7a18.6 18.6 0 0 1 5.1-5.9"/><path d="M9.9 4.2A10.6 10.6 0 0 1 12 4c6.5 0 10 7 10 7a18.7 18.7 0 0 1-2.2 3.2"/><path d="M9.9 9.9a3 3 0 0 0 4.2 4.2"/><line x1="2" y1="2" x2="22" y2="22"/>'
 };
 function ico(name){ return `<svg class="icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">${ICONS[name]||''}</svg>`; }
 function paintIcons(root){ (root||document).querySelectorAll('[data-ico]').forEach(el => { if(!el.querySelector('svg')) el.insertAdjacentHTML('afterbegin', ico(el.dataset.ico)); }); }
@@ -1738,6 +1757,91 @@ function timeFromGridY(clientY){
 }
 function isGcalWritable(item){ return !(item.accessRole === 'reader' || item.accessRole === 'freeBusyReader'); }
 
+/* =====================================================================
+   GHOSTED EVENTS — right-click an imported Google event to fade it out.
+
+   A ghost is purely local to this app: nothing is written to Google, and the
+   event stays on the grid so the day still reads correctly. It just stops
+   competing for attention — and, on the hour grid, drops *behind* the logged
+   time entries, which is the case this exists for: a wide imported block (a
+   class, a work day) sitting on top of the finer-grained time she actually
+   tracked inside it.
+
+   Keyed by calendar + event id, and since events are fetched with
+   singleEvents=true each occurrence of a recurring event carries its own id —
+   so ghosting sticks to the one occurrence, not the series. That also means
+   the keys are unbounded, hence the prune; the stored value is the occurrence
+   date so a key can be aged out once its day is well past.
+   ===================================================================== */
+const GHOST_KEEP_DAYS = 60;
+function ghostMap(){
+  if(!SETTINGS.ghosted || typeof SETTINGS.ghosted !== 'object') SETTINGS.ghosted = {};
+  return SETTINGS.ghosted;
+}
+function ghostKey(item){ return `${item.calendarId}|${item.eventId}`; }
+function isGhosted(item){ return !!(item && item.eventId && ghostMap()[ghostKey(item)]); }
+function toggleGhost(item){
+  const map = ghostMap(), key = ghostKey(item);
+  if(map[key]) delete map[key]; else map[key] = item.date || todayStr();
+  saveToStorage();
+  renderAll();
+}
+// Load-time normalization: never stamps anything, never forces a save of its
+// own — the next real edit carries the pruned map up.
+function pruneGhosts(){
+  const cutoff = addDays(todayStr(), -GHOST_KEEP_DAYS);
+  const map = ghostMap();
+  Object.keys(map).forEach(k => { if(typeof map[k] === 'string' && map[k] < cutoff) delete map[k]; });
+}
+
+let _ctxRows = [];
+function openCtxMenu(x, y, title, rows){
+  const el = document.getElementById('ctx-menu');
+  if(!el) return;
+  _ctxRows = rows;
+  el.innerHTML = (title ? `<div class="ctx-menu-title">${esc(title)}</div>` : '')
+    + rows.map((r,i) => `<button class="apps-menu-row" data-ctx-row="${i}"><span>${esc(r.label)}</span><span class="amr-ico" data-ico="${r.icon}"></span></button>`).join('');
+  el.querySelectorAll('[data-ctx-row]').forEach(btn => btn.addEventListener('click', () => {
+    const row = _ctxRows[Number(btn.dataset.ctxRow)];
+    closeCtxMenu();
+    if(row) row.run();
+  }));
+  paintIcons(el);
+  el.classList.add('open');
+  // Measure only after it is laid out, so a menu opened near the right or
+  // bottom edge flips back inside the viewport instead of being clipped.
+  const r = el.getBoundingClientRect();
+  el.style.left = Math.max(6, Math.min(x, window.innerWidth - r.width - 6)) + 'px';
+  el.style.top = Math.max(6, Math.min(y, window.innerHeight - r.height - 6)) + 'px';
+}
+function closeCtxMenu(){
+  const el = document.getElementById('ctx-menu');
+  if(!el || !el.classList.contains('open')) return;
+  el.classList.remove('open');
+  el.innerHTML = '';
+  _ctxRows = [];
+}
+// Capture phase: the grid blocks underneath have their own pointerdown
+// handlers that start drags, and the menu has to be gone before those run.
+document.addEventListener('pointerdown', e => { if(!e.target.closest('#ctx-menu')) closeCtxMenu(); }, true);
+document.addEventListener('keydown', e => { if(e.key === 'Escape') closeCtxMenu(); });
+window.addEventListener('scroll', closeCtxMenu, true);
+
+// Right-click menu for an imported Google event, wherever it renders.
+function bindGcalContextMenu(el, item){
+  el.addEventListener('contextmenu', e => {
+    e.preventDefault();
+    e.stopPropagation();
+    const ghosted = isGhosted(item);
+    openCtxMenu(e.clientX, e.clientY, item.title, [
+      { label: ghosted ? 'Bring back' : 'Ghost this event',
+        icon: ghosted ? 'eye' : 'eye-off',
+        run: () => toggleGhost(item) },
+      { label: 'Event details', icon: 'external', run: () => openGcalEventModal(item) }
+    ]);
+  });
+}
+
 // Drag the bottom edge of a grid block to change its duration (15-min snap).
 // Works for a timed task (updates duration_min, re-syncs its Agenda-calendar
 // event) or a writable gcal event (PATCHes the event's end).
@@ -1858,7 +1962,9 @@ function renderDay(){
 
   const doneCount = items.filter(it=>it.done).length;
   const leftCount = items.length - doneCount;
-  const evtCount = gcalToday.length;
+  // Ghosted events don't count — the headline is what she still has to hold in
+  // her head, and ghosting one is her saying it isn't that.
+  const evtCount = gcalToday.filter(e => !isGhosted(e)).length;
   document.getElementById('day-headline').innerHTML = (items.length || evtCount)
     ? `<strong>${leftCount}</strong> task${leftCount===1?'':'s'} left · <strong>${doneCount}</strong> done${evtCount?` · <strong>${evtCount}</strong> event${evtCount===1?'':'s'}`:''}`
     : `Nothing on the books — add a task below.`;
@@ -1877,10 +1983,12 @@ function renderDay(){
   document.getElementById('today-card').dataset.date = currentDate;
 
   const alldayEl = document.getElementById('gcal-allday-row');
-  alldayEl.innerHTML = gcalAllDay.map((e,i) => `<div class="allday-line"><span class="hour-label">${i===0?'all day':''}</span><div class="allday-bar" data-gcal-index="${i}" style="border-left-color:${calColor(e.cal.slot)}">${esc(e.title)}</div></div>`).join('');
+  alldayEl.innerHTML = gcalAllDay.map((e,i) => `<div class="allday-line"><span class="hour-label">${i===0?'all day':''}</span><div class="allday-bar ${isGhosted(e)?'ghosted':''}" data-gcal-index="${i}" style="border-left-color:${calColor(e.cal.slot)}">${esc(e.title)}</div></div>`).join('');
   alldayEl.querySelectorAll('.allday-bar').forEach(el => {
     const item = gcalAllDay[Number(el.dataset.gcalIndex)];
-    if(item) el.addEventListener('click', () => openGcalEventModal(item));
+    if(!item) return;
+    el.addEventListener('click', () => openGcalEventModal(item));
+    bindGcalContextMenu(el, item);
   });
 
   renderHourGrid(timed, gcalTimed);
@@ -1915,13 +2023,18 @@ function renderHourGrid(timed, gcalTimed){
     const height = Math.max(20, (it.duration_min||30) / 60 * HOUR_PX);
     return `<div class="grid-block ${it.done?'done':''}" style="top:${top}px;height:${height}px" data-id="${it.id}" data-kind="${it.virtual?'v':'r'}"><div class="gb-time">${fmtTime(it.time)}${it.source==='template'?' '+ico('repeat'):''}</div>${esc(it.title)}<div class="gb-resize"></div></div>`;
   }).join('');
-  const gcalBlocks = gcalTimed.map((e,i) => {
+  // A ghosted event is not a drag source: it's nearly invisible, so keeping it
+  // grabbable would mean nudging a real calendar event by accident.
+  const gcalBlockHtml = (e, i) => {
     const [h,m] = e.time.split(':').map(Number);
     const top = ((h - start) * 60 + m) / 60 * HOUR_PX;
     const height = Math.max(20, (e.duration_min||30) / 60 * HOUR_PX);
-    const writable = isGcalWritable(e);
-    return `<div class="grid-block gcal-event ${writable?'writable':''}" data-gcal-index="${i}" style="top:${top}px;height:${height}px;border-left-color:${calColor(e.cal.slot)}"><div class="gb-time">${fmtTime(e.time)}</div>${esc(e.title)}${writable?'<div class="gb-resize"></div>':''}</div>`;
-  }).join('');
+    const ghosted = isGhosted(e);
+    const writable = isGcalWritable(e) && !ghosted;
+    return `<div class="grid-block gcal-event ${writable?'writable':''} ${ghosted?'ghosted':''}" data-gcal-index="${i}" style="top:${top}px;height:${height}px;border-left-color:${calColor(e.cal.slot)}"><div class="gb-time">${fmtTime(e.time)}</div>${esc(e.title)}${writable?'<div class="gb-resize"></div>':''}</div>`;
+  };
+  const ghostedGcalBlocks = gcalTimed.map((e,i) => isGhosted(e) ? gcalBlockHtml(e,i) : '').join('');
+  const gcalBlocks = gcalTimed.map((e,i) => isGhosted(e) ? '' : gcalBlockHtml(e,i)).join('');
   const entryBlocks = entries.map(en => {
     const [h,m] = en.start.split(':').map(Number);
     const [eh,em] = en.end.split(':').map(Number);
@@ -1937,8 +2050,11 @@ function renderHourGrid(timed, gcalTimed){
       + (armed ? 'Delete?' : ico('x')) + `</button></div>`;
   }).join('');
   // Entries first so a task or event block sits above them when they overlap —
-  // what she still has to do matters more than what she already did.
-  grid.innerHTML = rows + `<div class="grid-blocks" style="height:${(end-start)*HOUR_PX}px">${entryBlocks}${taskBlocks}${gcalBlocks}</div>`;
+  // what she still has to do matters more than what she already did. Ghosted
+  // events come before even those: DOM order is the stacking order here, and
+  // ghosting a wide imported block is exactly the request to let the logged
+  // time inside it show through.
+  grid.innerHTML = rows + `<div class="grid-blocks" style="height:${(end-start)*HOUR_PX}px">${ghostedGcalBlocks}${entryBlocks}${taskBlocks}${gcalBlocks}</div>`;
   grid.querySelectorAll('.grid-block:not(.gcal-event)').forEach(el => {
     const item = timed.find(it => String(it.id)===el.dataset.id);
     if(!item) return;
@@ -1962,7 +2078,8 @@ function renderHourGrid(timed, gcalTimed){
   grid.querySelectorAll('.grid-block.gcal-event').forEach(el => {
     const item = gcalTimed[Number(el.dataset.gcalIndex)];
     if(!item) return;
-    if(isGcalWritable(item)){
+    bindGcalContextMenu(el, item);
+    if(isGcalWritable(item) && !isGhosted(item)){
       el.addEventListener('pointerdown', e => { const off = e.clientY - el.getBoundingClientRect().top; startItemDrag(e, item, el, () => openGcalEventModal(item)); _gridGrabOffsetY = off; });
       const rz = el.querySelector('.gb-resize');
       if(rz) rz.addEventListener('pointerdown', e => { e.stopPropagation(); startBlockResize(e, item, el, true); });
@@ -1989,7 +2106,7 @@ function weekChipHtml(item){
   </div>`;
 }
 function weekGcalChipHtml(e){
-  return `<div class="week-chip gcal-week-chip" data-gcal-event-id="${esc(e.eventId)}" style="cursor:pointer;border-left:3px solid ${calColor(e.cal.slot)};padding-left:6px">
+  return `<div class="week-chip gcal-week-chip ${isGhosted(e)?'ghosted':''}" data-gcal-event-id="${esc(e.eventId)}" style="cursor:pointer;border-left:3px solid ${calColor(e.cal.slot)};padding-left:6px">
     <span style="flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;color:var(--ink-2)">${e.time?`<b>${fmtTime(e.time)}</b> `:''}${esc(e.title)}</span>
   </div>`;
 }
@@ -2011,7 +2128,7 @@ function renderWeek(){
     return `<div class="week-col ${d===todayStr()?'today':''}" data-drop="week-day" data-date="${d}">
       <div class="week-col-head" onclick="openDayFrom('${d}')"><span class="wc-day">${dowShort(d)}</span><span class="wc-date">${fmtShort(d)}</span></div>
       ${lawBandHtml(d, true)}
-      ${gcalAllDay.map(e=>`<div class="gcal-allday-chip" data-gcal-event-id="${esc(e.eventId)}" style="border-left-color:${calColor(e.cal.slot)};margin-bottom:3px;cursor:pointer">${esc(e.title)}</div>`).join('')}
+      ${gcalAllDay.map(e=>`<div class="gcal-allday-chip ${isGhosted(e)?'ghosted':''}" data-gcal-event-id="${esc(e.eventId)}" style="border-left-color:${calColor(e.cal.slot)};margin-bottom:3px;cursor:pointer">${esc(e.title)}</div>`).join('')}
       ${rows.map(r=>r.html).join('')}
       <button class="week-add" onclick="openNewTaskModal({date:'${d}'})">+ add</button>
     </div>`;
@@ -2028,7 +2145,9 @@ function renderWeek(){
     const date = el.closest('.week-col').dataset.date;
     const dayGcalItems = gcalEventsForDate(date);
     const item = dayGcalItems.find(it => it.eventId === el.dataset.gcalEventId);
-    if(item) el.addEventListener('click', () => openGcalEventModal(item));
+    if(!item) return;
+    el.addEventListener('click', () => openGcalEventModal(item));
+    bindGcalContextMenu(el, item);
   });
 }
 function openDayFrom(d){ currentDate = d; switchView('day'); }
@@ -4174,11 +4293,26 @@ function renderGcalEventModalBody(confirming){
     actionHtml = `<button class="danger-ghost" onclick="renderGcalEventModalBody(true)">Delete</button>`;
   }
 
+  // Right-click is the fast path for ghosting, but phones don't have one — so
+  // the modal, which a tap already opens, carries the same toggle.
+  const ghosted = isGhosted(item);
+  const ghostHtml = `
+    <button class="ghost" onclick="toggleGhostFromModal()">${ghosted ? 'Bring this event back' : 'Ghost this event'}</button>
+    <p style="font-size:0.76rem;color:var(--muted);margin-top:6px">${ghosted
+      ? 'Ghosted — faded here, and sitting behind your logged time. It was never changed in Google Calendar.'
+      : 'Fades it here and drops it behind your logged time. Nothing changes in Google Calendar.'}</p>`;
+
   el.innerHTML = `
     <div class="field"><label>Title</label><div style="font-size:0.9rem">${esc(item.title)}</div></div>
     <div class="field"><label>When</label><div style="font-size:0.9rem">${esc(whenLabel)}</div></div>
     <div class="field"><label>Calendar</label><div style="font-size:0.9rem">${esc(item.calendarName)}</div></div>
-    <div style="margin-top:14px">${actionHtml}</div>`;
+    <div style="margin-top:14px">${ghostHtml}</div>
+    <div style="margin-top:14px;padding-top:12px;border-top:1px solid var(--hairline)">${actionHtml}</div>`;
+}
+function toggleGhostFromModal(){
+  if(!_gcalEventModalItem) return;
+  toggleGhost(_gcalEventModalItem);
+  renderGcalEventModalBody(false);
 }
 async function confirmDeleteGcalEvent(){
   const item = _gcalEventModalItem;
@@ -4353,6 +4487,7 @@ function afterLoad(){
   // ids unique within one device's row, which is exactly the guarantee that
   // fails when two devices are both offline.
   if(dedupeQuickLinkIds()) saveToStorage();
+  pruneGhosts();
   applyTheme();
   runRollover();
   ensureMonthlyRecurring();

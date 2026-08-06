@@ -39,7 +39,7 @@ If a task appears to exceed your ability — a fix has failed twice, architectur
 | tasks | array of task objects |
 | templates | array of recurring-template objects |
 | completions | array of {template_id, date} — done-marks for template instances |
-| settings | selected Google calendars, week start day, theme |
+| settings | selected Google calendars, week start day, theme, `ghosted` (see below) |
 
 ### Task object (one-time items)
 
@@ -113,6 +113,24 @@ Drag & drop: pointer-events–based (works for mouse and touch), with drop-targe
 - Settings: choose which calendars render (her Law School Schedule, Online Classes, Law Review, Bri, Appointments, Sloane, Bills — color-coded to match Google's or the suite palette).
 - Events render on the grid, read-only and visually distinct (softer fill, no checkbox — though allow gray-out marking an event "done/attended" locally if trivial to add).
 - **Do not write to Google Calendar from this app** (the law school app owns that pattern); revisit later if wanted.
+
+### Ghosting an event (decided)
+
+Right-click any imported Google event — hour-grid block, all-day bar, or week
+chip — for a menu with "Ghost this event"; the event modal carries the same
+toggle, which is the phone's path since there is no right-click there. A ghost
+is local only: nothing is written to Google, and the event stays on the grid so
+the day still reads correctly. It just fades, drops out of the headline's event
+count, stops being a drag source, and — the case it exists for — renders
+*before* the time entries so it sits **behind** them. A wide imported block (a
+class, a work day) was covering the finer-grained time tracked inside it.
+
+Stored as `settings.ghosted = {"<calendarId>|<eventId>": "<occurrence date>"}`.
+Events are fetched with `singleEvents=true`, so each occurrence of a recurring
+event has its own id and a ghost sticks to that one occurrence, not the series.
+The keys are therefore unbounded; `pruneGhosts()` drops any whose stored date is
+more than 60 days past. It runs in `afterLoad` as normalization — no `touch()`,
+no save of its own.
 
 ## Suite sync (later phase — data model is ready via `source: 'suite'`)
 
