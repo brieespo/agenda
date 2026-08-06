@@ -285,6 +285,32 @@ a.meal-title:hover .meal-link-ico { opacity: 1; }
 .law-item.compact { font-size: 0.7rem; padding: 3px 6px; margin-bottom: 3px; gap: 5px; }
 .law-item.compact .law-kind { display: none; }
 
+/* ---- time report ---- */
+/* The sidebar is for planning; this view is for transcribing. Hiding it gives
+   the rows the full width and takes the week/month/meal cards out of the way. */
+body.time-view .sidebar-col { display: none; }
+.time-toolbar { flex-wrap: wrap; gap: 10px; }
+.time-toolbar label { display: flex; align-items: center; gap: 6px; font-size: 0.8rem; color: var(--muted); }
+.time-toolbar input[type=date], .time-toolbar select { font: inherit; font-size: 0.82rem; padding: 5px 8px; border: 1px solid var(--border); border-radius: 8px; background: var(--surface); color: var(--ink); }
+.ts-card { padding: 18px 20px; }
+.ts-table { width: 100%; border-collapse: collapse; font-size: 0.86rem; }
+.ts-table + .ts-table { margin-top: 2px; }
+.ts-table td { padding: 4px 6px; vertical-align: top; }
+.ts-date { width: 5.5rem; color: var(--muted); font-variant-numeric: tabular-nums; white-space: nowrap; }
+.ts-desc { color: var(--ink); }
+/* Tabular figures and right alignment: the column is read down as numbers, so
+   the digits have to line up the way they do on the form. */
+.ts-hours { width: 4rem; text-align: right; font-variant-numeric: tabular-nums; white-space: nowrap; }
+.ts-total td { border-top: 1px solid var(--border); padding-top: 7px; font-weight: 600; }
+.ts-grand td { border-top: 2px solid var(--ink-2); padding-top: 8px; font-weight: 700; }
+.ts-note { margin: 14px 0 0; font-size: 0.72rem; color: var(--muted); }
+.ts-empty { margin: 0; color: var(--muted); font-size: 0.86rem; }
+/* Print: just the numbers. Everything she isn't transcribing gets out of the way. */
+@media print {
+  header, nav, .sidebar-col, .day-toolbar, .app-notice, .timer-guard, .chat-drawer, .chat-scrim, .sidebar-scrim { display: none !important; }
+  .ts-card { border: none; box-shadow: none; padding: 0; }
+  body, .view { background: #fff; color: #000; }
+}
 /* The forgot-to-stop guard. Sits in the day's own column rather than the header
    so it interrupts rather than waits to be noticed — the whole point is that she
    isn't looking at the timer. Mirrors the tracker's guard. */
@@ -519,6 +545,7 @@ footer button { font: inherit; font-size: 0.72rem; border: none; background: non
   <nav class="tabs" id="tabs">
     <button data-view="day" class="active" onclick="switchView('day')">Day</button>
     <button data-view="week" onclick="switchView('week')">Week</button>
+    <button data-view="time" onclick="switchView('time')">Time</button>
   </nav>
 </header>
 
@@ -587,6 +614,31 @@ footer button { font: inherit; font-size: 0.72rem; border: none; background: non
           <button class="ghost" onclick="goTodayWeek()">This week</button>
         </div>
         <div class="week-grid" id="week-grid"></div>
+      </section>
+
+      <!-- ============ TIME VIEW ============
+           A transcription surface, not an analysis one. The rows are shaped to
+           be read down while typing across into someone else's timesheet, so
+           the arithmetic here has to be the arithmetic they expect. -->
+      <section class="view" id="view-time">
+        <div class="day-toolbar time-toolbar">
+          <label>From <input type="date" id="ts-from" onchange="renderTimeView()"></label>
+          <label>To <input type="date" id="ts-to" onchange="renderTimeView()"></label>
+          <button class="ghost" onclick="tsPreset('week')">This week</button>
+          <button class="ghost" onclick="tsPreset('lastweek')">Last week</button>
+          <button class="ghost" onclick="tsPreset('period')">Pay period</button>
+        </div>
+        <div class="day-toolbar time-toolbar">
+          <label>Category <select id="ts-cat" onchange="renderTimeView()"></select></label>
+          <label>Hours
+            <select id="ts-round" onchange="renderTimeView()">
+              <option value="quarter">Nearest quarter</option>
+              <option value="exact">Exact</option>
+            </select>
+          </label>
+          <button class="ghost" onclick="window.print()">Print</button>
+        </div>
+        <div id="time-report"></div>
       </section>
     </div>
 
@@ -847,6 +899,9 @@ function parseLocalDate(s){ const [y,m,d] = s.split('-').map(Number); return new
 function fmtDate(d){ return `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}-${String(d.getDate()).padStart(2,'0')}`; }
 function todayStr(){ return fmtDate(new Date()); }
 function addDays(dateStr, n){ const d = parseLocalDate(dateStr); d.setDate(d.getDate()+n); return fmtDate(d); }
+// Rounded, not truncated: a DST boundary inside the span makes the raw
+// difference 23 or 25 hours, which would otherwise shift a week bucket by one.
+function daysBetween(a, b){ return Math.round((parseLocalDate(b) - parseLocalDate(a)) / 86400000); }
 const DOW_SHORT = ['Sun','Mon','Tue','Wed','Thu','Fri','Sat'];
 const DOW_LONG = ['sun','mon','tue','wed','thu','fri','sat'];
 function dowShort(dateStr){ return DOW_SHORT[parseLocalDate(dateStr).getDay()]; }
@@ -1971,6 +2026,16 @@ function switchView(v){
   document.querySelectorAll('#tabs button').forEach(b => b.classList.toggle('active', b.dataset.view===v));
   document.getElementById('view-day').classList.toggle('active', v==='day');
   document.getElementById('view-week').classList.toggle('active', v==='week');
+  document.getElementById('view-time').classList.toggle('active', v==='time');
+  document.body.classList.toggle('time-view', v==='time');
+  if(v === 'time'){
+    if(!_tsInit){ tsPreset('period'); _tsInit = true; }
+    // Always re-read on open. Opening this tab before anything pulled time data
+    // would otherwise show an empty sheet that reads as "you logged nothing"
+    // rather than "not loaded yet" — and she may have logged in the tracker
+    // since this tab last looked.
+    loadTimeData(true).then(renderTimeView);
+  }
   renderAll();
 }
 function navDay(n){ currentDate = addDays(currentDate, n); renderAll(); }
@@ -2358,7 +2423,8 @@ function renderMealSidebar(){
 
 function renderAll(){
   renderTimerGuard();
-  if(currentView==='day') renderDay(); else renderWeek();
+  if(currentView==='time') renderTimeView();
+  else if(currentView==='day') renderDay(); else renderWeek();
   renderSidebar();
   renderMonthSidebar();
   renderMealSidebar();
@@ -2866,6 +2932,99 @@ async function discardTracking(){
     console.error('discardTracking error:', e);
     showNotice("Couldn't discard the timer.", 'warn');
   }
+}
+/* =====================================================================
+   TIME REPORT (the "read down while typing across" view)
+   Built against a real Greenebaum Fellowship timesheet: one row per task per
+   day, free-text description, hours in decimal quarters, then a total per week
+   and one for the pay period. Verified against a submitted sheet — its 32 rows,
+   each rounded to a quarter, summed to exactly the 40 written in the total box,
+   which is what settles the rounding question: round each ROW, then add the
+   rounded rows. Rounding the sum instead would drift from what they expect.
+   ===================================================================== */
+let _tsInit = false;
+// Quarter-hour, and formatted the way the form writes it: ".75", not "0.75".
+function roundQuarterHours(mins){ return Math.round((mins / 60) * 4) / 4; }
+function fmtSheetHours(h){
+  const s = (Math.round(h * 100) / 100).toFixed(2).replace(/0+$/, '').replace(/\.$/, '');
+  return s.startsWith('0.') ? s.slice(1) : (s === '0' ? '0' : s);
+}
+function fmtSheetDate(d){
+  const dt = parseLocalDate(d);
+  return `${dt.getMonth()+1}/${dt.getDate()}/${String(dt.getFullYear()).slice(2)}`;
+}
+function tsPreset(kind){
+  const from = document.getElementById('ts-from'), to = document.getElementById('ts-to');
+  const today = todayStr();
+  if(kind === 'week'){ const d = weekDates(today); from.value = d[0]; to.value = d[6]; }
+  else if(kind === 'lastweek'){ const d = weekDates(addDays(today, -7)); from.value = d[0]; to.value = d[6]; }
+  else {
+    // Pay period: two weeks ending on the week's last day. Deliberately just a
+    // starting point — the boundaries are hers to set, and a final period runs
+    // short, which is exactly when a hardcoded rule would be wrong.
+    const d = weekDates(today);
+    to.value = d[6]; from.value = addDays(d[0], -7);
+  }
+  renderTimeView();
+}
+function tsRangeEntries(){
+  const from = document.getElementById('ts-from').value, to = document.getElementById('ts-to').value;
+  const cat = document.getElementById('ts-cat').value;
+  if(!from || !to) return [];
+  return TIME_ENTRIES
+    .filter(e => e && e.date >= from && e.date <= to && (!cat || String(e.category_id) === cat))
+    .sort((a, b) => a.date.localeCompare(b.date)
+      || ((a.start ? hhmmToMin(a.start) : 1e9) - (b.start ? hhmmToMin(b.start) : 1e9))
+      || (a.id - b.id));
+}
+function renderTimeView(){
+  const host = document.getElementById('time-report');
+  if(!host) return;
+  const catSel = document.getElementById('ts-cat');
+  if(catSel && catSel.dataset.n !== String(TIME_CATS.length)){
+    const cur = catSel.value;
+    catSel.innerHTML = `<option value="">All categories</option>`
+      + TIME_CATS.map(c => `<option value="${c.id}">${esc(c.name)}</option>`).join('');
+    catSel.value = cur; catSel.dataset.n = String(TIME_CATS.length);
+  }
+  const from = document.getElementById('ts-from').value;
+  const exact = document.getElementById('ts-round').value === 'exact';
+  const rows = tsRangeEntries();
+  if(!rows.length){ host.innerHTML = `<div class="card"><p class="ts-empty">Nothing logged in this range.</p></div>`; return; }
+  const hoursOf = e => exact ? (e.minutes || 0) / 60 : roundQuarterHours(e.minutes || 0);
+  // Week buckets run from the range start, not from the calendar week, so a pay
+  // period beginning mid-week still breaks where the form breaks.
+  const weekOf = d => Math.floor(daysBetween(from, d) / 7);
+  const weeks = [];
+  rows.forEach(e => {
+    const w = weekOf(e.date);
+    let bucket = weeks.find(b => b.w === w);
+    if(!bucket){ bucket = {w, days: []}; weeks.push(bucket); }
+    let day = bucket.days.find(d => d.date === e.date);
+    if(!day){ day = {date: e.date, rows: []}; bucket.days.push(day); }
+    day.rows.push(e);
+  });
+  let grand = 0;
+  const html = weeks.map((b, i) => {
+    let wTotal = 0;
+    const body = b.days.map(day => day.rows.map((e, ri) => {
+      const h = hoursOf(e); wTotal += h;
+      return `<tr>
+        <td class="ts-date">${ri === 0 ? esc(fmtSheetDate(day.date)) : ''}</td>
+        <td class="ts-desc">${esc(e.description || (TIME_CATS.find(c => c.id === e.category_id) || {}).name || '—')}</td>
+        <td class="ts-hours">${esc(fmtSheetHours(h))}</td>
+      </tr>`;
+    }).join('')).join('');
+    grand += wTotal;
+    return `<table class="ts-table">${body}
+      <tr class="ts-total"><td></td><td>Week ${i + 1} Total</td><td class="ts-hours">${esc(fmtSheetHours(wTotal))}</td></tr>
+    </table>`;
+  }).join('');
+  host.innerHTML = `<div class="card ts-card">${html}
+    <table class="ts-table"><tr class="ts-grand"><td></td><td>${weeks.length > 1 ? 'Pay Period Total' : 'Total'}</td>
+      <td class="ts-hours">${esc(fmtSheetHours(grand))}</td></tr></table>
+    <p class="ts-note">${rows.length} ${rows.length === 1 ? 'entry' : 'entries'}${exact ? ' · exact time' : ' · each row rounded to the quarter, totals are the sum of those rows'}</p>
+  </div>`;
 }
 function fmtMins(m){
   m = Math.max(0, Math.round(m || 0));
