@@ -156,3 +156,38 @@ Work to do here:
 5. **Replace semantics on import:** within the target range, delete meals where `source === 'dinner'`, then add fresh. Never touch meals the user typed by hand (`source !== 'dinner'`). This fixes the current duplicate-on-reimport behavior of `importSavedMenu`.
 
 Full contract also recorded in the dinner planner's CLAUDE.md.
+
+## Sync invariant (do not regress)
+
+The local cache is a safety net for writes that never reached the server. It is
+**not** a second source of truth, and which copy wins a load is a question about
+time, not size.
+
+This originally compared item counts — if the cache held more items than the
+server, an earlier save was assumed lost, so the cache won and was pushed back
+up. That destroyed data: a day-old cache legitimately outnumbers a server that
+another device has since pruned, so the stale copy won the load and overwrote
+the newer one. In the agenda app (2026-08-06) a laptop restored the previous day
+and deleted tasks a phone had added that morning; the restored copy also
+predated that day's check-offs, so rollover moved completed tasks back to today.
+
+Rules to preserve:
+
+- The cache stores `updated_at` (stamp of the write it holds) and `synced`
+  (whether the server confirmed it). Never compare item counts.
+- Prefer the cache only when the server is unreachable, or when it is unsynced
+  **and** newer than the server's row.
+- When the server is unreachable, do **not** push the cache up. Pushing blind is
+  the step that overwrites the other device.
+- Flush pending debounced saves on `pagehide` and on backgrounding — a phone is
+  suspended the moment it is locked, often inside the debounce window.
+- Never let a refetch or Realtime update replace memory while a save is pending.
+
+Known limitation, deliberately deferred: a device with a newer unsynced write
+wins *wholesale* rather than merging, so if two devices edited during a network
+gap one side's changes are still lost. A real fix needs per-item timestamps and
+deletion tombstones across all the apps sharing this block — plan it, don't bolt
+it on.
+
+This sync block is copied between apps in the suite. Apps carrying it: agenda,
+restock, time-tracker. Copy the corrected version, not an older sibling.
