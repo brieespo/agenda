@@ -285,10 +285,18 @@ a.meal-title:hover .meal-link-ico { opacity: 1; }
 .law-item.compact { font-size: 0.7rem; padding: 3px 6px; margin-bottom: 3px; gap: 5px; }
 .law-item.compact .law-kind { display: none; }
 
-.task-row .t-timer { flex: none; border: none; background: none; color: var(--muted); cursor: pointer; padding: 3px; border-radius: 6px; display: flex; opacity: 0; transition: opacity 120ms ease, color 120ms ease; }
-.task-row:hover .t-timer, .t-timer:focus { opacity: 1; }
-.task-row .t-timer:hover { color: var(--accent); }
-.task-row .t-timer .icon { width: 0.9rem; height: 0.9rem; }
+/* Logged time is a record of the past, not an intention: filled and quiet, no
+   drag or resize handles, and set apart from the tasks and events above it. */
+.grid-block.time-entry { background: var(--surface-2, var(--accent-light)); border: 1px solid var(--border); border-left: 3px solid var(--muted); color: var(--ink-2); cursor: default; }
+.grid-block.time-entry .gb-time { opacity: 0.75; }
+.te-del { position: absolute; top: 2px; right: 3px; border: none; background: none; padding: 2px 4px; border-radius: 6px; color: var(--muted); cursor: pointer; opacity: 0; font: inherit; font-size: 0.62rem; line-height: 1; display: flex; align-items: center; gap: 3px; transition: opacity 120ms ease, color 120ms ease, background 120ms ease; }
+.grid-block.time-entry:hover .te-del, .te-del:focus { opacity: 1; }
+.te-del:hover { color: var(--critical); }
+.te-del .icon { width: 0.7rem; height: 0.7rem; }
+/* Armed: the same two-tap idiom the timer's Discard uses, so destructive
+   actions read the same way everywhere in the app. */
+.te-del.armed { opacity: 1; color: var(--critical); background: color-mix(in srgb, var(--critical) 12%, transparent); font-weight: 600; }
+.grid-block.time-entry.arming { border-color: var(--critical); border-left-color: var(--critical); }
 
 .timer-chip { display: inline-flex; align-items: center; gap: 6px; padding: 5px 10px; border-radius: 999px; border: 1px solid var(--serious); background: var(--accent-light); color: var(--serious); font: inherit; font-size: 0.78rem; font-variant-numeric: tabular-nums; cursor: pointer; }
 .timer-chip .tc-dot { width: 6px; height: 6px; border-radius: 50%; background: var(--serious); flex: none; animation: tcpulse 2s ease-in-out infinite; }
@@ -1563,10 +1571,19 @@ const SNAP_MIN = 15;             // moves & resizes snap to quarter-hours
 const SNAP_PX = HOUR_PX * SNAP_MIN / 60;
 let _gridStartHour = 6;          // first hour the grid renders — set each render
 let _gridGrabOffsetY = 0;        // where inside a block the drag was grabbed, so the block's top lands where you point
-function gridRangeFor(items){
+function gridRangeFor(items, entries){
   let start = 6, end = 22;
   items.forEach(it => { if(it.time){ const h = parseInt(it.time.split(':')[0],10); if(h<start) start=h; if(h+1>end) end=h+1; } });
-  return {start, end};
+  // Logged time widens the grid too. Without this an overnight entry — the very
+  // thing most worth spotting — would sit outside the visible hours.
+  (entries||[]).forEach(en => {
+    const sh = parseInt(en.start.split(':')[0], 10);
+    const [ehh, emm] = en.end.split(':').map(Number);
+    const eh = en.end === '24:00' ? 24 : (emm === 0 ? ehh : ehh + 1);
+    if(sh < start) start = sh;
+    if(eh > end) end = eh;
+  });
+  return {start: Math.max(0, start), end: Math.min(24, end)};
 }
 // Convert a pointer Y (during a grid drag) to a 15-min-snapped "HH:MM", using
 // the grab offset so the block's top — not the cursor — lands on the slot.
@@ -1680,7 +1697,6 @@ function taskRowHtml(item){
     <span class="chk ${item.done?'done':''}" onclick='${doneCall}'>${item.done?ico('check'):''}</span>
     <span class="t-title" onclick='${openCall}'>${esc(item.title)}</span>
     ${recurIco}${rolledChip}
-    ${item.done ? '' : `<button class="t-timer" title="Start timing this in Time Tracker" onclick='startTrackingForTask(${JSON.stringify(item.title)})'>${ico('clock')}</button>`}
   </div>`;
 }
 function attachRowDrag(container, items){
@@ -1744,7 +1760,8 @@ function toggleTodayCollapse(){
 }
 function renderHourGrid(timed, gcalTimed){
   gcalTimed = gcalTimed || [];
-  const {start, end} = gridRangeFor(timed.concat(gcalTimed));
+  const entries = timeEntriesForDate(currentDate);
+  const {start, end} = gridRangeFor(timed.concat(gcalTimed), entries);
   _gridStartHour = start;
   const grid = document.getElementById('hour-grid');
   let rows = '';
@@ -1765,7 +1782,23 @@ function renderHourGrid(timed, gcalTimed){
     const writable = isGcalWritable(e);
     return `<div class="grid-block gcal-event ${writable?'writable':''}" data-gcal-index="${i}" style="top:${top}px;height:${height}px;border-left-color:${calColor(e.cal.slot)}"><div class="gb-time">${fmtTime(e.time)}</div>${esc(e.title)}${writable?'<div class="gb-resize"></div>':''}</div>`;
   }).join('');
-  grid.innerHTML = rows + `<div class="grid-blocks" style="height:${(end-start)*HOUR_PX}px">${taskBlocks}${gcalBlocks}</div>`;
+  const entryBlocks = entries.map(en => {
+    const [h,m] = en.start.split(':').map(Number);
+    const [eh,em] = en.end.split(':').map(Number);
+    const top = ((h - start) * 60 + m) / 60 * HOUR_PX;
+    const height = Math.max(18, (((eh*60+em) - (h*60+m)) / 60) * HOUR_PX);
+    const cat = TIME_CATS.find(c => c.id === en.category_id);
+    const armed = _entryDelArmed === en.id;
+    const label = [cat ? cat.name : 'Tracked', en.description].filter(Boolean).join(' · ');
+    return `<div class="grid-block time-entry ${armed?'arming':''}" style="top:${top}px;height:${height}px">`
+      + `<div class="gb-time">${fmtTime(en.start)}–${en.end==='24:00'?'midnight':fmtTime(en.end)} · ${fmtMins(en.minutes)}</div>`
+      + esc(label)
+      + `<button class="te-del ${armed?'armed':''}" title="Delete this logged time" onclick="event.stopPropagation();deleteTimeEntry(${en.id})">`
+      + (armed ? 'Delete?' : ico('x')) + `</button></div>`;
+  }).join('');
+  // Entries first so a task or event block sits above them when they overlap —
+  // what she still has to do matters more than what she already did.
+  grid.innerHTML = rows + `<div class="grid-blocks" style="height:${(end-start)*HOUR_PX}px">${entryBlocks}${taskBlocks}${gcalBlocks}</div>`;
   grid.querySelectorAll('.grid-block:not(.gcal-event)').forEach(el => {
     const item = timed.find(it => String(it.id)===el.dataset.id);
     if(!item) return;
@@ -2480,6 +2513,12 @@ document.addEventListener('click', (e) => {
    same rule the tracker uses, so a timer left going past midnight becomes one
    entry per date rather than a single impossible one. */
 let TIME_CATS = [], RUNNING_TIMER = null, _timeLoaded = false, _timerTick = null;
+// Logged entries are read so the day can show them. This app writes them and
+// used to be unable to display them, which meant a timer started here could
+// produce a record only the tracker could find — the exact hole a stray
+// 25-hour entry fell into. Read-only apart from deleting: editing times,
+// categories and sub-types stays with the tracker.
+let TIME_ENTRIES = [];
 let _timerDraft = '';   // kept across the menu's reload-and-rerender
 let _discardArmed = false, _discardArmTimer = null;   // first tap arms Discard, second acts
 // Long enough to read the confirmation and decide, short enough that a row left
@@ -2512,12 +2551,13 @@ function splitRange(startDt, endDt){
 }
 async function loadTimeData(force){
   if(_timeLoaded && !force) return;
-  if(_guestMode || !_currentUser){ TIME_CATS = []; RUNNING_TIMER = null; _timeLoaded = true; return; }
+  if(_guestMode || !_currentUser){ TIME_CATS = []; RUNNING_TIMER = null; TIME_ENTRIES = []; _timeLoaded = true; return; }
   try{
-    const {data, error} = await sb.from('time_data').select('categories, timer').eq('user_id', _currentUser.id).maybeSingle();
+    const {data, error} = await sb.from('time_data').select('categories, timer, entries').eq('user_id', _currentUser.id).maybeSingle();
     if(error) throw error;
     TIME_CATS = (data && data.categories || []).filter(c => c && !c.archived);
     RUNNING_TIMER = (data && data.timer && data.timer.started_at) ? data.timer : null;
+    TIME_ENTRIES = Array.isArray(data && data.entries) ? data.entries : [];
     _timeLoaded = true;
     renderTimerButton();
   }catch(e){ console.error('loadTimeData error:', e); }
@@ -2683,7 +2723,9 @@ async function stopTracking(){
       .update({entries, timer: null, updated_at: new Date().toISOString()}).eq('user_id', _currentUser.id);
     if(werr) throw werr;
     RUNNING_TIMER = null;
+    TIME_ENTRIES = entries;   // so what was just logged shows on the day at once
     renderTimerButton();
+    if(currentView === 'day') renderDay();
     const total = segs.reduce((n, sg) => n + sg.minutes, 0);
     const h = Math.floor(total / 60), m = total % 60;
     showNotice(`Logged ${h ? h + 'h ' : ''}${m}m${segs.length > 1 ? ` across ${segs.length} days` : ''}.`, 'info');
@@ -2732,22 +2774,66 @@ async function discardTracking(){
     showNotice("Couldn't discard the timer.", 'warn');
   }
 }
-// The task-row clock is the same action with a different starting point: it
-// carries the task title through as the description and takes the tracker's own
-// idle default for the category, rather than this app inventing a second answer
-// to "which category".
-async function startTrackingForTask(title){
-  if(!_currentUser || _guestMode){ showNotice('Sign in to track time.', 'warn'); return; }
-  await loadTimeData(true);
-  if(!TIME_CATS.length){ showNotice('No categories in Time Tracker yet — add one there first.', 'warn'); return; }
-  let lastId = null;
-  try{
-    const {data} = await sb.from('time_data').select('settings').eq('user_id', _currentUser.id).maybeSingle();
-    lastId = data && data.settings && data.settings.lastTimerCat;
-  }catch(e){ /* fall through to the first category */ }
-  const cat = TIME_CATS.find(c => c.id === lastId) || TIME_CATS[0];
-  await startTracking(cat.id, title);
+function fmtMins(m){
+  m = Math.max(0, Math.round(m || 0));
+  const h = Math.floor(m / 60), r = m % 60;
+  return h ? (r ? `${h}h ${r}m` : `${h}h`) : `${r}m`;
 }
+function timeEntriesForDate(date){
+  return TIME_ENTRIES.filter(e => e && e.date === date && e.start && e.end)
+                     .sort((a, b) => a.start.localeCompare(b.start));
+}
+// Deleting is the one write this app makes to the tracker's entry list, and it
+// exists because the agenda can now show a bad entry — showing her something she
+// can't act on would be its own trap. Two taps, the same idiom as the timer's
+// Discard, so destructive actions read the same way throughout the app.
+let _entryDelArmed = null, _entryDelTimer = null;
+function disarmEntryDelete(rerender){
+  clearTimeout(_entryDelTimer); _entryDelTimer = null;
+  if(_entryDelArmed === null) return;
+  _entryDelArmed = null;
+  if(rerender && currentView === 'day') renderDay();
+}
+async function deleteTimeEntry(id){
+  if(_entryDelArmed !== id){
+    _entryDelArmed = id;
+    clearTimeout(_entryDelTimer);
+    _entryDelTimer = setTimeout(() => disarmEntryDelete(true), DISCARD_ARM_MS);
+    renderDay();
+    return;
+  }
+  disarmEntryDelete(false);
+  if(!_currentUser || _guestMode) return;
+  try{
+    // Re-read rather than write back a filtered copy of what we loaded: the
+    // tracker owns this list and may have added entries since. Sending our
+    // stale array would delete those too.
+    const {data, error} = await sb.from('time_data').select('entries').eq('user_id', _currentUser.id).maybeSingle();
+    if(error) throw error;
+    const entries = Array.isArray(data && data.entries) ? data.entries : [];
+    const gone = entries.find(e => e && e.id === id);
+    const next = entries.filter(e => !e || e.id !== id);
+    if(!gone){
+      TIME_ENTRIES = entries; renderDay();
+      showNotice('That entry is already gone.', 'info');
+      return;
+    }
+    const {error: werr} = await sb.from('time_data')
+      .update({entries: next, updated_at: new Date().toISOString()}).eq('user_id', _currentUser.id);
+    if(werr) throw werr;
+    TIME_ENTRIES = next;
+    renderDay();
+    showNotice(`Deleted ${fmtMins(gone.minutes)} of logged time.`, 'info');
+  }catch(e){
+    console.error('deleteTimeEntry error:', e);
+    showNotice("Couldn't delete that entry.", 'warn');
+  }
+}
+// Task rows used to carry a clock button that started a timer in one tap. It was
+// too easy to brush in passing, and nothing in this app then showed what it had
+// started or what it eventually logged — one stray tap became a 25-hour entry
+// that could only be found and deleted in the tracker. Timers now start from the
+// header menu only, deliberately.
 
 /* ---- cross-app read: law school deadlines ----
    Phase 3 suite sync. These are facts owned by the law tracker, not intentions
@@ -3870,6 +3956,9 @@ async function refreshFromSupabase(){
     // on the next return to this tab, not only after a full reload — so re-read
     // restock too, not just this app's own row.
     loadRestockData(true).then(() => { if(syncRestockOutTasks()) renderAll(); });
+    // Same for time: entries logged or deleted in the tracker, and a timer
+    // stopped on another device, should be current when she comes back here.
+    loadTimeData(true).then(() => { if(currentView === 'day') renderDay(); });
   }catch(e){ console.error('refreshFromSupabase error:', e); }
 }
 let _realtimeChannel = null;
