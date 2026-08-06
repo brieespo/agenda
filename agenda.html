@@ -285,6 +285,16 @@ a.meal-title:hover .meal-link-ico { opacity: 1; }
 .law-item.compact { font-size: 0.7rem; padding: 3px 6px; margin-bottom: 3px; gap: 5px; }
 .law-item.compact .law-kind { display: none; }
 
+/* The forgot-to-stop guard. Sits in the day's own column rather than the header
+   so it interrupts rather than waits to be noticed — the whole point is that she
+   isn't looking at the timer. Mirrors the tracker's guard. */
+.timer-guard { background: var(--warning); color: #4a3400; padding: 11px 14px; border-radius: 10px; display: flex; align-items: center; gap: 10px; flex-wrap: wrap; font-size: 0.85rem; margin-bottom: 10px; }
+.timer-guard strong { font-weight: 650; }
+.timer-guard .guard-actions { display: flex; gap: 6px; margin-left: auto; flex-wrap: wrap; }
+.timer-guard button { cursor: pointer; border: 1px solid rgba(74,52,0,0.3); background: rgba(255,255,255,0.55); color: #4a3400; border-radius: 8px; padding: 5px 10px; font: inherit; font-size: 0.8rem; transition: background 120ms ease; }
+.timer-guard button:hover { background: rgba(255,255,255,0.9); }
+.timer-chip.overdue { border-color: var(--critical); color: var(--critical); }
+.timer-chip.overdue .tc-dot { background: var(--critical); }
 /* Logged time is a record of the past, not an intention: filled and quiet, no
    drag or resize handles, and set apart from the tasks and events above it. */
 .grid-block.time-entry { background: var(--surface-2, var(--accent-light)); border: 1px solid var(--border); border-left: 3px solid var(--muted); color: var(--ink-2); cursor: default; }
@@ -523,6 +533,9 @@ footer button { font: inherit; font-size: 0.72rem; border: none; background: non
 <main>
   <div class="app-layout">
     <div>
+      <!-- Outside both views on purpose: a timer left running is worth
+           interrupting whichever one she's looking at. -->
+      <div class="timer-guard" id="timer-guard" style="display:none"></div>
       <!-- ============ DAY VIEW ============ -->
       <section class="view active" id="view-day">
         <div class="day-toolbar">
@@ -2313,6 +2326,7 @@ function renderMealSidebar(){
 }
 
 function renderAll(){
+  renderTimerGuard();
   if(currentView==='day') renderDay(); else renderWeek();
   renderSidebar();
   renderMonthSidebar();
@@ -2562,6 +2576,51 @@ async function loadTimeData(force){
     renderTimerButton();
   }catch(e){ console.error('loadTimeData error:', e); }
 }
+// Past this, assume it was left running rather than genuinely worked. Same
+// threshold and the same ack_at field the tracker uses, deliberately: the timer
+// is one shared object, so saying "yes, still going" in either app has to
+// silence both. A different constant here would mean one app nagging about a
+// timer the other had already been told about.
+const FORGOT_HOURS = 6;
+const FORGOT_MS = FORGOT_HOURS * 3600 * 1000;
+function timerNeedsCheck(){
+  if(!RUNNING_TIMER || !RUNNING_TIMER.started_at) return false;
+  if(Date.now() - Date.parse(RUNNING_TIMER.started_at) < FORGOT_MS) return false;
+  const ack = RUNNING_TIMER.ack_at ? Date.parse(RUNNING_TIMER.ack_at) : 0;
+  return !ack || (Date.now() - ack) >= FORGOT_MS;
+}
+function renderTimerGuard(){
+  const el = document.getElementById('timer-guard');
+  if(!el) return;
+  if(!timerNeedsCheck()){ el.style.display = 'none'; el.innerHTML = ''; return; }
+  const cat = TIME_CATS.find(c => c.id === RUNNING_TIMER.category_id);
+  const what = RUNNING_TIMER.description || (cat ? cat.name : 'something');
+  const since = fmtTime(hhmmOf(new Date(Date.parse(RUNNING_TIMER.started_at))));
+  el.innerHTML = `<span>Still timing <strong>${esc(what)}</strong> since ${esc(since)}? That's ${esc(fmtMins(elapsedMinutes()))} so far.</span>`
+    + `<span class="guard-actions">`
+    + `<button onclick="ackRunningTimer()">Yes, still going</button>`
+    + `<button onclick="stopTracking()">Stop and log it</button>`
+    + `<button onclick="discardTracking()">Discard</button>`
+    + `</span>`;
+  el.style.display = '';
+}
+// Acknowledging writes ack_at onto the shared timer, so the tracker stops asking
+// too. Re-read first for the same reason every other write here does: the
+// description or category may have changed on another device since load.
+async function ackRunningTimer(){
+  if(!RUNNING_TIMER) return;
+  const stamp = new Date().toISOString();
+  RUNNING_TIMER.ack_at = stamp;
+  renderTimerGuard(); renderTimerButton();
+  if(!_currentUser || _guestMode) return;
+  try{
+    const {data} = await sb.from('time_data').select('timer').eq('user_id', _currentUser.id).maybeSingle();
+    if(!data || !data.timer || !data.timer.started_at) return;
+    await sb.from('time_data')
+      .update({timer: {...data.timer, ack_at: stamp}, updated_at: new Date().toISOString()})
+      .eq('user_id', _currentUser.id);
+  }catch(e){ console.error('ackRunningTimer error:', e); }
+}
 function elapsedMinutes(){
   if(!RUNNING_TIMER) return 0;
   return Math.max(0, Math.floor((Date.now() - Date.parse(RUNNING_TIMER.started_at)) / 60000));
@@ -2577,7 +2636,7 @@ function renderTimerButton(){
   if(!btn) return;
   if(RUNNING_TIMER){
     const cat = TIME_CATS.find(c => c.id === RUNNING_TIMER.category_id);
-    btn.className = 'timer-chip';
+    btn.className = 'timer-chip' + (timerNeedsCheck() ? ' overdue' : '');
     btn.removeAttribute('data-ico');
     btn.innerHTML = `<span class="tc-dot"></span>${esc(elapsedLabel())}<span class="tc-label">${esc(RUNNING_TIMER.description || (cat ? cat.name : 'tracking'))}</span>`;
     btn.title = 'Tracking — tap to stop';
@@ -2590,6 +2649,9 @@ function renderTimerButton(){
     paintIcons(btn.parentElement);
     if(_timerTick){ clearInterval(_timerTick); _timerTick = null; }
   }
+  // The 30s tick is what makes the guard appear on its own: crossing the
+  // threshold needs no other render, and she is by definition not looking.
+  renderTimerGuard();
 }
 function toggleTimerMenu(open){
   const menu = document.getElementById('timer-menu');
