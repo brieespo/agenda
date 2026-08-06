@@ -306,6 +306,15 @@ a.meal-title:hover .meal-link-ico { opacity: 1; }
 /* Armed: the same two-tap idiom the timer's Discard uses, so destructive
    actions read the same way everywhere in the app. */
 .te-del.armed { opacity: 1; color: var(--critical); background: color-mix(in srgb, var(--critical) 12%, transparent); font-weight: 600; }
+/* Unplaced: a duration with no clock time, parked at a conventional hour. Dashed
+   because the position is a placeholder, and grabbable because dragging it is
+   what turns the placeholder into a real time. */
+/* Inset to the right so a placeholder can never hide a real record underneath
+   it — their hours are arbitrary and will collide with genuinely timed entries.
+   The offset doubles as the signal that this block isn't really at this hour. */
+.grid-block.time-entry.unplaced { left: 46%; border-style: dashed; border-left-style: solid; cursor: grab; }
+.grid-block.time-entry.unplaced:active { cursor: grabbing; }
+.grid-block.time-entry.unplaced:hover { transform: translateY(-1px); box-shadow: var(--shadow); }
 .grid-block.time-entry.arming { border-color: var(--critical); border-left-color: var(--critical); }
 
 .timer-chip { display: inline-flex; align-items: center; gap: 6px; padding: 5px 10px; border-radius: 999px; border: 1px solid var(--serious); background: var(--accent-light); color: var(--serious); font: inherit; font-size: 0.78rem; font-variant-numeric: tabular-nums; cursor: pointer; }
@@ -1521,6 +1530,15 @@ function handleDrop(item, targetEl, e){
     renderAll();
     return;
   }
+  // A dragged time entry only ever gains a clock position; it can't become a
+  // task or move to a sidebar, and it belongs to the tracker's row, so it is
+  // written there rather than through saveToStorage.
+  if(item && item.__timeEntry){
+    if(kind === 'hour-slot'){
+      commitTimeEntryPlacement(item.id, timeFromGridY(e.clientY) || targetEl.dataset.time);
+    }
+    return;
+  }
   // A dragged Google Calendar event only ever retimes within the grid — it
   // can't become an untimed task or move to the sidebar. Read-only events
   // never get here (their blocks aren't draggable).
@@ -1803,8 +1821,8 @@ function renderHourGrid(timed, gcalTimed){
     const cat = TIME_CATS.find(c => c.id === en.category_id);
     const armed = _entryDelArmed === en.id;
     const label = [cat ? cat.name : 'Tracked', en.description].filter(Boolean).join(' · ');
-    return `<div class="grid-block time-entry ${armed?'arming':''}" style="top:${top}px;height:${height}px">`
-      + `<div class="gb-time">${fmtTime(en.start)}–${en.end==='24:00'?'midnight':fmtTime(en.end)} · ${fmtMins(en.minutes)}</div>`
+    return `<div class="grid-block time-entry ${armed?'arming':''} ${en._unplaced?'unplaced':''}" style="top:${top}px;height:${height}px" data-entry-id="${en.id}">`
+      + `<div class="gb-time">${en._unplaced ? `${fmtMins(en.minutes)} · no time set` : `${fmtTime(en.start)}–${en.end==='24:00'?'midnight':fmtTime(en.end)} · ${fmtMins(en.minutes)}`}</div>`
       + esc(label)
       + `<button class="te-del ${armed?'armed':''}" title="Delete this logged time" onclick="event.stopPropagation();deleteTimeEntry(${en.id})">`
       + (armed ? 'Delete?' : ico('x')) + `</button></div>`;
@@ -1818,6 +1836,19 @@ function renderHourGrid(timed, gcalTimed){
     el.addEventListener('pointerdown', e => { const off = e.clientY - el.getBoundingClientRect().top; startItemDrag(e, item, el, () => openTaskModal(item)); _gridGrabOffsetY = off; });
     const rz = el.querySelector('.gb-resize');
     if(rz) rz.addEventListener('pointerdown', e => { e.stopPropagation(); startBlockResize(e, item, el, false); });
+  });
+  // Only the unplaced ones drag. A placed entry's time is a real record she set
+  // in the tracker, and this session has spent enough effort on records changed
+  // by accident — correcting one of those stays in the app that owns editing.
+  grid.querySelectorAll('.grid-block.time-entry.unplaced').forEach(el => {
+    const en = entries.find(x => String(x.id) === el.dataset.entryId);
+    if(!en) return;
+    el.addEventListener('pointerdown', e => {
+      if(e.target.closest('.te-del')) return;   // the delete button owns its own taps
+      const off = e.clientY - el.getBoundingClientRect().top;
+      startItemDrag(e, {__timeEntry: true, id: en.id, title: en.description || 'Logged time', minutes: en.minutes}, el);
+      _gridGrabOffsetY = off;
+    });
   });
   grid.querySelectorAll('.grid-block.gcal-event').forEach(el => {
     const item = gcalTimed[Number(el.dataset.gcalIndex)];
@@ -2841,9 +2872,55 @@ function fmtMins(m){
   const h = Math.floor(m / 60), r = m % 60;
   return h ? (r ? `${h}h ${r}m` : `${h}h`) : `${r}m`;
 }
+const hhmmToMin = t => { const [h, m] = String(t).split(':').map(Number); return h * 60 + m; };
+const minToHHMM = n => `${pad2(Math.floor(n / 60))}:${pad2(n % 60)}`;
 function timeEntriesForDate(date){
-  return TIME_ENTRIES.filter(e => e && e.date === date && e.start && e.end)
-                     .sort((a, b) => a.start.localeCompare(b.start));
+  const all = TIME_ENTRIES.filter(e => e && e.date === date);
+  const placed = all.filter(e => e.start && e.end);
+  // The tracker can log a duration with no clock time ("Duration only"), and
+  // those are real records — hiding them meant the day silently under-reported
+  // itself, the same invisible-record trap the grid was built to close. They get
+  // a provisional slot instead, stacked back-to-back from the conventional
+  // morning hour so several don't pile on one spot. The position is a placeholder
+  // until she drags one, and is drawn to say so.
+  let cursor = hhmmToMin(PART_OF_DAY_START[PART_OF_DAY_DEFAULT]);
+  const provisional = all.filter(e => !e.start || !e.end).map(e => {
+    const mins = Math.max(5, Number(e.minutes) || 0);
+    const start = Math.min(cursor, 24 * 60 - mins);
+    const end = start + mins;
+    cursor = end;
+    return {...e, start: minToHHMM(start), end: minToHHMM(end), _unplaced: true};
+  });
+  return placed.concat(provisional).sort((a, b) => a.start.localeCompare(b.start));
+}
+// Dropping an unplaced entry on the grid is this app's second write to the
+// tracker's list. It sets when the time happened; minutes stays exactly as
+// logged, because dragging says where it goes, not how long it was.
+async function commitTimeEntryPlacement(entryId, newTime){
+  if(!_currentUser || _guestMode || !newTime) return;
+  try{
+    // Re-read before writing, as delete and log do: this list is the tracker's.
+    const {data, error} = await sb.from('time_data').select('entries').eq('user_id', _currentUser.id).maybeSingle();
+    if(error) throw error;
+    const entries = Array.isArray(data && data.entries) ? data.entries : [];
+    const en = entries.find(e => e && e.id === entryId);
+    if(!en){ showNotice('That entry is no longer there.', 'warn'); return; }
+    const mins = Math.max(1, Number(en.minutes) || 0);
+    // Clamp the start, not the end: pushing a block past midnight should slide
+    // it back to fit, never quietly shorten time she actually spent.
+    const startMin = Math.max(0, Math.min(hhmmToMin(newTime), 24 * 60 - mins));
+    en.start = minToHHMM(startMin);
+    en.end = minToHHMM(startMin + mins);
+    const {error: werr} = await sb.from('time_data')
+      .update({entries, updated_at: new Date().toISOString()}).eq('user_id', _currentUser.id);
+    if(werr) throw werr;
+    TIME_ENTRIES = entries;
+    renderDay();
+    showNotice(`Placed at ${fmtTime(en.start)}.`, 'info');
+  }catch(e){
+    console.error('commitTimeEntryPlacement error:', e);
+    showNotice("Couldn't place that entry.", 'warn');
+  }
 }
 // Deleting is the one write this app makes to the tracker's entry list, and it
 // exists because the agenda can now show a bad entry — showing her something she
