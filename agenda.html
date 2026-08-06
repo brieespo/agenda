@@ -3698,7 +3698,25 @@ function afterLoad(){
 /* ---- sync safety net (same pattern as sibling apps) ---- */
 function localCacheKey(uid){ return `agenda-synccache-${uid}`; }
 function readLocalCache(uid){ try{ const raw = localStorage.getItem(localCacheKey(uid)); return raw ? JSON.parse(raw) : null; }catch(e){ return null; } }
-function writeLocalCache(uid, payload){ try{ localStorage.setItem(localCacheKey(uid), JSON.stringify(payload)); }catch(e){} }
+// The cache carries the stamp of the write it holds and whether that write ever
+// reached the server. Without those two fields there is no way to tell a cache
+// full of unsynced work from one that is simply old, which is what let a stale
+// copy win a load and overwrite another device's day.
+function writeLocalCache(uid, updatedAt, synced){
+  try{ localStorage.setItem(localCacheKey(uid), JSON.stringify({
+    tasks:TASKS, templates:TEMPLATES, completions:COMPLETIONS, settings:SETTINGS,
+    updated_at: updatedAt, synced: !!synced
+  })); }catch(e){}
+}
+function markCacheSynced(uid, stamp){
+  const c = readLocalCache(uid);
+  // Only clear the flag if the cache still holds the write we just confirmed —
+  // an edit made while the request was in flight has to stay dirty.
+  if(c && c.updated_at === stamp){ c.synced = true; try{ localStorage.setItem(localCacheKey(uid), JSON.stringify(c)); }catch(e){} }
+}
+function applyRow(row){
+  TASKS = row.tasks||[]; TEMPLATES = row.templates||[]; COMPLETIONS = row.completions||[]; SETTINGS = row.settings||{};
+}
 function showNotice(text, kind){
   const el = document.getElementById('app-notice');
   el.innerHTML = esc(text);
@@ -3716,15 +3734,22 @@ async function _doSave(){
     try{ localStorage.setItem('agenda-guest-data', JSON.stringify({tasks:TASKS, templates:TEMPLATES, completions:COMPLETIONS, settings:SETTINGS})); }catch(e){}
     return;
   }
-  writeLocalCache(_currentUser.id, {tasks:TASKS, templates:TEMPLATES, completions:COMPLETIONS, settings:SETTINGS});
+  // One stamp for both copies, so a later load can compare them directly.
+  const stamp = new Date().toISOString();
+  writeLocalCache(_currentUser.id, stamp, false);
   try{
     const {error} = await sb.from('agenda_data').upsert(
-      {user_id:_currentUser.id, tasks:TASKS, templates:TEMPLATES, completions:COMPLETIONS, settings:SETTINGS, updated_at:new Date().toISOString()},
+      {user_id:_currentUser.id, tasks:TASKS, templates:TEMPLATES, completions:COMPLETIONS, settings:SETTINGS, updated_at:stamp},
       {onConflict:'user_id'});
-    if(error){ console.error('save error', error); showSyncError(); } else clearSyncError();
+    if(error){ console.error('save error', error); showSyncError(); }
+    else { markCacheSynced(_currentUser.id, stamp); clearSyncError(); }
   }catch(e){ console.error('save error', e); showSyncError(); }
 }
-function saveToStorage(){ clearTimeout(_saveTimer); _saveTimer = setTimeout(_doSave, 600); }
+function saveToStorage(){ clearTimeout(_saveTimer); _saveTimer = setTimeout(() => { _saveTimer = null; _doSave(); }, 600); }
+// A phone gets suspended the instant it is locked or swiped away, which can be
+// well inside the 600ms debounce — those edits never reached even localStorage.
+// Anything backgrounding the app has to settle the pending write first.
+function flushSave(){ if(_saveTimer){ clearTimeout(_saveTimer); _saveTimer = null; _doSave(); } }
 async function loadUserData(user){
   let remote = null, remoteOk = false;
   try{
@@ -3733,17 +3758,31 @@ async function loadUserData(user){
   }catch(e){ console.error('loadUserData error:', e); }
 
   const cached = readLocalCache(user.id);
-  const cachedCount = cached ? (cached.tasks||[]).length + (cached.templates||[]).length : -1;
-  const remoteCount = (remoteOk && remote) ? (remote.tasks||[]).length + (remote.templates||[]).length : -1;
+  // Which copy is authoritative is a question about time, not size. Comparing
+  // item counts meant a laptop whose day-old cache happened to hold more rows
+  // than the server would win the load, restore yesterday, and then push it
+  // back over the tasks a phone had added that morning — and because the
+  // restored copy predated their check-offs, rollover moved them to today.
+  // Only two things justify preferring the cache: the server is unreachable,
+  // or the cache holds a write that provably never landed and is newer than
+  // what the server has. A legacy cache has no `synced` field and so never
+  // qualifies, which is the safe default.
+  const unsynced = !!(cached && cached.synced === false && cached.updated_at);
+  const cacheIsNewer = unsynced && (!remote || !remote.updated_at || cached.updated_at > remote.updated_at);
 
-  if(cached && (!remoteOk || cachedCount > remoteCount)){
-    TASKS = cached.tasks||[]; TEMPLATES = cached.templates||[]; COMPLETIONS = cached.completions||[]; SETTINGS = cached.settings||{};
-    if(!remoteOk) showNotice("Couldn't reach the server — showing your last saved copy on this device.", 'warn');
-    else showNotice(`Restored ${cachedCount} item${cachedCount===1?'':'s'} from this device that hadn't finished syncing — reconnecting now.`, 'info');
+  if(cached && !remoteOk){
+    applyRow(cached);
+    showNotice("Couldn't reach the server — showing your last saved copy on this device.", 'warn');
+    // No save here on purpose: we don't know what the server holds, so pushing
+    // this copy blind is exactly the overwrite we're trying to prevent. The
+    // cache keeps its dirty flag and settles on the next successful save.
+  } else if(cacheIsNewer){
+    applyRow(cached);
+    showNotice("Restored changes from this device that hadn't finished syncing — reconnecting now.", 'info');
     saveToStorage();
   } else if(remote){
-    TASKS = remote.tasks||[]; TEMPLATES = remote.templates||[]; COMPLETIONS = remote.completions||[]; SETTINGS = remote.settings||{};
-    writeLocalCache(user.id, {tasks:TASKS, templates:TEMPLATES, completions:COMPLETIONS, settings:SETTINGS});
+    applyRow(remote);
+    writeLocalCache(user.id, remote.updated_at || new Date().toISOString(), true);
   }
   afterLoad();
 }
@@ -3759,12 +3798,16 @@ let _lastRefetch = 0;
 async function refreshFromSupabase(){
   if(!_currentUser || _guestMode) return;
   if(Date.now() - _lastRefetch < 2000) return; // focus + visibilitychange often fire together
+  // A refetch replaces everything in memory, so it must never run while this
+  // device is holding work the server hasn't got — that would drop the edit.
+  // Push it instead; the next focus or Realtime tick brings the server's copy.
+  if(_saveTimer || _syncFailed){ flushSave(); return; }
   _lastRefetch = Date.now();
   try{
     const {data,error} = await sb.from('agenda_data').select('*').eq('user_id',_currentUser.id).maybeSingle();
     if(error || !data) return;
-    TASKS = data.tasks||[]; TEMPLATES = data.templates||[]; COMPLETIONS = data.completions||[]; SETTINGS = data.settings||{};
-    writeLocalCache(_currentUser.id, {tasks:TASKS, templates:TEMPLATES, completions:COMPLETIONS, settings:SETTINGS});
+    applyRow(data);
+    writeLocalCache(_currentUser.id, data.updated_at || new Date().toISOString(), true);
     afterLoad();
     renderAll();
     // Tapping something Out in the restock app on the phone should surface here
@@ -3778,9 +3821,10 @@ function subscribeRealtime(){
   if(!_currentUser || _guestMode || _realtimeChannel) return;
   _realtimeChannel = sb.channel('agenda_data_' + _currentUser.id)
     .on('postgres_changes', {event:'UPDATE', schema:'public', table:'agenda_data', filter:`user_id=eq.${_currentUser.id}`}, (payload) => {
+      if(_saveTimer || _syncFailed){ flushSave(); return; }  // same reason as refreshFromSupabase
       const row = payload.new;
-      TASKS = row.tasks||[]; TEMPLATES = row.templates||[]; COMPLETIONS = row.completions||[]; SETTINGS = row.settings||{};
-      writeLocalCache(_currentUser.id, {tasks:TASKS, templates:TEMPLATES, completions:COMPLETIONS, settings:SETTINGS});
+      applyRow(row);
+      writeLocalCache(_currentUser.id, row.updated_at || new Date().toISOString(), true);
       afterLoad();
       renderAll();
     })
@@ -3839,8 +3883,14 @@ function onResume(){
 // clock jumped further than the tick. It only counts time while the app is
 // genuinely in front, so a window left behind another app does age toward the
 // snap threshold.
-document.addEventListener('visibilitychange', () => { if(!document.hidden){ onResume(); refreshFromSupabase(); } });
+document.addEventListener('visibilitychange', () => {
+  if(document.hidden){ flushSave(); return; }
+  onResume(); refreshFromSupabase();
+});
 window.addEventListener('focus', () => { onResume(); refreshFromSupabase(); });
+// pagehide is the last event a mobile browser reliably delivers before it
+// freezes or discards the page; visibilitychange alone misses some of those.
+window.addEventListener('pagehide', flushSave);
 setInterval(() => {
   if(document.hidden || !document.hasFocus()) return;
   if(Date.now() - _lastActiveAt >= ACTIVE_TICK_MS*2 || todayStr() !== _lastKnownDate) onResume();
