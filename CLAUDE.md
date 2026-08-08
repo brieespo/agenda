@@ -199,7 +199,25 @@ Rules to preserve:
   the step that overwrites the other device.
 - Flush pending debounced saves on `pagehide` and on backgrounding — a phone is
   suspended the moment it is locked, often inside the debounce window.
-- Never let a refetch or Realtime update replace memory while a save is pending.
+- **Backgrounding must re-send over the network, not just settle the debounce.**
+  Flushing only guaranteed the localStorage write; the upsert itself was an
+  ordinary `fetch` that died with the frozen page, so a phone edit reached the
+  cache and never the server. The leaving path posts directly to PostgREST with
+  `keepalive: true`, which outlives the page. Bodies over ~60KB exceed the
+  browser cap, so they decline and fall back to the unsynced-cache net rather
+  than truncating.
+- "A save is pending" means queued **or in the air**, not just queued. `_saveTimer`
+  goes null the moment the request is issued, and a Realtime tick landing in
+  that window replaced memory with the pre-save row; the next save then wrote
+  that stale copy back up. Guard on `savePending()`.
+- **Load-time normalization must not write to the server either.** The `_u` rule
+  below is about the item stamp, but the *row's* `updated_at` is what actually
+  decides a load — and `runRollover`/`ensureMonthlyRecurring`/dedupe used to call
+  `saveToStorage()` from `afterLoad`. Merely opening the app republished the row
+  with a fresh stamp, so a passive device outranked one holding real unsynced
+  work. That is how a laptop destroyed a phone's edits on 2026-08-08 with no
+  second edit made anywhere. These fixups now mutate memory only; they are
+  recomputed every load, and the next genuine edit carries them up.
 
 ## Cross-device merge — where it stands
 
@@ -248,5 +266,12 @@ Phase C's merge would keep both → duplicate monthly tasks. Harmless today.
 Needs a deterministic identity (id derived from `seriesId + month`), handled in
 Phase B while merge is still a dry run.
 
+**Still true after the 2026-08-08 fixes:** if the server genuinely receives a
+newer write while a device holds unsynced work, that device still loses its work
+silently on the next load. The fixes remove the ways that happened *without* a
+real competing edit; they do not make concurrent edits safe. That is Phase B/C.
+
 This sync block is copied between apps in the suite. Apps carrying it: agenda,
 restock, time-tracker. Copy the corrected version, not an older sibling.
+**The 2026-08-08 fixes have NOT been ported to restock or time-tracker yet** —
+both still republish their row from load-time normalization.

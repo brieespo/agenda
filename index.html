@@ -1059,7 +1059,10 @@ function runRollover(){
       t.rolled_from = t.month; t.month = curMonth; changed = true;
     }
   });
-  if(changed) saveToStorage();
+  // Deliberately no save — see the note on afterLoad. Rollover is recomputed
+  // from the row on every load, so persisting it buys nothing and republishing
+  // the row here let a passive device outrank one holding real unsynced work.
+  return changed;
 }
 // Monthly-recurring tasks (model: a fresh copy every month, forgotten ones
 // still carried over by runRollover). Runs AFTER rollover, so a forgotten
@@ -1083,7 +1086,9 @@ function ensureMonthlyRecurring(){
     }));
     changed = true;
   });
-  if(changed) saveToStorage();
+  // No save here either, same reason. The copy lives in memory and the next
+  // real edit persists it; until then it is recreated on each load.
+  return changed;
 }
 
 /* =====================================================================
@@ -4479,14 +4484,30 @@ function authGuest(){
   afterLoad();
   showApp();
 }
+// Load-time normalization must never write to the server.
+//
+// `_u` is already forbidden from being stamped here, because "the last device
+// to open the app would win every future merge." But the row's own updated_at
+// is what actually decides a load today, and these fixups used to call
+// saveToStorage() — so merely OPENING the app republished the row with a fresh
+// stamp. That is the same bug one level up, and it is what destroyed phone
+// edits: a phone whose upsert died when the screen locked kept its work in an
+// unsynced cache stamped T1; opening the laptop rolled a task over, saved at
+// T2 > T1 without the phone's edit, and the phone then lost the recency
+// comparison on its next load and discarded its own work.
+//
+// Nothing is lost by not saving. Every fixup here is derived from the row and
+// recomputed on the next load, and the mutations stay in memory, so the next
+// genuine user edit persists them anyway. afterLoad also runs on every refetch
+// and Realtime tick, where an idle open tab was republishing the row too.
 function afterLoad(){
   if(!SETTINGS || typeof SETTINGS !== 'object') SETTINGS = {};
-  if(!SETTINGS.taskCategories){ SETTINGS.taskCategories = ['Self-care', 'Household', 'Routine']; saveToStorage(); }
+  if(!SETTINGS.taskCategories) SETTINGS.taskCategories = ['Self-care', 'Household', 'Routine'];
   if(!Array.isArray(SETTINGS.meals)) SETTINGS.meals = [];
   // The seed scan that used to be here is gone with nextId. It only ever made
   // ids unique within one device's row, which is exactly the guarantee that
   // fails when two devices are both offline.
-  if(dedupeQuickLinkIds()) saveToStorage();
+  dedupeQuickLinkIds();
   pruneGhosts();
   applyTheme();
   runRollover();
@@ -4545,7 +4566,42 @@ let _syncFailed = false, _syncRetryTimer = null, _syncRetryDelay = 8000;
 function scheduleSyncRetry(){ clearTimeout(_syncRetryTimer); _syncRetryTimer = setTimeout(_doSave, _syncRetryDelay); _syncRetryDelay = Math.min(_syncRetryDelay*1.6, 60000); }
 function showSyncError(){ _syncFailed = true; showNotice("Couldn't sync to the cloud — your changes are saved on this device and will keep retrying.", 'warn'); scheduleSyncRetry(); }
 function clearSyncError(){ _syncRetryDelay = 8000; clearTimeout(_syncRetryTimer); if(!_syncFailed) return; _syncFailed = false; hideNotice(); }
-async function _doSave(){
+// True from the moment a save's request is issued until it resolves. The
+// debounce timer alone was never enough: once _doSave fired, _saveTimer went
+// null while the upsert was still in the air, and a Realtime tick or a refetch
+// arriving in that window would replace memory with the pre-save server row.
+// The next save then wrote that stale copy back up.
+let _saveInFlight = false;
+// A save is "pending" if it is queued, in the air, or known to have failed.
+// Nothing may overwrite memory from the server while any of those hold.
+function savePending(){ return !!(_saveTimer || _saveInFlight || _syncFailed); }
+
+// keepalive lets a request outlive the page that started it, which is the whole
+// problem on a phone: locking the screen freezes the page and kills a normal
+// fetch mid-flight, so the edit only ever reached localStorage. The browser cap
+// on a keepalive body is 64KB, so oversized rows fall back to the ordinary path
+// and rely on the unsynced-cache net instead of silently truncating.
+const KEEPALIVE_MAX_BYTES = 60000;
+async function beaconSave(row, stamp){
+  const body = JSON.stringify(row);
+  if(new Blob([body]).size > KEEPALIVE_MAX_BYTES) return false;
+  let token = '';
+  try{ token = (await sb.auth.getSession()).data.session?.access_token || ''; }catch(e){}
+  if(!token) return false;
+  try{
+    const res = await fetch(`${SUPABASE_URL}/rest/v1/agenda_data?on_conflict=user_id`, {
+      method: 'POST', keepalive: true,
+      headers: {'apikey': SUPABASE_KEY, 'Authorization': `Bearer ${token}`,
+                'Content-Type': 'application/json', 'Prefer': 'resolution=merge-duplicates'},
+      body
+    });
+    if(!res.ok) return false;
+    markCacheSynced(_currentUser.id, stamp);
+    return true;
+  }catch(e){ return false; }
+}
+
+async function _doSave(opts){
   if(!_currentUser) return;
   if(_guestMode){
     try{ localStorage.setItem('agenda-guest-data', JSON.stringify({tasks:TASKS, templates:TEMPLATES, completions:COMPLETIONS, settings:SETTINGS})); }catch(e){}
@@ -4559,19 +4615,34 @@ async function _doSave(){
   // device is still on yesterday's code.
   SETTINGS._sync = {v: SYNC_PROTOCOL_V, w: DEVICE_ID, at: stamp};
   writeLocalCache(_currentUser.id, stamp, false);
+  const row = {user_id:_currentUser.id, tasks:TASKS, templates:TEMPLATES, completions:COMPLETIONS, settings:SETTINGS, updated_at:stamp};
+  // Leaving: there is no time for a retry and no page left to run one, so take
+  // the one shot that can outlive the page. Failure still leaves the cache
+  // dirty, which is what gets the edit restored on the next open.
+  if(opts && opts.leaving){ if(await beaconSave(row, stamp)) clearSyncError(); return; }
+  _saveInFlight = true;
   try{
-    const {error} = await sb.from('agenda_data').upsert(
-      {user_id:_currentUser.id, tasks:TASKS, templates:TEMPLATES, completions:COMPLETIONS, settings:SETTINGS, updated_at:stamp},
-      {onConflict:'user_id'});
+    const {error} = await sb.from('agenda_data').upsert(row, {onConflict:'user_id'});
     if(error){ console.error('save error', error); showSyncError(); }
     else { markCacheSynced(_currentUser.id, stamp); clearSyncError(); }
   }catch(e){ console.error('save error', e); showSyncError(); }
+  finally{ _saveInFlight = false; }
 }
 function saveToStorage(){ clearTimeout(_saveTimer); _saveTimer = setTimeout(() => { _saveTimer = null; _doSave(); }, 600); }
 // A phone gets suspended the instant it is locked or swiped away, which can be
 // well inside the 600ms debounce — those edits never reached even localStorage.
 // Anything backgrounding the app has to settle the pending write first.
 function flushSave(){ if(_saveTimer){ clearTimeout(_saveTimer); _saveTimer = null; _doSave(); } }
+// The backgrounding path. Flushing the debounce was never the hard part — the
+// network write was, because it died with the page. Always re-send on the way
+// out (a queued edit, or one whose ordinary request is still in the air), using
+// the keepalive request that survives the freeze.
+function flushSaveLeaving(){
+  if(!_currentUser || _guestMode) return;
+  if(!savePending()) return;
+  clearTimeout(_saveTimer); _saveTimer = null;
+  _doSave({leaving: true});
+}
 async function loadUserData(user){
   let remote = null, remoteOk = false;
   try{
@@ -4623,7 +4694,8 @@ async function refreshFromSupabase(){
   // A refetch replaces everything in memory, so it must never run while this
   // device is holding work the server hasn't got — that would drop the edit.
   // Push it instead; the next focus or Realtime tick brings the server's copy.
-  if(_saveTimer || _syncFailed){ flushSave(); return; }
+  // "Holding work" includes a request already in the air, not just a queued one.
+  if(savePending()){ flushSave(); return; }
   _lastRefetch = Date.now();
   try{
     const {data,error} = await sb.from('agenda_data').select('*').eq('user_id',_currentUser.id).maybeSingle();
@@ -4646,7 +4718,7 @@ function subscribeRealtime(){
   if(!_currentUser || _guestMode || _realtimeChannel) return;
   _realtimeChannel = sb.channel('agenda_data_' + _currentUser.id)
     .on('postgres_changes', {event:'UPDATE', schema:'public', table:'agenda_data', filter:`user_id=eq.${_currentUser.id}`}, (payload) => {
-      if(_saveTimer || _syncFailed){ flushSave(); return; }  // same reason as refreshFromSupabase
+      if(savePending()){ flushSave(); return; }  // same reason as refreshFromSupabase
       const row = payload.new;
       applyRow(row);
       writeLocalCache(_currentUser.id, row.updated_at || new Date().toISOString(), true);
@@ -4709,13 +4781,13 @@ function onResume(){
 // genuinely in front, so a window left behind another app does age toward the
 // snap threshold.
 document.addEventListener('visibilitychange', () => {
-  if(document.hidden){ flushSave(); return; }
+  if(document.hidden){ flushSaveLeaving(); return; }
   onResume(); refreshFromSupabase();
 });
 window.addEventListener('focus', () => { onResume(); refreshFromSupabase(); });
 // pagehide is the last event a mobile browser reliably delivers before it
 // freezes or discards the page; visibilitychange alone misses some of those.
-window.addEventListener('pagehide', flushSave);
+window.addEventListener('pagehide', flushSaveLeaving);
 setInterval(() => {
   if(document.hidden || !document.hasFocus()) return;
   if(Date.now() - _lastActiveAt >= ACTIVE_TICK_MS*2 || todayStr() !== _lastKnownDate) onResume();
