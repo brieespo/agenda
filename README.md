@@ -73,6 +73,18 @@ A per-day **meal strip** on the day view plus a **Meal plan** sidebar (a pool of
 - **Every meal entry point can reach the recipes.** The Meal plan sidebar's quick-add box used to be the exception — it only ever made a plain text dish — so `renderMealQuickMatches()` now runs the same name/source filter inline and shows the top 6 matches under the input, click-to-add *linked*. Enter still adds exactly what was typed, keeping the fast path intact. A `_quickMatchSeq` counter drops results from superseded keystrokes, since each render awaits `loadDinnerData()`. Failures stay silent here (the modal picker is where load state is reported) rather than putting an error in the sidebar.
 - **Cross-app read:** the recipe search and "import a saved week" pull from the **dinner planner's** `user_data` row (`recipes` + `rules._savedMenus`) via a plain owner read — same shared Supabase project, same signed-in user, so its RLS allows it. Fetched once, lazily, when the picker first opens (`_dinnerLoaded`/`_dinnerError` track state; `reloadDinnerData()` re-fetches). Guests (no session) get the custom-dish path only. Saved **weekly** menus import onto a week by mapping each plan entry's `day` name (Mon–Sun) to that week's dates; entries with no recipe are skipped.
 
+## Skincare
+
+An optional, deliberately quiet tracker. On the day view it is **one line** under the meal strip — a droplet, "Skincare", and a dot for each product actually used (`AM ●● PM ●`) — which expands in place into one-tap chips grouped Morning / Evening. Tap a chip to log it, tap again to un-log. "Edit products" (or **Skincare** in Routines & settings) manages the step list; the toggle there hides the line entirely without touching any data.
+
+- **Only what you did gets a dot.** No empty circles for skipped steps and no "3/8" anywhere — a denominator turns a light day into a failure. The expanded state is not persisted either, so every load starts collapsed.
+- **Today or yesterday.** The panel has a `Today | Yesterday` switch, since the usual question is whether last night happened. Navigating the day view to any other date logs to that date instead.
+- **AM/PM.** Each product is `am`, `pm`, or `both` and only shows in the slot it belongs to, so the split costs no extra taps while keeping the signal charts need.
+- **One-offs and samples.** `+ one-off` in either slot adds a product for that day, flagged `sample` — it's immediately chartable and can be promoted to a regular step, but it only reappears on days you actually used it, so trying something once doesn't clutter tomorrow.
+- **Retire vs delete.** Retiring is for a finished bottle: off the daily line, history kept. Delete tombstones the product but leaves the log alone (an unclaimed key is skipped on render), so nothing silently rewrites your history.
+- **Where it lives:** `settings.skincare`, same reasoning as meals — no new column, so every sync path already carries it. The day log is stored compactly (month bucket → day → 4-char product keys, `|` between AM and PM) because the row has to fit the ~60KB keepalive save; a year of logging eight products a day is ~14KB, where writing full ids would be ~70KB.
+- **Charts and calendars are not built yet**, but the month-bucketed log is shaped for them — a completion heatmap and per-product usage-by-month read straight out of it with no migration.
+
 ## Drag & drop
 
 Pointer-events based (not native HTML5 drag/drop), so it works with both mouse and touch. A single pointerdown→move→up cycle on a draggable row does double duty: past a small movement threshold it's a drag (today-list reorder/retime, sidebar → day/grid assignment, week-view day-to-day moves); below the threshold, releasing counts as a tap and opens the edit modal instead.

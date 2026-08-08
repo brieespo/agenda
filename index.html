@@ -287,6 +287,59 @@ a.meal-title:hover .meal-link-ico { opacity: 1; }
 .meal-quick-matches .meal-picker-opt .mp-name { font-size: 0.8rem; }
 .meal-quick-matches .quick-match-note { font-size: 0.7rem; color: var(--muted); margin: 2px 0 0; }
 
+/* ---- skincare ----
+   Deliberately not a card. It's one quiet line that only opens when tapped, so
+   it can be ignored on a bad day without ever looking like an unchecked box —
+   nothing here should read as an obligation. */
+.skin-strip { margin-bottom: 14px; }
+.skin-line { display: flex; align-items: center; gap: 8px; width: 100%; padding: 5px 6px; border: none; border-radius: 8px; background: none; font: inherit; font-size: 0.76rem; color: var(--muted); cursor: pointer; text-align: left; transition: background 120ms ease, color 120ms ease; }
+.skin-line:hover { background: var(--accent-light); color: var(--ink-2); }
+.skin-line .icon { width: 1.05em; height: 1.05em; flex: none; }
+.skin-line .sk-label { flex: none; }
+.skin-line .sk-dots { flex: 1; display: flex; align-items: center; gap: 12px; min-width: 0; }
+.skin-line .sk-chevron { flex: none; transition: transform 120ms ease; }
+.skin-line .sk-chevron.open { transform: rotate(90deg); }
+.sk-slot-dots { display: inline-flex; align-items: center; gap: 3px; }
+.sk-slot-dots b { font-weight: 700; font-size: 0.6rem; text-transform: uppercase; letter-spacing: 0.05em; margin-right: 2px; }
+.sk-dot { width: 6px; height: 6px; border-radius: 50%; border: 1px solid var(--muted); flex: none; }
+.sk-dot.on { background: var(--accent); border-color: var(--accent); }
+.sk-more { font-size: 0.6rem; margin-left: 2px; }
+
+.skin-panel { border: 1px solid var(--border); border-radius: 10px; background: var(--surface); padding: 10px; margin-top: 4px; }
+.skin-panel-head { display: flex; align-items: center; gap: 8px; margin-bottom: 9px; }
+.skin-panel-head .sk-when { flex: 1; font-size: 0.72rem; color: var(--muted); }
+.sk-target { display: flex; gap: 4px; flex: none; }
+.sk-target button { font: inherit; font-size: 0.7rem; padding: 3px 8px; border: 1px solid var(--border); background: var(--surface); color: var(--muted); border-radius: 7px; cursor: pointer; transition: border-color 120ms ease, background 120ms ease, color 120ms ease; }
+.sk-target button:hover { border-color: var(--accent); }
+.sk-target button.on { border-color: var(--accent); background: var(--accent-light); color: var(--ink); font-weight: 600; }
+.sk-slot { margin-bottom: 9px; }
+.sk-slot:last-child { margin-bottom: 0; }
+.sk-slot-label { font-size: 0.63rem; text-transform: uppercase; letter-spacing: 0.06em; color: var(--muted); margin-bottom: 5px; }
+.sk-chips { display: flex; flex-wrap: wrap; gap: 5px; align-items: center; }
+/* A full product name ("Dr Jart Ceramidin Liquid Intensive Barrier Serum") can
+   be wider than a phone, so the chip wraps its text rather than the row scrolling. */
+.sk-chip { display: inline-flex; align-items: center; gap: 6px; padding: 5px 11px 5px 8px; border-radius: 20px; border: 1px solid var(--border); background: var(--page); color: var(--ink-2); font: inherit; font-size: 0.78rem; text-align: left; max-width: 100%; overflow-wrap: anywhere; cursor: pointer; transition: transform 120ms ease, box-shadow 120ms ease, border-color 120ms ease, background 120ms ease, color 120ms ease; }
+.sk-chip:hover { transform: translateY(-1px); box-shadow: var(--shadow); border-color: var(--accent); }
+.sk-chip .sk-ring { width: 13px; height: 13px; border-radius: 50%; border: 1.5px solid var(--muted); flex: none; display: inline-flex; align-items: center; justify-content: center; color: #fff; transition: background 120ms ease, border-color 120ms ease; }
+.sk-chip:hover .sk-ring { background: var(--accent-light); border-color: var(--accent); }
+.sk-chip .sk-ring .icon { width: 9px; height: 9px; stroke-width: 3.5; }
+.sk-chip.on { border-color: var(--accent); background: var(--accent-light); color: var(--ink); font-weight: 600; }
+.sk-chip.on .sk-ring, .sk-chip.on:hover .sk-ring { background: var(--accent); border-color: var(--accent); }
+.sk-chip.sample { border-style: dashed; }
+.sk-oneoff { display: inline-flex; align-items: center; gap: 4px; }
+.sk-oneoff input { font: inherit; font-size: 0.76rem; padding: 4px 10px; border-radius: 20px; border: 1px solid var(--accent); background: var(--page); color: var(--ink); width: 150px; }
+.sk-add { border: 1px dashed var(--border); background: none; color: var(--muted); font: inherit; font-size: 0.76rem; line-height: 1.2; padding: 5px 11px; border-radius: 20px; cursor: pointer; transition: color 120ms ease, border-color 120ms ease; }
+.sk-add:hover { color: var(--accent); border-color: var(--accent); }
+.skin-panel-foot { margin-top: 10px; padding-top: 8px; border-top: 1px solid var(--hairline); }
+.sk-manage { border: none; background: none; color: var(--muted); font: inherit; font-size: 0.72rem; cursor: pointer; padding: 0; text-decoration: underline; }
+.sk-manage:hover { color: var(--accent); }
+.sk-prod-row select { font: inherit; font-size: 0.72rem; padding: 3px 5px; border-radius: 6px; border: 1px solid var(--border); background: var(--page); color: var(--ink); flex: none; }
+.sk-prod-row.retired .r-title { opacity: var(--done-op); }
+.sk-badge { font-size: 0.6rem; font-weight: 700; text-transform: uppercase; letter-spacing: 0.05em; color: var(--muted); background: var(--accent-light); border-radius: 5px; padding: 2px 5px; margin-left: 5px; white-space: nowrap; }
+/* .routine-row's generic button reset would strip the badge back to bare text. */
+.routine-row button.sk-badge { background: var(--accent-light); border: 1px solid transparent; }
+.routine-row button.sk-badge:hover { color: var(--accent); border-color: var(--accent); }
+
 .law-item { display: flex; align-items: baseline; gap: 7px; padding: 5px 9px; margin-bottom: 5px; border-radius: 8px; border: 1px solid var(--border); border-left: 3px solid var(--serious); background: var(--surface); font-size: 0.8rem; }
 .law-item .law-kind { font-size: 0.63rem; text-transform: uppercase; letter-spacing: 0.05em; color: var(--muted); flex: none; }
 .law-item .law-title { flex: 1; min-width: 0; }
@@ -603,6 +656,7 @@ footer button { font: inherit; font-size: 0.72rem; border: none; background: non
         </div>
         <div class="card headline-card" id="day-headline"></div>
         <div class="meal-strip" id="meal-strip" data-drop="meal-day"></div>
+        <div class="skin-strip" id="skin-strip"></div>
         <div class="card" id="today-card" data-drop="today-list">
           <div class="today-card-head">
             <h2>Today</h2>
@@ -745,6 +799,10 @@ footer button { font: inherit; font-size: 0.72rem; border: none; background: non
         <span class="sm-title"><strong>Weekly progress</strong><span class="sm-sub" id="progress-summary-label"></span></span>
         <span class="sm-chevron" data-ico="chevron-right"></span>
       </button>
+      <button class="settings-menu-row" onclick="openSkincareSubmodal()">
+        <span class="sm-title"><strong>Skincare</strong><span class="sm-sub" id="skincare-count-label"></span></span>
+        <span class="sm-chevron" data-ico="chevron-right"></span>
+      </button>
       <h3 style="margin-top:18px">Settings</h3>
       <div class="field">
         <label>Week starts on</label>
@@ -793,6 +851,30 @@ footer button { font: inherit; font-size: 0.72rem; border: none; background: non
       <div class="quick-add-row">
         <input type="text" id="category-new-name" placeholder="New category…" onkeydown="if(event.key==='Enter')addCategory()">
         <button onclick="addCategory()">Add</button>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- Skincare products submenu: the step list behind the day-view line -->
+<div class="modal-bg" id="skincare-submodal">
+  <div class="modal" style="max-width:480px">
+    <div class="modal-head"><strong>Skincare</strong><button class="modal-x" data-ico="x" onclick="closeModal('skincare-submodal')"></button></div>
+    <div class="modal-body">
+      <p style="font-size:0.76rem;color:var(--muted);margin-bottom:6px">Your steps, in the order you use them. <strong>Retire</strong> a product to take it off the daily line but keep its history — that's the move for a finished bottle. Delete is for typos.</p>
+      <div id="skincare-list"></div>
+      <div class="quick-add-row">
+        <input type="text" id="skin-new-name" placeholder="New product or step…" onkeydown="if(event.key==='Enter')addSkinProductFromSettings()">
+        <select id="skin-new-when" style="font:inherit;font-size:0.84rem;padding:7px 8px;border-radius:8px;border:1px solid var(--border);background:var(--page);color:var(--ink)">
+          <option value="both">AM+PM</option>
+          <option value="am">AM</option>
+          <option value="pm">PM</option>
+        </select>
+        <button onclick="addSkinProductFromSettings()">Add</button>
+      </div>
+      <div class="routine-row" style="border-bottom:none;margin-top:14px">
+        <span class="r-title">Show on the day view<div class="r-recur">The one quiet line under your meals. Turning this off hides it completely — your products and history stay put.</div></span>
+        <button class="toggle" id="skin-show-toggle" onclick="toggleSkinVisible()"></button>
       </div>
     </div>
   </div>
@@ -903,7 +985,8 @@ const ICONS = {
   "utensils": '<path d="M3 2v7c0 1.1.9 2 2 2h4a2 2 0 0 0 2-2V2"/><path d="M7 2v20"/><path d="M21 15V2a5 5 0 0 0-5 5v6c0 1.1.9 2 2 2h3z"/><path d="M18 15v7"/>',
   "external": '<path d="M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6"/><polyline points="15 3 21 3 21 9"/><line x1="10" y1="14" x2="21" y2="3"/>',
   "eye": '<path d="M2 12s3.5-7 10-7 10 7 10 7-3.5 7-10 7-10-7-10-7z"/><circle cx="12" cy="12" r="3"/>',
-  "eye-off": '<path d="M17.9 17.9A10.4 10.4 0 0 1 12 19c-6.5 0-10-7-10-7a18.6 18.6 0 0 1 5.1-5.9"/><path d="M9.9 4.2A10.6 10.6 0 0 1 12 4c6.5 0 10 7 10 7a18.7 18.7 0 0 1-2.2 3.2"/><path d="M9.9 9.9a3 3 0 0 0 4.2 4.2"/><line x1="2" y1="2" x2="22" y2="22"/>'
+  "eye-off": '<path d="M17.9 17.9A10.4 10.4 0 0 1 12 19c-6.5 0-10-7-10-7a18.6 18.6 0 0 1 5.1-5.9"/><path d="M9.9 4.2A10.6 10.6 0 0 1 12 4c6.5 0 10 7 10 7a18.7 18.7 0 0 1-2.2 3.2"/><path d="M9.9 9.9a3 3 0 0 0 4.2 4.2"/><line x1="2" y1="2" x2="22" y2="22"/>',
+  "droplet": '<path d="M12 22a7 7 0 0 0 7-7c0-2-1-3.9-3-5.5s-3.5-4-4-6.5c-.5 2.5-2 4.9-4 6.5C6 11.1 5 13 5 15a7 7 0 0 0 7 7z"/>'
 };
 function ico(name){ return `<svg class="icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">${ICONS[name]||''}</svg>`; }
 function paintIcons(root){ (root||document).querySelectorAll('[data-ico]').forEach(el => { if(!el.querySelector('svg')) el.insertAdjacentHTML('afterbegin', ico(el.dataset.ico)); }); }
@@ -1437,6 +1520,9 @@ function updateSettingsMenuCounts(){
   document.getElementById('categories-count-label').textContent = catCount ? `${catCount} categor${catCount===1?'y':'ies'}` : 'None yet';
   const wp = weeklyProgress();
   document.getElementById('progress-summary-label').textContent = wp.totalAll ? `${wp.pct}% done this week` : 'Nothing scheduled yet';
+  const skinCount = skinProducts().filter(p => p.active !== false && !p.sample).length;
+  document.getElementById('skincare-count-label').textContent = !skinVisible() ? 'Hidden'
+    : skinCount ? `${skinCount} step${skinCount===1?'':'s'}` : 'Not set up';
 }
 function openRoutinesSubmodal(){
   renderRoutinesList();
@@ -2599,6 +2685,309 @@ function renderMealSidebar(){
   paintIcons(el);
 }
 
+/* =====================================================================
+   SKINCARE — a footnote, not a checklist
+
+   Lives in `settings` for the same reason the tombstones do: every app version
+   round-trips that column untouched, where a new column comes back NULL from an
+   older build.
+
+     settings.skincare = {
+       products: [{id, k, name, when:'am'|'pm'|'both', sample, active, _u}],
+       log: {"2026-08": {"8": "ab1xcd2y|ef3z"}},
+       show: true
+     }
+
+   The log is a month bucket → day-of-month → AM keys, "|", PM keys, four chars
+   each and no separators. That shape is about size, not cleverness: this row has
+   to stay under the ~60KB the keepalive save can carry on the way out of a
+   backgrounded phone, and writing 16-digit newId()s eight times a day would cost
+   ~70KB a year all by itself. In keys the same year is ~14KB.
+   ===================================================================== */
+const SKIN_SLOTS = [['am', 'Morning'], ['pm', 'Evening']];
+// Offered on the empty state so she starts by renaming rather than typing nine
+// products from scratch. Order is the usual application order.
+const SKIN_STARTER = [
+  ['Cleanser', 'both'], ['Toner', 'both'], ['Vitamin C', 'am'], ['Serum', 'both'],
+  ['Eye cream', 'both'], ['Moisturizer', 'both'], ['SPF', 'am'], ['Retinol', 'pm'],
+  ['Lip balm', 'both']
+];
+let _skinOpen = false;        // panel expanded — intentionally not persisted, so
+                              // every load starts quiet
+let _skinYesterday = false;   // only meaningful while the day view is on today
+let _skinOneoffSlot = null;   // slot whose one-off input is currently showing
+
+function getSkincare(){
+  const s = SETTINGS.skincare;
+  if(!s || typeof s !== 'object') SETTINGS.skincare = {products: [], log: {}};
+  else {
+    if(!Array.isArray(s.products)) s.products = [];
+    if(!s.log || typeof s.log !== 'object') s.log = {};
+    // A product with no key would write the literal "undefined" into the log,
+    // and at 9 characters that desyncs the fixed-width chunking for the whole
+    // day — every key after it decodes as garbage. Backfilling here can't
+    // recover history the product never had, and it keeps the one structural
+    // assumption of the log format true no matter what lands in the row.
+    // Memory only: load-time normalization must never write to the server.
+    // `s.products` is passed explicitly: newSkinKey() would otherwise call back
+    // into skinProducts() → getSkincare() on a product whose key is still unset,
+    // and recurse until the stack gave out.
+    s.products.forEach(p => { if(p && typeof p.k !== 'string') p.k = newSkinKey(s.products); });
+  }
+  return SETTINGS.skincare;
+}
+function skinProducts(){ return getSkincare().products; }
+function skinProductById(id){ return skinProducts().find(p => p.id === id); }
+function skinVisible(){ return getSkincare().show !== false; }
+// Keys are drawn from a 1.7M space rather than counted up from max+1. The Phase A
+// rule: two devices adding a product while both offline must not mint the same
+// one. 200 draws against a realistic product count effectively never all collide,
+// and a collision would only merge two products' history — not lose a day.
+function newSkinKey(list){
+  const used = new Set((list || skinProducts()).map(p => p.k));
+  let k = '';
+  for(let i = 0; i < 200; i++){
+    k = Math.random().toString(36).slice(2, 6).padEnd(4, '0');
+    if(!used.has(k)) return k;
+  }
+  return k;
+}
+function skinChunk(s){ const out = []; for(let i = 0; i + 4 <= s.length; i += 4) out.push(s.slice(i, i+4)); return out; }
+function skinLogFor(dateStr){
+  const bucket = getSkincare().log[dateStr.slice(0,7)] || {};
+  const raw = bucket[String(Number(dateStr.slice(8,10)))] || '';
+  const bar = raw.indexOf('|');
+  return bar < 0 ? {am: skinChunk(raw), pm: []}
+                 : {am: skinChunk(raw.slice(0, bar)), pm: skinChunk(raw.slice(bar+1))};
+}
+function writeSkinLog(dateStr, cell){
+  const log = getSkincare().log;
+  const mk = dateStr.slice(0,7), dk = String(Number(dateStr.slice(8,10)));
+  const raw = cell.am.join('') + (cell.pm.length ? '|' + cell.pm.join('') : '');
+  if(raw){
+    if(!log[mk]) log[mk] = {};
+    log[mk][dk] = raw;
+  } else if(log[mk]){
+    // An emptied day leaves nothing behind, so unchecking everything costs the
+    // same bytes as never having logged.
+    delete log[mk][dk];
+    if(!Object.keys(log[mk]).length) delete log[mk];
+  }
+}
+// The log is a nested map, not a list of items carrying their own stamps, so a
+// change is stamped at the feature root. Phase B will want day granularity here:
+// two devices logging different products on the same day should *union*, since
+// logging is additive — only an un-log is a genuine conflict.
+function touchSkincare(){ touch(getSkincare()); saveToStorage(); }
+// Which chips a slot shows. A sample or a retired product only appears on days it
+// was actually used, so trying something once doesn't leave a chip on the row
+// forever — and anything already logged stays visible regardless of its `when`,
+// or a mis-slotted entry would be impossible to undo.
+function skinSlotProducts(slot, logged){
+  return skinProducts().filter(p => {
+    if(logged.includes(p.k)) return true;
+    if(p.when !== 'both' && p.when !== slot) return false;
+    return p.active !== false && !p.sample;
+  });
+}
+function skinTargetDate(){ return (_skinYesterday && currentDate === todayStr()) ? addDays(currentDate, -1) : currentDate; }
+
+function toggleSkinPanel(){ _skinOpen = !_skinOpen; _skinOneoffSlot = null; renderSkinStrip(); }
+function setSkinTarget(yesterday){ _skinYesterday = !!yesterday; _skinOneoffSlot = null; renderSkinStrip(); }
+function toggleSkinLog(slot, key){
+  const date = skinTargetDate();
+  const cell = skinLogFor(date);
+  const i = cell[slot].indexOf(key);
+  if(i < 0) cell[slot].push(key); else cell[slot].splice(i, 1);
+  writeSkinLog(date, cell);
+  touchSkincare();
+  renderSkinStrip();
+}
+function showSkinOneoff(slot){
+  _skinOneoffSlot = slot;
+  renderSkinStrip();
+  const input = document.getElementById('sk-oneoff-input');
+  if(input) input.focus();
+}
+function cancelSkinOneoff(){ _skinOneoffSlot = null; renderSkinStrip(); }
+// A one-off still becomes a real product, just flagged `sample` — that way a
+// sample she liked is already chartable and can be promoted without retyping,
+// while a sample she didn't never shows up again.
+function addSkinOneoff(slot){
+  const input = document.getElementById('sk-oneoff-input');
+  if(!input) return;
+  const name = input.value.trim();
+  if(!name){ cancelSkinOneoff(); return; }
+  const p = skinProducts().find(x => x.name.toLowerCase() === name.toLowerCase())
+         || addSkinProduct(name, slot, true);
+  _skinOneoffSlot = null;
+  if(!p){ renderSkinStrip(); return; }
+  const date = skinTargetDate();
+  const cell = skinLogFor(date);
+  if(!cell[slot].includes(p.k)) cell[slot].push(p.k);
+  writeSkinLog(date, cell);
+  touchSkincare();
+  renderSkinStrip();
+}
+function addSkinProduct(name, when, sample){
+  name = String(name == null ? '' : name).trim();
+  if(!name) return null;
+  const p = touch({id: newId(), k: newSkinKey(), name, when: when || 'both', sample: !!sample, active: true});
+  skinProducts().push(p);
+  return p;
+}
+
+function renderSkinStrip(){
+  const el = document.getElementById('skin-strip');
+  if(!el) return;
+  // Yesterday only means anything relative to today; navigating away drops it.
+  if(currentDate !== todayStr()) _skinYesterday = false;
+  if(!skinVisible()){ el.innerHTML = ''; return; }
+
+  const date = skinTargetDate();
+  const cell = skinLogFor(date);
+
+  // Only what she actually did gets a dot. Rendering an empty circle for every
+  // step she skipped would turn the line into the row of unchecked boxes this
+  // feature exists to not be — a light day should look calm, not deficient.
+  // Orphan keys (a deleted product) are dropped so the dots match the chips.
+  const dots = SKIN_SLOTS.map(([slot]) => {
+    const n = cell[slot].filter(k => skinProducts().some(p => p.k === k)).length;
+    if(!n) return '';
+    return `<span class="sk-slot-dots"><b>${slot}</b>${'<span class="sk-dot on"></span>'.repeat(Math.min(n, 8))}${n>8?`<span class="sk-more">+${n-8}</span>`:''}</span>`;
+  }).filter(Boolean).join('');
+  const summary = !skinProducts().length ? '<span>set up your steps</span>'
+                : (dots || '<span>not logged</span>');
+
+  const line = `<button class="skin-line" onclick="toggleSkinPanel()" title="Skincare">
+      <span data-ico="droplet"></span>
+      <span class="sk-label">Skincare</span>
+      <span class="sk-dots">${summary}</span>
+      <span class="sk-chevron ${_skinOpen?'open':''}" data-ico="chevron-right"></span>
+    </button>`;
+
+  if(!_skinOpen){ el.innerHTML = line; paintIcons(el); return; }
+
+  const slots = SKIN_SLOTS.map(([slot, label]) => ({slot, label, prods: skinSlotProducts(slot, cell[slot])}));
+
+  // On today she gets the Today/Yesterday switch, because "did I do it last
+  // night?" is the question this tracker actually gets asked. On any other date
+  // the target is simply that date, stated plainly.
+  const head = currentDate === todayStr()
+    ? `<span class="sk-when">Logging ${fmtShort(date)}</span>
+       <span class="sk-target">
+         <button class="${!_skinYesterday?'on':''}" onclick="setSkinTarget(false)">Today</button>
+         <button class="${_skinYesterday?'on':''}" onclick="setSkinTarget(true)">Yesterday</button>
+       </span>`
+    : `<span class="sk-when">Logging ${fmtLong(date)}</span>`;
+
+  const body = skinProducts().length
+    ? slots.map(s => {
+        const chips = s.prods.map(p => {
+          const on = cell[s.slot].includes(p.k);
+          return `<button class="sk-chip ${on?'on':''} ${p.sample?'sample':''}" onclick="toggleSkinLog('${s.slot}','${p.k}')">
+            <span class="sk-ring">${on?ico('check'):''}</span>${esc(p.name)}</button>`;
+        }).join('');
+        const oneoff = _skinOneoffSlot === s.slot
+          ? `<span class="sk-oneoff"><input type="text" id="sk-oneoff-input" placeholder="Sample or one-off…" autocomplete="off"
+               onkeydown="if(event.key==='Enter')addSkinOneoff('${s.slot}');if(event.key==='Escape')cancelSkinOneoff()"><button class="sk-add" onclick="addSkinOneoff('${s.slot}')">Add</button></span>`
+          : `<button class="sk-add" onclick="showSkinOneoff('${s.slot}')" title="Add a sample or one-off just for this day">+ one-off</button>`;
+        return `<div class="sk-slot"><div class="sk-slot-label">${s.label}</div><div class="sk-chips">${chips}${oneoff}</div></div>`;
+      }).join('')
+    : `<p class="empty-note" style="padding:2px 0 6px">Nothing set up yet — <button class="sk-manage" onclick="seedSkinStarter()">start from a common list</button> and rename from there, or <button class="sk-manage" onclick="openSkincareSubmodal()">add your own</button>.</p>`;
+
+  el.innerHTML = line + `<div class="skin-panel">
+      <div class="skin-panel-head">${head}</div>
+      ${body}
+      <div class="skin-panel-foot"><button class="sk-manage" onclick="openSkincareSubmodal()">Edit products</button></div>
+    </div>`;
+  paintIcons(el);
+}
+
+/* ---- product management ---- */
+function skinWhenLabel(w){ return w === 'am' ? 'Morning' : w === 'pm' ? 'Evening' : 'Morning + evening'; }
+function openSkincareSubmodal(){ renderSkincareList(); openModal('skincare-submodal'); }
+function renderSkincareList(){
+  const el = document.getElementById('skincare-list');
+  if(!el) return;
+  const prods = skinProducts();
+  el.innerHTML = prods.length ? prods.map((p, i) => `
+    <div class="routine-row sk-prod-row ${p.active===false?'retired':''}">
+      <span class="r-title">${esc(p.name)}${p.sample?`<button class="sk-badge" onclick="promoteSkinSample(${p.id})" title="Make this a regular step">sample</button>`:''}${p.active===false?'<span class="sk-badge">retired</span>':''}
+        <div class="r-recur">${skinWhenLabel(p.when)}${p.sample?' · only shows on days you use it':''}</div></span>
+      <select onchange="setSkinWhen(${p.id}, this.value)" title="When you use it">
+        <option value="both" ${p.when==='both'?'selected':''}>AM+PM</option>
+        <option value="am" ${p.when==='am'?'selected':''}>AM</option>
+        <option value="pm" ${p.when==='pm'?'selected':''}>PM</option>
+      </select>
+      <button onclick="moveSkinProduct(${p.id},-1)" title="Move up" ${i===0?'disabled style="opacity:.25"':''}>&uarr;</button>
+      <button onclick="moveSkinProduct(${p.id},1)" title="Move down" ${i===prods.length-1?'disabled style="opacity:.25"':''}>&darr;</button>
+      <button onclick="toggleSkinRetired(${p.id})" title="${p.active===false?'Bring it back':'Retire — keeps the history, hides the chip'}" data-ico="${p.active===false?'eye':'eye-off'}"></button>
+      <button class="danger" onclick="deleteSkinProduct(${p.id})" title="Delete" data-ico="trash"></button>
+    </div>`).join('')
+    : `<p class="empty-note">No products yet. Add them below, or <button class="sk-manage" onclick="seedSkinStarter()">start from a common list</button> and rename from there.</p>`;
+  paintIcons(el);
+  const t = document.getElementById('skin-show-toggle');
+  if(t) t.classList.toggle('on', skinVisible());
+}
+function afterSkinEdit(){
+  touchSkincare();
+  renderSkincareList();
+  renderSkinStrip();
+  if(document.getElementById('skincare-count-label')) updateSettingsMenuCounts();
+}
+function addSkinProductFromSettings(){
+  const input = document.getElementById('skin-new-name');
+  if(!addSkinProduct(input.value, document.getElementById('skin-new-when').value, false)) return;
+  input.value = '';
+  afterSkinEdit();
+  input.focus();
+}
+function seedSkinStarter(){
+  if(skinProducts().length) return;
+  SKIN_STARTER.forEach(([name, when]) => addSkinProduct(name, when, false));
+  afterSkinEdit();
+  openSkincareSubmodal();
+}
+function setSkinWhen(id, when){
+  const p = skinProductById(id);
+  if(!p) return;
+  p.when = when; touch(p); afterSkinEdit();
+}
+function moveSkinProduct(id, dir){
+  const list = skinProducts();
+  const i = list.findIndex(p => p.id === id), j = i + dir;
+  if(i < 0 || j < 0 || j >= list.length) return;
+  const tmp = list[i]; list[i] = list[j]; list[j] = tmp;
+  afterSkinEdit();
+}
+function toggleSkinRetired(id){
+  const p = skinProductById(id);
+  if(!p) return;
+  p.active = p.active === false;   // undefined counts as active, so this turns it off
+  touch(p); afterSkinEdit();
+}
+function promoteSkinSample(id){
+  const p = skinProductById(id);
+  if(!p) return;
+  p.sample = false; touch(p); afterSkinEdit();
+}
+// Delete leaves the logged history alone: a key no product claims is skipped on
+// render, and a future chart can still count the days it was used. Retiring is
+// the right move for a finished bottle — this one is for a typo.
+function deleteSkinProduct(id){
+  const list = skinProducts();
+  const i = list.findIndex(p => p.id === id);
+  if(i < 0) return;
+  list.splice(i, 1);
+  tombstone('skincareProducts', id);
+  afterSkinEdit();
+}
+function toggleSkinVisible(){
+  getSkincare().show = !skinVisible();
+  afterSkinEdit();
+}
+
 function renderAll(){
   renderTimerGuard();
   if(currentView==='time') renderTimeView();
@@ -2606,7 +2995,7 @@ function renderAll(){
   renderSidebar();
   renderMonthSidebar();
   renderMealSidebar();
-  if(currentView==='day') renderMealStrip();
+  if(currentView==='day'){ renderMealStrip(); renderSkinStrip(); }
 }
 
 /* =====================================================================

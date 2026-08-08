@@ -39,7 +39,7 @@ If a task appears to exceed your ability — a fix has failed twice, architectur
 | tasks | array of task objects |
 | templates | array of recurring-template objects |
 | completions | array of {template_id, date} — done-marks for template instances |
-| settings | selected Google calendars, week start day, theme, `ghosted` (see below) |
+| settings | selected Google calendars, week start day, theme, `ghosted`, `skincare` (see below) |
 
 ### Task object (one-time items)
 
@@ -131,6 +131,76 @@ event has its own id and a ghost sticks to that one occurrence, not the series.
 The keys are therefore unbounded; `pruneGhosts()` drops any whose stored date is
 more than 60 days past. It runs in `afterLoad` as normalization — no `touch()`,
 no save of its own.
+
+## Skincare tracker (decided)
+
+A tracker that must never read as an obligation. It is **one quiet line** under
+the meal strip — a droplet, the word "Skincare", and a dot per product actually
+used (`AM ●● PM ●`) — that expands in place into tappable chips. Not a card, not
+a modal, and the expanded state is deliberately **not persisted**: every load
+starts collapsed, so a skipped week is invisible rather than accusing. A settings
+toggle (`skincare.show`) hides the line outright without touching the data.
+
+Only what she *did* gets a dot. The first version drew an empty circle for every
+skipped step, which turned the line into exactly the row of unchecked boxes the
+feature exists not to be — a light day has to look calm, not deficient. Same
+reason there is no "3/8" anywhere: a denominator announces failure.
+
+Morning and evening are separate, and each product is `am`, `pm`, or `both`. It
+costs no extra taps (a product only appears in the slot it belongs to) and keeps
+the signal a chart will need — a retinol is a PM fact, an SPF an AM one.
+
+**Logging yesterday is a first-class path**, not a workaround. On today the panel
+carries a `Today | Yesterday` switch, because "did I actually do it last night?"
+is the question this gets asked. Any other date in the day view logs to that
+date, stated plainly in the panel head.
+
+```js
+settings.skincare = {
+  products: [{id, k, name, when: 'am'|'pm'|'both', sample, active, _u}],
+  log: {"2026-08": {"8": "ab1xcd2y|ef3z"}},
+  show: true
+}
+```
+
+**Why keys, not ids.** Each product carries a 4-char base36 `k` beside its
+`newId()`, and the log is written in keys. Month bucket → day-of-month → AM keys,
+`|`, PM keys, four chars each, no separators. This is about size, not cleverness:
+the row has to fit the ~60KB the keepalive save can carry out of a backgrounded
+phone, and logging eight products a day in 16-digit ids costs ~70KB a year on its
+own. In keys the same year measures **13.8KB**. Keys are *drawn* from a 1.7M
+space, never `max+1` — the Phase A rule about two offline devices. A day emptied
+of all entries deletes its key, and an emptied month deletes its bucket.
+
+The one structural assumption is fixed-width chunking, so `getSkincare()`
+backfills a key for any product missing one: a keyless product would write the
+literal `"undefined"` and, at nine characters, desync every key after it in that
+day. It passes the product array in explicitly — going through `newSkinKey()`'s
+default would call back into `skinProducts()` → `getSkincare()` on a product
+whose key is still unset and recurse until the stack gave out.
+
+**One-offs and samples.** A one-off typed into a slot becomes a real product
+flagged `sample: true` — so a sample she liked is already chartable and can be
+promoted to a regular step without retyping — but a sample (or a retired product)
+only appears on days it was actually used, so trying something once doesn't leave
+a chip on the row forever. Anything already logged stays visible regardless of
+its `when`, or an entry logged into the wrong slot could never be undone.
+
+**Retire vs delete.** Retiring (`active: false`) is the move for a finished
+bottle: off the daily line, history intact. Delete tombstones the product but
+deliberately leaves the log alone — an unclaimed key is skipped on render, and a
+chart can still count the days it was used. Nothing silently rewrites history.
+
+Nothing in the load or render path saves: `getSkincare()` normalizes in memory
+only, per the load-time republishing rule below.
+
+**Not built yet (the data is shaped for it):** the month calendar heatmap and
+per-product usage-by-month. Both read straight out of `log` — the month buckets
+are already the natural grain for "is my usage of X up from last month".
+A Phase B merge should **union** a day's key sets rather than take one side:
+logging is additive, and only an un-log is a genuine conflict. `_u` is currently
+stamped at the feature root (`skincare._u`), which is too coarse for that — the
+log is a nested map, not a list of items carrying their own stamps.
 
 ## Suite sync (later phase — data model is ready via `source: 'suite'`)
 
