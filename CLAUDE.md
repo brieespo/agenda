@@ -266,6 +266,20 @@ Phase C's merge would keep both → duplicate monthly tasks. Harmless today.
 Needs a deterministic identity (id derived from `seriesId + month`), handled in
 Phase B while merge is still a dry run.
 
+Two load-time paths still save, deliberately, because their state is real and
+not recomputable — and both fire only when something upstream actually changed,
+so neither is an every-load republish:
+
+- `syncRestockOutTasks` — `settings.restockTasked` is the ledger that stops a
+  staple being tasked twice. Unsaved, the next load re-creates "Buy X".
+- `reconcileAgendaCalendar` — clearing a dead `gcal_event_id` is real state.
+  Unsaved, the app keeps pushing against an event Google no longer has.
+
+They are the residual exposure: if restock or Google Calendar changed in the
+window between a phone's unsynced write and a laptop's open, the laptop still
+republishes and the phone still loses. Closing that needs the merge, not another
+save-suppression.
+
 **Still true after the 2026-08-08 fixes:** if the server genuinely receives a
 newer write while a device holds unsynced work, that device still loses its work
 silently on the next load. The fixes remove the ways that happened *without* a

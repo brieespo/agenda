@@ -3461,6 +3461,10 @@ function syncRestockOutTasks(){
   Object.keys(seen).forEach(k => {
     if(stillOut.indexOf(k) < 0){ delete seen[k]; changed = true; }
   });
+  // Also saves on purpose. SETTINGS.restockTasked is the ledger that stops a
+  // staple being tasked twice; unsaved, the next load would not know a task
+  // already exists and would create "Buy X" again. Fires only when restock
+  // itself changed, so it is not an every-load republish either.
   if(changed) saveToStorage();
   return changed;
 }
@@ -4076,6 +4080,11 @@ async function reconcileAgendaCalendar(timeMin, timeMax){
     const stillThere = new Set((j.items||[]).map(ev => ev.id));
     let changed = false;
     linkedTasks.forEach(t => { if(!stillThere.has(t.gcal_event_id)){ t.gcal_event_id = null; changed = true; } });
+    // This one DOES save, unlike the load-time fixups: dropping a dead
+    // gcal_event_id is real state, not a recomputation. Left unsaved, the app
+    // keeps believing in an event Google no longer has and syncTaskToGCal
+    // pushes against a dead id. It only fires when an event was actually
+    // deleted upstream, so it is not an every-load republish.
     if(changed) saveToStorage();
   }catch(e){ console.warn('agenda calendar reconciliation failed', e); }
 }
@@ -4100,9 +4109,12 @@ async function refreshGCal(){
   ];
   gCalendars.forEach(c => { c.slot = ordered.indexOf(c.name); });
   const toggles = SETTINGS.calendarToggles || (SETTINGS.calendarToggles = {});
-  let changed = false;
-  gCalendars.forEach(c => { if(!(c.name in toggles)){ toggles[c.name] = KNOWN_CALENDARS.includes(c.name); changed = true; } });
-  if(changed) saveToStorage();
+  // Seeding a default for a newly-seen calendar is deterministic — it re-seeds
+  // to the same value on the next load — so it doesn't save, for the same
+  // reason afterLoad's fixups don't: republishing the row here would let this
+  // device outrank one holding unsynced work. Toggling one IS a user edit and
+  // saves through the normal path.
+  gCalendars.forEach(c => { if(!(c.name in toggles)) toggles[c.name] = KNOWN_CALENDARS.includes(c.name); });
 
   setGcalStatus('Loading events…');
   const timeMin = addDays(todayStr(), -14);
