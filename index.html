@@ -3968,6 +3968,14 @@ function applyLawEdit(courses, e){
   if(e.kind === 'add-asg'){ c.assignments.push(JSON.parse(JSON.stringify(e.row))); return true; }
   const a = c.assignments.find(x => x && String(x.id) === String(e.assignmentId));
   if(!a) return false;
+  if(e.kind === 'split-asg'){
+    // The rows arrive fully built, ids and all, because this runs twice — on
+    // screen and again on the re-read copy — and freshly minted ids the second
+    // time would give her two sets of everything.
+    const at = c.assignments.indexOf(a);
+    c.assignments.splice(at, 1, ...JSON.parse(JSON.stringify(e.rows)));
+    return true;
+  }
   const sub = () => (a.subtasks || []).find(s => s && String(s.id) === String(e.subId));
   switch(e.kind){
     case 'toggle-asg': a.done = !!e.value; return true;
@@ -4073,9 +4081,18 @@ function assignSubHtml(s){
     <button class="asg-del" data-act="del-step" title="Delete this step">${ico('x')}</button>
   </div>`;
 }
+// An import that bundled a session's readings into one row leaves several
+// things behind one checkbox, which can't be half-ticked. The separators are
+// the ones the syllabus itself used, so offer to break the row apart rather
+// than making her retype three citations.
+function splitParts(a){
+  const src = (a.detail || '').trim() || (a.title || '').trim();
+  return src.split(/\s*;\s*|\s*•\s*|\n+/).map(s => s.trim()).filter(s => s.length > 1);
+}
 function assignItemHtml(row){
   const a = row.a, subs = (a.subtasks || []);
   const left = subs.filter(s => !s.done).length;
+  const parts = splitParts(a);
   return `<div class="asg ${a.done?'done':''}" data-course="${esc(row.courseId)}" data-asg="${esc(a.id)}">
     <div class="asg-main">
       <span class="chk ${a.done?'done':''}" data-act="toggle-asg">${a.done?ico('check'):''}</span>
@@ -4091,6 +4108,7 @@ function assignItemHtml(row){
     </div>
     ${subs.map(assignSubHtml).join('')}
     <button class="asg-step-add" data-act="add-step">+ step</button>
+    ${parts.length > 1 ? `<button class="asg-step-add asg-split" data-act="split-asg">split into ${parts.length}</button>` : ''}
   </div>`;
 }
 function assignGroupHtml(dateStr, rows, label){
@@ -4209,6 +4227,23 @@ function onAssignClick(e){
     const s = (a.subtasks || []);
     return startAssignInput(hit, '', text => commitLawEdit({kind: 'add-step', courseId, assignmentId,
       sub: {id: newId(), text, done: false}}), s.length ? 'Another step…' : 'Brief a case, note a follow-up…');
+  }
+  if(act === 'split-asg'){
+    const parts = splitParts(a);
+    if(parts.length < 2) return;
+    // Each piece becomes its own line, keeping the date, type and source of the
+    // row it came from. The old title was the heading the import invented
+    // ("KIP Immersion Day readings") — it named the group, not any of the
+    // things in it, so it goes. Subtasks stay with the first piece: nothing
+    // here knows which reading a brief belonged to, and guessing would be
+    // worse than leaving them somewhere she can drag them from.
+    const rows = parts.map((text, i) => ({
+      id: newId() + i, title: text, detail: '', due_date: a.due_date,
+      type: a.type || 'reading', done: !!a.done,
+      subtasks: i === 0 ? (a.subtasks || []) : [],
+      source: a.source || 'manual'
+    }));
+    return commitLawEdit({kind: 'split-asg', courseId, assignmentId, rows});
   }
   if(act === 'edit-asg') return startAssignInput(hit, a.title || '', text => commitLawEdit({kind: 'edit-asg', courseId, assignmentId, text}));
   if(act === 'edit-step'){
