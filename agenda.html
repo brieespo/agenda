@@ -219,19 +219,23 @@ h3 { font-size: var(--fs-md); font-weight: 600; margin-bottom: 6px; }
 .asg-group.overdue { border-color: var(--serious); }
 .asg-date { font-size: var(--fs-md); font-weight: 650; color: var(--ink); padding-bottom: 6px; border-bottom: 1px solid var(--hairline); margin-bottom: 4px; font-variant-numeric: tabular-nums; }
 .asg-group.overdue .asg-date { color: var(--serious); }
-.asg { padding: 2px 0; border-radius: 8px; }
-.asg-main { display: flex; align-items: flex-start; gap: 8px; padding: 4px 4px; border-radius: 8px; }
+.asg { border-radius: 8px; }
+.asg-main { display: flex; align-items: flex-start; gap: 8px; padding: 3px 4px; border-radius: 8px; }
 .asg-main:hover { background: var(--hover); }
 .asg-body { flex: 1; min-width: 0; }
+/* The row's controls ride on the item's own line. They used to sit on a line
+   of their own below it, and an opacity-0 button still takes its height — so
+   every assignment reserved a blank row it only used on hover. */
+.asg-tools { flex: none; display: inline-flex; align-items: center; gap: 2px; }
 .asg-line { display: flex; align-items: baseline; gap: 6px; flex-wrap: wrap; }
 .asg-course { font-size: var(--fs-sm); font-weight: 650; color: var(--accent-strong); flex: none; }
 .asg-text { font-size: var(--fs-md); cursor: text; overflow-wrap: anywhere; }
 .asg-text:hover { text-decoration: underline dotted var(--muted); }
 .asg-count { font-size: var(--fs-xs); color: var(--muted); font-variant-numeric: tabular-nums; }
-.asg-detail { font-size: var(--fs-sm); color: var(--ink-2); line-height: 1.45; margin-top: 1px; overflow-wrap: anywhere; }
+.asg-detail { font-size: var(--fs-sm); color: var(--ink-2); line-height: 1.35; overflow-wrap: anywhere; }
 .asg-detail a, .asg-sub-text a { color: var(--accent); }
 .asg.done > .asg-main .asg-text, .asg.done > .asg-main .asg-detail, .asg-sub.done .asg-sub-text { text-decoration: line-through; opacity: var(--done-op); }
-.asg-sub { display: flex; align-items: flex-start; gap: 7px; padding: 3px 4px 3px 32px; border-radius: 8px; }
+.asg-sub { display: flex; align-items: flex-start; gap: 7px; padding: 2px 4px 2px 32px; border-radius: 8px; }
 .asg-sub:hover { background: var(--hover); }
 .asg-sub-text { flex: 1; min-width: 0; font-size: var(--fs-base); cursor: text; overflow-wrap: anywhere; }
 .asg-sub-text:hover { text-decoration: underline dotted var(--muted); }
@@ -240,9 +244,14 @@ h3 { font-size: var(--fs-md); font-weight: 600; margin-bottom: 6px; }
 .asg-main:hover .asg-del, .asg-sub:hover .asg-del { opacity: 1; }
 .asg-del:hover { color: var(--critical); }
 .asg-del.confirm { opacity: 1; color: var(--critical); font-weight: 650; }
-.asg-step-add { margin-left: 32px; border: none; background: none; color: var(--muted); cursor: pointer; font: inherit; font-size: var(--fs-xs); padding: 2px 4px; border-radius: 6px; opacity: 0; transition: opacity 120ms ease, color 120ms ease; }
-.asg:hover .asg-step-add { opacity: 1; }
+.asg-step-add { flex: none; border: none; background: none; color: var(--muted); cursor: pointer; font: inherit; font-size: var(--fs-xs); padding: 2px 5px; border-radius: 6px; white-space: nowrap; opacity: 0; transition: opacity 120ms ease, color 120ms ease; }
+.asg-main:hover .asg-step-add { opacity: 1; }
 .asg-step-add:hover { color: var(--accent); }
+/* No hover on a phone, so the controls have to be permanently visible there —
+   otherwise "+ step" and "split" exist only for the desktop. */
+@media (hover: none) {
+  .asg-step-add, .asg-del { opacity: 1; }
+}
 .asg-input { font: inherit; font-size: var(--fs-md); flex: 1; min-width: 140px; padding: 2px 6px; border-radius: 6px; border: 1px solid var(--accent); background: var(--page); color: var(--ink); }
 .asg-done-group .task-group-head { padding: 7px 4px; }
 .asg-done-group .task-group-body { padding-left: 0; }
@@ -4009,7 +4018,12 @@ function commitLawEdit(edit){
         .update({courses, updated_at: new Date().toISOString()}).eq('user_id', _currentUser.id);
       if(wErr) throw wErr;
       LAW_COURSES = courses;
-      renderAssignments();
+      // Don't re-render on top of an open editor. The write lands a couple of
+      // hundred milliseconds after the tick, which is exactly when she is
+      // typing the next step — re-rendering here threw the box away mid-word.
+      // The optimistic pass already put this change on screen; the server copy
+      // is now in LAW_COURSES and will show on the next render either way.
+      if(!document.querySelector('input.asg-input')) renderAssignments();
     }catch(err){
       console.error('law write error:', err);
       showNotice("Couldn't save that to your law school tracker — reloading what's there.", 'warn');
@@ -4102,16 +4116,17 @@ function assignItemHtml(row){
       <div class="asg-body">
         <div class="asg-line">
           <span class="asg-course">${esc(row.courseName)}:</span>
-          <span class="asg-text" data-act="edit-asg" title="Click to edit">${esc(a.title || '(untitled)')}</span>
+          <span class="asg-text" data-act="edit-asg" title="Click to edit · Enter adds a step underneath">${esc(a.title || '(untitled)')}</span>
           ${subs.length ? `<span class="asg-count">${subs.length - left}/${subs.length}</span>` : ''}
         </div>
         ${(a.detail || '').trim() ? `<div class="asg-detail">${linkifyText(a.detail.trim())}</div>` : ''}
       </div>
-      <button class="asg-del" data-act="del-asg" title="Delete this assignment">${ico('x')}</button>
+      <span class="asg-tools">
+        ${parts.length > 1 ? `<button class="asg-step-add asg-split" data-act="split-asg">split into ${parts.length}</button>` : ''}
+        <button class="asg-del" data-act="del-asg" title="Delete this assignment">${ico('x')}</button>
+      </span>
     </div>
     ${subs.map(assignSubHtml).join('')}
-    <button class="asg-step-add" data-act="add-step">+ step</button>
-    ${parts.length > 1 ? `<button class="asg-step-add asg-split" data-act="split-asg">split into ${parts.length}</button>` : ''}
   </div>`;
 }
 // Ticked items fold into one "Done · N" line per day instead of staying in
@@ -4187,6 +4202,7 @@ function renderAssignments(){
   if(!html) html = `<p class="empty-note">Nothing due in this stretch. Try a longer range.</p>`;
   box.innerHTML = html;
   paintIcons(box);
+  openPendingStepInput();
 }
 
 /* Delegated once on the container, since the list is re-rendered wholesale on
@@ -4247,11 +4263,7 @@ function onAssignClick(e){
       ? {kind: 'del-asg', courseId, assignmentId}
       : {kind: 'del-step', courseId, assignmentId, subId});
   }
-  if(act === 'add-step'){
-    const s = (a.subtasks || []);
-    return startAssignInput(hit, '', text => commitLawEdit({kind: 'add-step', courseId, assignmentId,
-      sub: {id: newId(), text, done: false}}), s.length ? 'Another step…' : 'Brief a case, note a follow-up…');
-  }
+  if(act === 'add-step'){ queueStepInput(courseId, assignmentId); return openPendingStepInput(); }
   if(act === 'split-asg'){
     const parts = splitParts(a);
     if(parts.length < 2) return;
@@ -4269,36 +4281,73 @@ function onAssignClick(e){
     }));
     return commitLawEdit({kind: 'split-asg', courseId, assignmentId, rows});
   }
-  if(act === 'edit-asg') return startAssignInput(hit, a.title || '', text => commitLawEdit({kind: 'edit-asg', courseId, assignmentId, text}));
+  if(act === 'edit-asg') return startAssignInput(hit, a.title || '',
+    text => commitLawEdit({kind: 'edit-asg', courseId, assignmentId, text}),
+    null, () => queueStepInput(courseId, assignmentId));
   if(act === 'edit-step'){
     const s = (a.subtasks || []).find(x => String(x.id) === String(subId));
-    if(s) return startAssignInput(hit, s.text || '', text => commitLawEdit({kind: 'edit-step', courseId, assignmentId, subId, text}));
+    if(s) return startAssignInput(hit, s.text || '',
+      text => commitLawEdit({kind: 'edit-step', courseId, assignmentId, subId, text}),
+      null, () => queueStepInput(courseId, assignmentId));
   }
 }
 // Swap an element for an input in place. Enter or blur commits, Escape drops
 // it; an empty value commits nothing, so a mis-tap costs a click and no data.
-function startAssignInput(el, initial, onCommit, placeholder){
+//
+// Enter also *chains*: it opens the next input down the list, which is how
+// steps get added — there is no "+ step" button. Click a reading, Enter, and
+// you are typing the first brief; Enter again and you are typing the second.
+// That is the rhythm of the document this replaces (a line, Enter, a line).
+// Only Enter chains, never blur — clicking away means she is done, not that
+// she wants another empty box.
+function startAssignInput(el, initial, onCommit, placeholder, chain){
   const input = document.createElement('input');
   input.type = 'text';
   input.className = 'asg-input';
   input.value = initial;
   if(placeholder) input.placeholder = placeholder;
   let settled = false;
-  const finish = commit => {
+  const finish = (commit, chained) => {
     if(settled) return;
     settled = true;
     const text = input.value.trim();
+    if(chained && chain) chain();          // queue the next box before the re-render
     if(commit && text && text !== initial.trim()) onCommit(text);
     else renderAssignments();
   };
   input.addEventListener('keydown', ev => {
-    if(ev.key === 'Enter'){ ev.preventDefault(); finish(true); }
-    else if(ev.key === 'Escape'){ ev.preventDefault(); finish(false); }
+    if(ev.key === 'Enter'){ ev.preventDefault(); finish(true, true); }
+    else if(ev.key === 'Escape'){ ev.preventDefault(); finish(false, false); }
   });
-  input.addEventListener('blur', () => finish(true));
+  input.addEventListener('blur', () => finish(true, false));
   el.replaceWith(input);
   input.focus();
   input.select();
+}
+// Re-rendering wipes the DOM, so "open a step box next" is recorded as intent
+// and acted on after the render that follows.
+let _asgPendingStep = null;
+function queueStepInput(courseId, assignmentId){ _asgPendingStep = {courseId, assignmentId}; }
+function openPendingStepInput(){
+  const p = _asgPendingStep;
+  if(!p) return;
+  _asgPendingStep = null;
+  // Quoted attribute value, so escape only what would end the string — not
+  // CSS.escape, which is for identifiers and turns a leading digit into "\36 "
+  // that then matches nothing.
+  const q = v => String(v).replace(/["\\]/g, '\\$&');
+  const item = document.querySelector(`.asg[data-course="${q(p.courseId)}"][data-asg="${q(p.assignmentId)}"]`);
+  if(!item) return;
+  const a = findAssignment(p.courseId, p.assignmentId);
+  const row = document.createElement('div');
+  row.className = 'asg-sub';
+  const slot = document.createElement('span');
+  row.append(slot);
+  item.append(row);
+  startAssignInput(slot, '',
+    text => commitLawEdit({kind: 'add-step', courseId: p.courseId, assignmentId: p.assignmentId, sub: {id: newId(), text, done: false}}),
+    (a && (a.subtasks || []).length) ? 'Another step…' : 'Brief a case, note a follow-up… (Esc when done)',
+    () => queueStepInput(p.courseId, p.assignmentId));
 }
 
 /* ---- cross-app: the restock app's staples ----
