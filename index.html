@@ -244,6 +244,9 @@ h3 { font-size: var(--fs-md); font-weight: 600; margin-bottom: 6px; }
 .asg:hover .asg-step-add { opacity: 1; }
 .asg-step-add:hover { color: var(--accent); }
 .asg-input { font: inherit; font-size: var(--fs-md); flex: 1; min-width: 140px; padding: 2px 6px; border-radius: 6px; border: 1px solid var(--accent); background: var(--page); color: var(--ink); }
+.asg-done-group .task-group-head { padding: 7px 4px; }
+.asg-done-group .task-group-body { padding-left: 0; }
+.asg-clear { padding: 6px 4px; }
 .asg-add { display: flex; gap: 6px; align-items: center; margin-top: 6px; padding-top: 6px; border-top: 1px solid var(--hairline); }
 .asg-pick { font: inherit; font-size: var(--fs-xs); padding: 4px 6px; border-radius: 6px; border: 1px solid var(--border); background: var(--page); color: var(--ink-2); max-width: 40%; }
 .asg-new { flex: 1; font: inherit; font-size: var(--fs-base); padding: 5px 8px; border-radius: 8px; border: 1px solid var(--border); background: var(--page); color: var(--ink); }
@@ -4111,12 +4114,33 @@ function assignItemHtml(row){
     ${parts.length > 1 ? `<button class="asg-step-add asg-split" data-act="split-asg">split into ${parts.length}</button>` : ''}
   </div>`;
 }
+// Ticked items fold into one "Done · N" line per day instead of staying in
+// place struck through. The point of the day is watching it empty out, and a
+// reading with three briefs under it takes up as much room finished as it did
+// unfinished. Expanded state is per-day and lasts the session — long enough to
+// undo a mis-tick, short enough that every day starts tidy.
+const _asgDoneOpen = new Set();
+function toggleAsgDone(dateStr){
+  _asgDoneOpen.has(dateStr) ? _asgDoneOpen.delete(dateStr) : _asgDoneOpen.add(dateStr);
+  renderAssignments();
+}
 function assignGroupHtml(dateStr, rows, label){
   const courses = assignCourses();
   const picker = courses.map(c => `<option value="${esc(c.id)}">${esc(c.name || 'Course')}</option>`).join('');
+  const open = rows.filter(r => !r.a.done), done = rows.filter(r => r.a.done);
+  const showDone = _asgDoneOpen.has(dateStr);
   return `<div class="asg-group" data-date="${esc(dateStr)}">
     <div class="asg-date">${esc(label)}</div>
-    ${rows.map(assignItemHtml).join('')}
+    ${open.map(assignItemHtml).join('')}
+    ${!open.length && done.length ? `<p class="empty-note asg-clear">All done.</p>` : ''}
+    ${done.length ? `<div class="task-group asg-done-group">
+      <button class="task-group-head" onclick="toggleAsgDone('${esc(dateStr)}')">
+        <span class="tg-chevron ${showDone?'open':''}">${ico('chevron-right')}</span>
+        <span class="tg-name">Done</span>
+        <span class="tg-count">${done.length}</span>
+      </button>
+      ${showDone ? `<div class="task-group-body">${done.map(assignItemHtml).join('')}</div>` : ''}
+    </div>` : ''}
     ${courses.length ? `<div class="asg-add">
       <select class="asg-pick" aria-label="Course">${picker}</select>
       <input class="asg-new" type="text" placeholder="Add an assignment…" data-act="add-asg">
