@@ -210,6 +210,45 @@ h3 { font-size: var(--fs-md); font-weight: 600; margin-bottom: 6px; }
 .today-collapse-btn { border: none; background: none; padding: 4px; margin: -4px; cursor: pointer; color: var(--muted); border-radius: 6px; transition: color 120ms ease; }
 .today-collapse-btn:hover { color: var(--ink); }
 
+/* ---- assignments ----
+   Laid out as the checklist she kept by hand: a date, then one line per item,
+   the course in front of each, sub-steps indented under their parent. Ticked
+   items keep their place and take a line through them — same as the ~~strike~~
+   in the document this replaces. */
+.asg-group { background: var(--surface); border: 1px solid var(--border); border-radius: 12px; padding: 10px 12px; margin-bottom: 12px; box-shadow: var(--shadow); }
+.asg-group.overdue { border-color: var(--serious); }
+.asg-date { font-size: var(--fs-md); font-weight: 650; color: var(--ink); padding-bottom: 6px; border-bottom: 1px solid var(--hairline); margin-bottom: 4px; font-variant-numeric: tabular-nums; }
+.asg-group.overdue .asg-date { color: var(--serious); }
+.asg { padding: 2px 0; border-radius: 8px; }
+.asg-main { display: flex; align-items: flex-start; gap: 8px; padding: 4px 4px; border-radius: 8px; }
+.asg-main:hover { background: var(--hover); }
+.asg-body { flex: 1; min-width: 0; }
+.asg-line { display: flex; align-items: baseline; gap: 6px; flex-wrap: wrap; }
+.asg-course { font-size: var(--fs-sm); font-weight: 650; color: var(--accent-strong); flex: none; }
+.asg-text { font-size: var(--fs-md); cursor: text; overflow-wrap: anywhere; }
+.asg-text:hover { text-decoration: underline dotted var(--muted); }
+.asg-count { font-size: var(--fs-xs); color: var(--muted); font-variant-numeric: tabular-nums; }
+.asg-detail { font-size: var(--fs-sm); color: var(--ink-2); line-height: 1.45; margin-top: 1px; overflow-wrap: anywhere; }
+.asg-detail a, .asg-sub-text a { color: var(--accent); }
+.asg.done > .asg-main .asg-text, .asg.done > .asg-main .asg-detail, .asg-sub.done .asg-sub-text { text-decoration: line-through; opacity: var(--done-op); }
+.asg-sub { display: flex; align-items: flex-start; gap: 7px; padding: 3px 4px 3px 32px; border-radius: 8px; }
+.asg-sub:hover { background: var(--hover); }
+.asg-sub-text { flex: 1; min-width: 0; font-size: var(--fs-base); cursor: text; overflow-wrap: anywhere; }
+.asg-sub-text:hover { text-decoration: underline dotted var(--muted); }
+.chk.small { width: 16px; height: 16px; }
+.asg-del { flex: none; border: none; background: none; color: var(--muted); cursor: pointer; padding: 2px 4px; border-radius: 6px; opacity: 0; transition: opacity 120ms ease, color 120ms ease; font: inherit; font-size: var(--fs-xs); }
+.asg-main:hover .asg-del, .asg-sub:hover .asg-del { opacity: 1; }
+.asg-del:hover { color: var(--critical); }
+.asg-del.confirm { opacity: 1; color: var(--critical); font-weight: 650; }
+.asg-step-add { margin-left: 32px; border: none; background: none; color: var(--muted); cursor: pointer; font: inherit; font-size: var(--fs-xs); padding: 2px 4px; border-radius: 6px; opacity: 0; transition: opacity 120ms ease, color 120ms ease; }
+.asg:hover .asg-step-add { opacity: 1; }
+.asg-step-add:hover { color: var(--accent); }
+.asg-input { font: inherit; font-size: var(--fs-md); flex: 1; min-width: 140px; padding: 2px 6px; border-radius: 6px; border: 1px solid var(--accent); background: var(--page); color: var(--ink); }
+.asg-add { display: flex; gap: 6px; align-items: center; margin-top: 6px; padding-top: 6px; border-top: 1px solid var(--hairline); }
+.asg-pick { font: inherit; font-size: var(--fs-xs); padding: 4px 6px; border-radius: 6px; border: 1px solid var(--border); background: var(--page); color: var(--ink-2); max-width: 40%; }
+.asg-new { flex: 1; font: inherit; font-size: var(--fs-base); padding: 5px 8px; border-radius: 8px; border: 1px solid var(--border); background: var(--page); color: var(--ink); }
+#view-assign .day-toolbar .ghost.active { border-color: var(--accent); color: var(--accent-strong); }
+
 /* ---- hour grid ---- */
 .hour-grid-wrap { position: relative; margin-top: 6px; border: 1px solid var(--border); border-radius: 10px; overflow: hidden; background: var(--surface); }
 .hour-grid { position: relative; }
@@ -410,7 +449,7 @@ a.meal-title:hover .meal-link-ico { opacity: 1; }
 /* ---- time report ---- */
 /* The sidebar is for planning; this view is for transcribing. Hiding it gives
    the rows the full width and takes the week/month/meal cards out of the way. */
-body.time-view .sidebar-col { display: none; }
+body.time-view .sidebar-col, body.assign-view .sidebar-col { display: none; }
 .time-toolbar { flex-wrap: wrap; gap: 10px; }
 .time-toolbar label { display: flex; align-items: center; gap: 6px; font-size: var(--fs-base); color: var(--muted); }
 .time-toolbar input[type=date], .time-toolbar select { font: inherit; font-size: var(--fs-base); padding: 5px 8px; border: 1px solid var(--border); border-radius: 8px; background: var(--surface); color: var(--ink); }
@@ -674,6 +713,7 @@ footer button { font: inherit; font-size: var(--fs-sm); border: none; background
   <nav class="tabs" id="tabs">
     <button data-view="day" class="active" onclick="switchView('day')">Day</button>
     <button data-view="week" onclick="switchView('week')">Week</button>
+    <button data-view="assign" onclick="switchView('assign')">Assignments</button>
     <button data-view="time" onclick="switchView('time')">Time</button>
   </nav>
 </header>
@@ -746,6 +786,22 @@ footer button { font: inherit; font-size: var(--fs-sm); border: none; background
           <button class="ghost" onclick="goTodayWeek()">This week</button>
         </div>
         <div class="week-grid" id="week-grid"></div>
+      </section>
+
+      <!-- ============ ASSIGNMENTS VIEW ============
+           Her coursework, day by day, as the checklist she kept by hand through
+           1L: every class's work for a date in one list, each item tickable,
+           per-case briefs nested one level under the reading they belong to.
+           The rows live in the law school tracker's row — this is the surface
+           that edits them. -->
+      <section class="view" id="view-assign">
+        <div class="day-toolbar">
+          <span class="day-title">Assignments</span>
+          <button class="ghost" data-range="14" onclick="setAssignRange(14)">2 weeks</button>
+          <button class="ghost" data-range="42" onclick="setAssignRange(42)">6 weeks</button>
+          <button class="ghost" data-range="0" onclick="setAssignRange(0)">All</button>
+        </div>
+        <div id="assign-list"></div>
       </section>
 
       <!-- ============ TIME VIEW ============
@@ -2426,8 +2482,18 @@ function switchView(v){
   document.querySelectorAll('#tabs button').forEach(b => b.classList.toggle('active', b.dataset.view===v));
   document.getElementById('view-day').classList.toggle('active', v==='day');
   document.getElementById('view-week').classList.toggle('active', v==='week');
+  document.getElementById('view-assign').classList.toggle('active', v==='assign');
   document.getElementById('view-time').classList.toggle('active', v==='time');
   document.body.classList.toggle('time-view', v==='time');
+  // The sidebar is this-week/this-month agenda tasks and the meal plan; on the
+  // coursework list it is someone else's column of unrelated things.
+  document.body.classList.toggle('assign-view', v==='assign');
+  if(v === 'assign'){
+    // Same reasoning as the time sheet: re-read on open. She may have imported
+    // a syllabus in the law school app since this tab last looked, and an
+    // empty list reads as "nothing assigned" rather than "not loaded".
+    loadLawData(true).then(renderAssignments);
+  }
   if(v === 'time'){
     if(!_tsInit){ tsPreset('period'); _tsInit = true; }
     // Always re-read on open. Opening this tab before anything pulled time data
@@ -3127,6 +3193,7 @@ function toggleSkinVisible(){
 function renderAll(){
   renderTimerGuard();
   if(currentView==='time') renderTimeView();
+  else if(currentView==='assign') renderAssignments();
   else if(currentView==='day') renderDay(); else renderWeek();
   renderSidebar();
   renderMonthSidebar();
@@ -3867,19 +3934,78 @@ async function deleteTimeEntry(id){
    written into TASKS — the same treatment Google Calendar events get. Both
    streams matter: note checkpoints (topic selection, prospectus, drafts) and
    Law Review staff-editing halves. */
-let LAW_SETTINGS = null, _lawLoaded = false;
+let LAW_SETTINGS = null, LAW_COURSES = [], _lawLoaded = false;
 async function loadLawData(force){
   if(_lawLoaded && !force) return;
-  if(_guestMode || !_currentUser){ LAW_SETTINGS = null; _lawLoaded = true; return; }
+  if(_guestMode || !_currentUser){ LAW_SETTINGS = null; LAW_COURSES = []; _lawLoaded = true; return; }
   try{
-    const {data, error} = await sb.from('law_school_data').select('settings').eq('user_id', _currentUser.id).maybeSingle();
+    const {data, error} = await sb.from('law_school_data').select('settings, courses').eq('user_id', _currentUser.id).maybeSingle();
     if(error) throw error;
     LAW_SETTINGS = (data && data.settings) || {};
+    LAW_COURSES = (data && Array.isArray(data.courses)) ? data.courses : [];
     _lawLoaded = true;
   }catch(e){
     console.error('loadLawData error:', e);
     LAW_SETTINGS = LAW_SETTINGS || null;
   }
+}
+/* ---- cross-app: editing the law tracker's coursework ----
+   Same shared project and signed-in user, so owner access works under its RLS.
+   Every edit is described as data — {kind, courseId, assignmentId, ...} — never
+   as a mutation of an object we happen to be holding, because it gets applied
+   twice: once to the copy on screen so the tick is instant, and again to a copy
+   re-read straight from the server. That is the restock rule (re-read, then
+   send back only the column touched) and the reason it matters is the same: the
+   law school app may be open in another tab, and writing the whole row from a
+   stale read would undo whatever she just did over there.
+
+   Toggles therefore carry the value they are setting rather than "flip it" —
+   applied twice, a flip would land back where it started. */
+function applyLawEdit(courses, e){
+  const c = (courses || []).find(x => x && String(x.id) === String(e.courseId));
+  if(!c) return false;
+  c.assignments = c.assignments || [];
+  if(e.kind === 'add-asg'){ c.assignments.push(JSON.parse(JSON.stringify(e.row))); return true; }
+  const a = c.assignments.find(x => x && String(x.id) === String(e.assignmentId));
+  if(!a) return false;
+  const sub = () => (a.subtasks || []).find(s => s && String(s.id) === String(e.subId));
+  switch(e.kind){
+    case 'toggle-asg': a.done = !!e.value; return true;
+    case 'edit-asg': a.title = e.text; return true;
+    case 'del-asg': c.assignments = c.assignments.filter(x => String(x.id) !== String(e.assignmentId)); return true;
+    case 'add-step': (a.subtasks = a.subtasks || []).push(JSON.parse(JSON.stringify(e.sub))); return true;
+    case 'toggle-step': { const s = sub(); if(!s) return false; s.done = !!e.value; return true; }
+    case 'edit-step': { const s = sub(); if(!s) return false; s.text = e.text; return true; }
+    case 'del-step': a.subtasks = (a.subtasks || []).filter(s => String(s.id) !== String(e.subId)); return true;
+  }
+  return false;
+}
+// Persistence is serialized. Two quick ticks would otherwise both re-read the
+// same row, and whichever wrote second would carry the other's item back to its
+// old state — the classic lost update, and easy to hit on a checklist.
+let _lawWriteQueue = Promise.resolve();
+function commitLawEdit(edit){
+  if(_guestMode || !_currentUser){ showNotice('Sign in to change coursework.', 'warn'); return; }
+  if(!applyLawEdit(LAW_COURSES, edit)) return;   // optimistic: on screen now
+  renderAssignments();
+  _lawWriteQueue = _lawWriteQueue.then(async () => {
+    try{
+      const {data, error} = await sb.from('law_school_data').select('courses').eq('user_id', _currentUser.id).maybeSingle();
+      if(error) throw error;
+      const courses = (data && Array.isArray(data.courses)) ? data.courses : [];
+      if(!applyLawEdit(courses, edit)) throw new Error('that row no longer exists in the law school tracker');
+      const {error: wErr} = await sb.from('law_school_data')
+        .update({courses, updated_at: new Date().toISOString()}).eq('user_id', _currentUser.id);
+      if(wErr) throw wErr;
+      LAW_COURSES = courses;
+      renderAssignments();
+    }catch(err){
+      console.error('law write error:', err);
+      showNotice("Couldn't save that to your law school tracker — reloading what's there.", 'warn');
+      await loadLawData(true);
+      renderAssignments();
+    }
+  });
 }
 function lawItemsForDate(dateStr){
   if(!LAW_SETTINGS) return [];
@@ -3902,6 +4028,218 @@ function lawBandHtml(dateStr, compact){
   return items.map(i => `<div class="law-item${compact ? ' compact' : ''}" title="From your law school tracker — edit it there">
       <span class="law-kind">${esc(i.kind)}</span><span class="law-title">${esc(i.title)}</span>
     </div>`).join('');
+}
+
+/* =====================================================================
+   RENDER: ASSIGNMENTS
+   =====================================================================
+   Shaped after the schedule she kept by hand through 1L: grouped by date,
+   every course's work for that date in one list, each line prefixed with the
+   course, and per-case briefs nested one level under the reading. One level is
+   the whole hierarchy — her 172 nested items were all exactly one deep, and a
+   deeper tree would be a worse version of an outline she already keeps
+   elsewhere. Ticked items stay put with a line through them: the point of the
+   list is seeing the day empty out. */
+let ASSIGN_RANGE = 42;
+function setAssignRange(days){
+  ASSIGN_RANGE = days;
+  document.querySelectorAll('#view-assign [data-range]').forEach(b => b.classList.toggle('active', Number(b.dataset.range) === days));
+  renderAssignments();
+}
+function assignCourses(){
+  const live = (LAW_COURSES || []).filter(c => c && c.status !== 'dropped' && c.status !== 'completed');
+  return live.length ? live : (LAW_COURSES || []).filter(c => c && c.status !== 'dropped');
+}
+function assignmentRows(){
+  const out = [];
+  (LAW_COURSES || []).forEach(c => {
+    if(!c || c.status === 'dropped') return;
+    (c.assignments || []).forEach(a => {
+      if(a && a.due_date) out.push({courseId: c.id, courseName: c.name || 'Course', a});
+    });
+  });
+  return out;
+}
+// Her schedule pasted raw URLs into items; keep them clickable. esc() runs
+// first, so the pattern matches an already-escaped string and can't reopen the
+// injection it just closed.
+function linkifyText(s){
+  return esc(s).replace(/https?:\/\/[^\s<]+/g, u => `<a href="${u}" target="_blank" rel="noopener noreferrer">${u}</a>`);
+}
+function assignSubHtml(s){
+  return `<div class="asg-sub ${s.done?'done':''}" data-sub="${esc(s.id)}">
+    <span class="chk small ${s.done?'done':''}" data-act="toggle-step">${s.done?ico('check'):''}</span>
+    <span class="asg-sub-text" data-act="edit-step">${linkifyText(s.text || '')}</span>
+    <button class="asg-del" data-act="del-step" title="Delete this step">${ico('x')}</button>
+  </div>`;
+}
+function assignItemHtml(row){
+  const a = row.a, subs = (a.subtasks || []);
+  const left = subs.filter(s => !s.done).length;
+  return `<div class="asg ${a.done?'done':''}" data-course="${esc(row.courseId)}" data-asg="${esc(a.id)}">
+    <div class="asg-main">
+      <span class="chk ${a.done?'done':''}" data-act="toggle-asg">${a.done?ico('check'):''}</span>
+      <div class="asg-body">
+        <div class="asg-line">
+          <span class="asg-course">${esc(row.courseName)}:</span>
+          <span class="asg-text" data-act="edit-asg" title="Click to edit">${esc(a.title || '(untitled)')}</span>
+          ${subs.length ? `<span class="asg-count">${subs.length - left}/${subs.length}</span>` : ''}
+        </div>
+        ${(a.detail || '').trim() ? `<div class="asg-detail">${linkifyText(a.detail.trim())}</div>` : ''}
+      </div>
+      <button class="asg-del" data-act="del-asg" title="Delete this assignment">${ico('x')}</button>
+    </div>
+    ${subs.map(assignSubHtml).join('')}
+    <button class="asg-step-add" data-act="add-step">+ step</button>
+  </div>`;
+}
+function assignGroupHtml(dateStr, rows, label){
+  const courses = assignCourses();
+  const picker = courses.map(c => `<option value="${esc(c.id)}">${esc(c.name || 'Course')}</option>`).join('');
+  return `<div class="asg-group" data-date="${esc(dateStr)}">
+    <div class="asg-date">${esc(label)}</div>
+    ${rows.map(assignItemHtml).join('')}
+    ${courses.length ? `<div class="asg-add">
+      <select class="asg-pick" aria-label="Course">${picker}</select>
+      <input class="asg-new" type="text" placeholder="Add an assignment…" data-act="add-asg">
+    </div>` : ''}
+  </div>`;
+}
+function renderAssignments(){
+  const box = document.getElementById('assign-list');
+  if(!box) return;
+  bindAssignHandlers();
+  if(_guestMode || !_currentUser){
+    box.innerHTML = '<p class="empty-note">Sign in to see your coursework — it lives in your law school tracker.</p>';
+    return;
+  }
+  const rows = assignmentRows();
+  if(!rows.length){
+    box.innerHTML = `<p class="empty-note">Nothing here yet. Import a syllabus in the law school tracker — every reading and deliverable it finds shows up here to tick off.</p>`;
+    return;
+  }
+  const today = todayStr();
+  const byDate = new Map();
+  const push = r => { if(!byDate.has(r.a.due_date)) byDate.set(r.a.due_date, []); byDate.get(r.a.due_date).push(r); };
+
+  // Anything unfinished from before today rides at the top under one heading
+  // rather than sitting on a date she has already scrolled past. 83 of her
+  // items last year ended the semester unticked; they should be visible.
+  const overdue = rows.filter(r => r.a.due_date < today && !r.a.done)
+                      .sort((x, y) => x.a.due_date.localeCompare(y.a.due_date));
+  const horizon = ASSIGN_RANGE ? addDays(today, ASSIGN_RANGE) : null;
+  rows.filter(r => r.a.due_date >= today && (!horizon || r.a.due_date <= horizon)).forEach(push);
+
+  const byCourseThenOrder = (x, y) => (x.courseName || '').localeCompare(y.courseName || '');
+  let html = '';
+  if(overdue.length){
+    html += `<div class="asg-group overdue" data-date="">
+      <div class="asg-date">Not done yet</div>
+      ${overdue.map(r => assignItemHtml(r)).join('')}
+    </div>`;
+  }
+  [...byDate.keys()].sort().forEach(d => {
+    const label = d === today ? `Today · ${fmtLong(d)}` : fmtLong(d);
+    html += assignGroupHtml(d, byDate.get(d).sort(byCourseThenOrder), label);
+  });
+  if(!html) html = `<p class="empty-note">Nothing due in this stretch. Try a longer range.</p>`;
+  box.innerHTML = html;
+  paintIcons(box);
+}
+
+/* Delegated once on the container, since the list is re-rendered wholesale on
+   every tick. Deletes confirm in place rather than through confirm(), which
+   would block the page (and is unreachable on the phone's share sheet). */
+let _assignBound = false;
+function bindAssignHandlers(){
+  if(_assignBound) return;
+  const box = document.getElementById('assign-list');
+  if(!box) return;
+  _assignBound = true;
+  box.addEventListener('click', onAssignClick);
+  box.addEventListener('keydown', e => {
+    if(e.key !== 'Enter' || !e.target.classList.contains('asg-new')) return;
+    const title = e.target.value.trim();
+    if(!title) return;
+    const group = e.target.closest('.asg-group');
+    const courseId = group.querySelector('.asg-pick').value;
+    e.target.value = '';
+    commitLawEdit({kind: 'add-asg', courseId, row: {
+      id: newId(), title, detail: '', due_date: group.dataset.date,
+      type: 'reading', done: false, subtasks: [],
+      // Not "syllabus": re-importing a corrected syllabus replaces what the
+      // import wrote, and anything she typed here has to survive that.
+      source: 'manual'
+    }});
+  });
+}
+function findAssignment(courseId, asgId){
+  const c = (LAW_COURSES || []).find(x => x && String(x.id) === String(courseId));
+  return c ? (c.assignments || []).find(a => a && String(a.id) === String(asgId)) : null;
+}
+function onAssignClick(e){
+  const hit = e.target.closest('[data-act]');
+  if(!hit) return;
+  const act = hit.dataset.act;
+  const item = hit.closest('[data-asg]');
+  if(!item) return;
+  const courseId = item.dataset.course, assignmentId = item.dataset.asg;
+  const subEl = hit.closest('[data-sub]');
+  const subId = subEl ? subEl.dataset.sub : null;
+  const a = findAssignment(courseId, assignmentId);
+  if(!a) return;
+
+  if(act === 'toggle-asg') return commitLawEdit({kind: 'toggle-asg', courseId, assignmentId, value: !a.done});
+  if(act === 'toggle-step'){
+    const s = (a.subtasks || []).find(x => String(x.id) === String(subId));
+    return s && commitLawEdit({kind: 'toggle-step', courseId, assignmentId, subId, value: !s.done});
+  }
+  if(act === 'del-asg' || act === 'del-step'){
+    if(!hit.classList.contains('confirm')){
+      hit.classList.add('confirm');
+      hit.textContent = 'Delete?';
+      setTimeout(() => { if(hit.isConnected){ hit.classList.remove('confirm'); hit.innerHTML = ico('x'); paintIcons(hit.parentElement); } }, 4000);
+      return;
+    }
+    return commitLawEdit(act === 'del-asg'
+      ? {kind: 'del-asg', courseId, assignmentId}
+      : {kind: 'del-step', courseId, assignmentId, subId});
+  }
+  if(act === 'add-step'){
+    const s = (a.subtasks || []);
+    return startAssignInput(hit, '', text => commitLawEdit({kind: 'add-step', courseId, assignmentId,
+      sub: {id: newId(), text, done: false}}), s.length ? 'Another step…' : 'Brief a case, note a follow-up…');
+  }
+  if(act === 'edit-asg') return startAssignInput(hit, a.title || '', text => commitLawEdit({kind: 'edit-asg', courseId, assignmentId, text}));
+  if(act === 'edit-step'){
+    const s = (a.subtasks || []).find(x => String(x.id) === String(subId));
+    if(s) return startAssignInput(hit, s.text || '', text => commitLawEdit({kind: 'edit-step', courseId, assignmentId, subId, text}));
+  }
+}
+// Swap an element for an input in place. Enter or blur commits, Escape drops
+// it; an empty value commits nothing, so a mis-tap costs a click and no data.
+function startAssignInput(el, initial, onCommit, placeholder){
+  const input = document.createElement('input');
+  input.type = 'text';
+  input.className = 'asg-input';
+  input.value = initial;
+  if(placeholder) input.placeholder = placeholder;
+  let settled = false;
+  const finish = commit => {
+    if(settled) return;
+    settled = true;
+    const text = input.value.trim();
+    if(commit && text && text !== initial.trim()) onCommit(text);
+    else renderAssignments();
+  };
+  input.addEventListener('keydown', ev => {
+    if(ev.key === 'Enter'){ ev.preventDefault(); finish(true); }
+    else if(ev.key === 'Escape'){ ev.preventDefault(); finish(false); }
+  });
+  input.addEventListener('blur', () => finish(true));
+  el.replaceWith(input);
+  input.focus();
+  input.select();
 }
 
 /* ---- cross-app: the restock app's staples ----

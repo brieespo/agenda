@@ -202,6 +202,31 @@ logging is additive, and only an un-log is a genuine conflict. `_u` is currently
 stamped at the feature root (`skincare._u`), which is too coarse for that — the
 log is a nested map, not a list of items carrying their own stamps.
 
+## Assignments tab (built 2026-08-14)
+
+Her coursework, day by day, as the checklist she kept by hand through 1L. The rows are **not** agenda tasks — they live in the law school tracker's `law_school_data.courses[].assignments`, put there by its syllabus import. This tab is the **editing surface**: the law tracker owns import, the syllabus round-trip, and calendar sync, and deliberately has no editing UI for these fields.
+
+Shape, matching the document it replaces (a `.md` file of `- [x]` lines grouped under date headings):
+
+- **Grouped by date**, one card per day, unfinished past items collected at the top under *Not done yet* — 83 of her items last year ended the semester unticked, so they need somewhere to be other than a date she has scrolled past.
+- **Course as a prefix** on every line (`Civ Pro: pp. 33-40`), because a day mixes four courses.
+- **One level of nesting.** A reading carries `subtasks: [{id, text, done}]` — the per-case briefs. Her 172 sub-items were *all* exactly one deep; a deeper tree would be a worse outline than the one she keeps elsewhere. Nothing generates these; she adds them here.
+- **Ticked items keep their place with a line through them**, the way `~~strikethrough~~` did in the document.
+- URLs in a title or detail render as links — she pasted 33 of them last year.
+
+### The cross-app write
+
+Every edit goes through `commitLawEdit(edit)` and follows the restock rule: **re-read the row immediately before writing, and send back only the `courses` column.** The law school app may be open in another tab holding its own copy of `milestones` and `settings`, and writing the whole row from a stale read would undo whatever she just did there.
+
+Two things that look like fussiness and are not:
+
+- **Edits are described as data** (`{kind, courseId, assignmentId, subId, ...}`), never as a mutation of an object we happen to hold, because each one is applied *twice* — once to the on-screen copy so the tick is instant, once to the freshly re-read server copy.
+- **Toggles carry the value they set** (`value: true`), not "flip it". Applied twice, a flip lands back where it started.
+
+Writes are **serialized** through a promise chain. Two quick ticks would otherwise both re-read the same row and the second write would carry the first item back to its old state — a lost update, and trivially easy to hit on a checklist.
+
+Rows created here are `source: 'manual'`, so the law tracker's import — which replaces what a previous import of that course wrote — never deletes them.
+
 ## Suite sync (later phase — data model is ready via `source: 'suite'`)
 
 Future: read shared tables and surface law school study blocks, Law Review checkpoint days, and restock radar items as background items. Design now, build later — the `source` field and read-only rendering style are the only hooks required today.
