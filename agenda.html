@@ -2329,21 +2329,67 @@ function openDayFrom(d){ currentDate = d; switchView('day'); }
 /* =====================================================================
    RENDER: SIDEBAR
    ===================================================================== */
+// Done tasks sink to the bottom of the week and month lists, but they never
+// leave: by Thursday the finished half of the week is what the card mostly
+// shows, and the two or three things still waiting for a day are pushed under
+// the fold. So they fold into a single "Done" line instead.
+//
+// Collapsed by default — deliberately different from the day list, where a
+// grayed row staying in place is the point (the day's trophy case). These
+// lists span a week or a month; the count on the header is the trophy at that
+// scale, and the rows are one click away. The choice persists per scope.
+function isDoneCollapsed(scope){
+  const c = SETTINGS.doneCollapsed;
+  return (c && scope in c) ? !!c[scope] : true;
+}
+function toggleDoneCollapse(scope){
+  const c = SETTINGS.doneCollapsed || (SETTINGS.doneCollapsed = {});
+  c[scope] = !isDoneCollapsed(scope);
+  saveToStorage();
+  renderAll();
+}
+function doneGroupHtml(scope, doneItems, rowHtml){
+  if(!doneItems.length) return '';
+  const collapsed = isDoneCollapsed(scope);
+  return `<div class="task-group">
+    <button class="task-group-head" data-done-scope="${scope}" title="${collapsed?'Show':'Hide'} completed">
+      <span class="tg-chevron ${collapsed?'':'open'}">${ico('chevron-right')}</span>
+      <span class="tg-name">Done</span>
+      <span class="tg-count">${doneItems.length}</span>
+    </button>
+    ${collapsed ? '' : `<div class="task-group-body">${doneItems.map(rowHtml).join('')}</div>`}
+  </div>`;
+}
+// Same reasoning as attachGroupCollapseHandlers: the handler is bound in JS
+// rather than an inline onclick, and scoped to the container being rendered so
+// the week card's header can't pick up the month card's.
+function attachDoneCollapseHandlers(container){
+  container.querySelectorAll('[data-done-scope]').forEach(btn => {
+    btn.addEventListener('click', () => toggleDoneCollapse(btn.dataset.doneScope));
+  });
+}
 function renderSidebar(){
   const wk = weekKeyForDate(currentView==='week' ? weekAnchor : currentDate);
   document.getElementById('sidebar-week-label').textContent = `Week of ${fmtShort(wk)}`;
   const items = TASKS.filter(t => t.date===null && t.week===wk).sort((a,b) => (a.done===b.done)?0:(a.done?1:-1));
   const listEl = document.getElementById('sidebar-list');
   listEl.dataset.week = wk;
-  listEl.innerHTML = items.length ? items.map(item => `
+  const rowHtml = item => `
     <div class="sidebar-task ${item.done?'done':''}" data-id="${item.id}">
       <span class="chk ${item.done?'done':''}" onclick='toggleDoneReal(${item.id})'>${item.done?ico('check'):''}</span>
       <span class="t-title ${item.done?'done':''}" style="font-size: var(--fs-base)">${esc(item.title)}${item.rolled_from?`<span class="rolled-dot" title="Rolled over from last week"></span>`:''}</span>
-    </div>`).join('') : '<p class="empty-note">Nothing waiting for a day yet.</p>';
+    </div>`;
+  const open = items.filter(it => !it.done);
+  const done = items.filter(it => it.done);
+  listEl.innerHTML = items.length
+    ? (open.length ? open.map(rowHtml).join('') : '<p class="empty-note">All done — nothing waiting for a day.</p>')
+      + doneGroupHtml('week', done, rowHtml)
+    : '<p class="empty-note">Nothing waiting for a day yet.</p>';
   listEl.querySelectorAll('.sidebar-task').forEach(row => {
     const item = items.find(it => String(it.id)===row.dataset.id);
     if(item) row.addEventListener('pointerdown', e => { if(!e.target.closest('.chk')) startItemDrag(e, item, row, () => openTaskModal(item)); });
   });
+  attachDoneCollapseHandlers(listEl);
 }
 // Broader triage tier above the weekly sidebar: tasks with no day and no
 // week yet, just "sometime this month" — drag down into the week sidebar
@@ -2354,15 +2400,22 @@ function renderMonthSidebar(){
   const items = TASKS.filter(t => t.date===null && !t.week && t.month===mk).sort((a,b) => (a.done===b.done)?0:(a.done?1:-1));
   const listEl = document.getElementById('month-sidebar-list');
   listEl.dataset.month = mk;
-  listEl.innerHTML = items.length ? items.map(item => `
+  const rowHtml = item => `
     <div class="sidebar-task ${item.done?'done':''}" data-id="${item.id}">
       <span class="chk ${item.done?'done':''}" onclick='toggleDoneReal(${item.id})'>${item.done?ico('check'):''}</span>
       <span class="t-title ${item.done?'done':''}" style="font-size: var(--fs-base)">${esc(item.title)}${item.recurMonthly?`<span class="t-recur-ico" title="Repeats every month">${ico('repeat')}</span>`:''}${item.rolled_from?`<span class="rolled-dot" title="Carried over — forgotten from ${esc(fmtMonthLabel(item.rolled_from))}"></span>`:''}</span>
-    </div>`).join('') : '<p class="empty-note">Nothing waiting for a week yet.</p>';
+    </div>`;
+  const open = items.filter(it => !it.done);
+  const done = items.filter(it => it.done);
+  listEl.innerHTML = items.length
+    ? (open.length ? open.map(rowHtml).join('') : '<p class="empty-note">All done — nothing waiting for a week.</p>')
+      + doneGroupHtml('month', done, rowHtml)
+    : '<p class="empty-note">Nothing waiting for a week yet.</p>';
   listEl.querySelectorAll('.sidebar-task').forEach(row => {
     const item = items.find(it => String(it.id)===row.dataset.id);
     if(item) row.addEventListener('pointerdown', e => { if(!e.target.closest('.chk')) startItemDrag(e, item, row, () => openTaskModal(item)); });
   });
+  attachDoneCollapseHandlers(listEl);
 }
 
 /* =====================================================================
