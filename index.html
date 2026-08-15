@@ -217,6 +217,8 @@ h3 { font-size: var(--fs-md); font-weight: 600; margin-bottom: 6px; }
    in the document this replaces. */
 .asg-group { background: var(--surface); border: 1px solid var(--border); border-radius: 12px; padding: 10px 12px; margin-bottom: 12px; box-shadow: var(--shadow); }
 .asg-group.overdue { border-color: var(--serious); }
+/* Inside the day view's card the group is not its own card — the card is. */
+.asg-group.bare { background: none; border: none; border-radius: 0; padding: 0; margin: 0; box-shadow: none; }
 .asg-date { font-size: var(--fs-md); font-weight: 650; color: var(--ink); padding-bottom: 6px; border-bottom: 1px solid var(--hairline); margin-bottom: 4px; font-variant-numeric: tabular-nums; }
 .asg-group.overdue .asg-date { color: var(--serious); }
 .asg { border-radius: 8px; }
@@ -798,6 +800,17 @@ footer button { font: inherit; font-size: var(--fs-sm); border: none; background
               <button onclick="quickAddToday()">Add</button>
             </div>
           </div>
+        </div>
+        <!-- Coursework due this day, from the law school tracker. Sits with the
+             untimed Today list rather than on the hour grid: reading due before
+             class is prep with a deadline, not something that happens at a
+             time. Hidden entirely on days with nothing due. -->
+        <div class="card" id="coursework-card" style="display:none">
+          <div class="today-card-head">
+            <h2>Coursework</h2>
+            <button class="today-collapse-btn" id="coursework-collapse-btn" onclick="toggleCourseworkCollapse()" title="Collapse coursework"><span class="tg-chevron open" id="coursework-chevron" data-ico="chevron-right"></span></button>
+          </div>
+          <div id="coursework-card-body"><div id="coursework-list"></div></div>
         </div>
         <div class="hour-grid-wrap">
           <div class="gcal-allday-row" id="gcal-allday-row"></div>
@@ -2234,6 +2247,7 @@ function renderDay(){
   renderHourGrid(timed, gcalTimed);
   paintIcons(listEl);
   applyTodayCollapseState();
+  renderCoursework();
 }
 function applyTodayCollapseState(){
   const collapsed = !!SETTINGS.todayBoxCollapsed;
@@ -4043,7 +4057,7 @@ let _lawWriteQueue = Promise.resolve();
 function commitLawEdit(edit){
   if(_guestMode || !_currentUser){ showNotice('Sign in to change coursework.', 'warn'); return; }
   if(!applyLawEdit(LAW_COURSES, edit)) return;   // optimistic: on screen now
-  renderAssignments();
+  renderAssignmentViews();
   _lawWriteQueue = _lawWriteQueue.then(async () => {
     try{
       const {data, error} = await sb.from('law_school_data').select('courses').eq('user_id', _currentUser.id).maybeSingle();
@@ -4059,12 +4073,12 @@ function commitLawEdit(edit){
       // she is typing the next step or the next field — re-rendering here threw
       // the box away mid-word. The optimistic pass already put this change on
       // screen; the server copy is in LAW_COURSES and shows on the next render.
-      if(!assignEditorFocused()) renderAssignments();
+      if(!assignEditorFocused()) renderAssignmentViews();
     }catch(err){
       console.error('law write error:', err);
       showNotice("Couldn't save that to your law school tracker — reloading what's there.", 'warn');
       await loadLawData(true);
-      renderAssignments();
+      renderAssignmentViews();
     }
   });
 }
@@ -4217,15 +4231,16 @@ function addAssignDay(dateStr){
 }
 function toggleAsgDone(dateStr){
   _asgDoneOpen.has(dateStr) ? _asgDoneOpen.delete(dateStr) : _asgDoneOpen.add(dateStr);
-  renderAssignments();
+  renderAssignmentViews();
 }
-function assignGroupHtml(dateStr, rows, label){
+function assignGroupHtml(dateStr, rows, label, opts){
+  const bare = opts && opts.bare;   // day view: the card header is already the date
   const courses = assignCourses();
   const picker = courses.map(c => `<option value="${esc(c.id)}">${esc(c.name || 'Course')}</option>`).join('');
   const open = rows.filter(r => !r.a.done), done = rows.filter(r => r.a.done);
   const showDone = _asgDoneOpen.has(dateStr);
-  return `<div class="asg-group" data-date="${esc(dateStr)}">
-    <div class="asg-date">${esc(label)}</div>
+  return `<div class="asg-group${bare ? ' bare' : ''}" data-date="${esc(dateStr)}">
+    ${bare ? '' : `<div class="asg-date">${esc(label)}</div>`}
     ${open.map(assignItemHtml).join('')}
     ${!open.length && done.length ? `<p class="empty-note asg-clear">All done.</p>` : ''}
     ${done.length ? `<div class="task-group asg-done-group">
@@ -4290,15 +4305,51 @@ function renderAssignments(){
   openPendingStepInput();
 }
 
-/* Delegated once on the container, since the list is re-rendered wholesale on
+/* The same rows appear in two places — the Assignments tab and the day view's
+   coursework card — so every edit has to refresh both. Each render is a no-op
+   when its container isn't on screen. */
+function renderAssignmentViews(){ renderAssignments(); renderCoursework(); }
+function renderCoursework(){
+  const card = document.getElementById('coursework-card');
+  const box = document.getElementById('coursework-list');
+  if(!card || !box) return;
+  const rows = (_guestMode || !_currentUser) ? [] : assignmentRows().filter(r => r.a.due_date === currentDate);
+  // A card that says "nothing due" on a Saturday is noise; the day just
+  // doesn't have coursework on it.
+  card.style.display = rows.length ? '' : 'none';
+  if(!rows.length) return;
+  bindAssignHandlers('coursework-list');
+  box.innerHTML = assignGroupHtml(currentDate, rows.sort((x, y) => (x.courseName || '').localeCompare(y.courseName || '')), '', {bare: true});
+  paintIcons(box);
+  applyCourseworkCollapseState();
+  openPendingStepInput();
+}
+function applyCourseworkCollapseState(){
+  const collapsed = !!SETTINGS.courseworkCollapsed;
+  const body = document.getElementById('coursework-card-body');
+  const chev = document.getElementById('coursework-chevron');
+  const btn = document.getElementById('coursework-collapse-btn');
+  if(!body || !chev || !btn) return;
+  body.style.display = collapsed ? 'none' : '';
+  chev.classList.toggle('open', !collapsed);
+  btn.title = collapsed ? 'Expand coursework' : 'Collapse coursework';
+}
+function toggleCourseworkCollapse(){
+  SETTINGS.courseworkCollapsed = !SETTINGS.courseworkCollapsed;
+  saveToStorage();
+  applyCourseworkCollapseState();
+}
+
+/* Delegated once per container, since the list is re-rendered wholesale on
    every tick. Deletes confirm in place rather than through confirm(), which
    would block the page (and is unreachable on the phone's share sheet). */
-let _assignBound = false;
-function bindAssignHandlers(){
-  if(_assignBound) return;
-  const box = document.getElementById('assign-list');
+const _assignBound = new Set();
+function bindAssignHandlers(id){
+  const boxId = id || 'assign-list';
+  if(_assignBound.has(boxId)) return;
+  const box = document.getElementById(boxId);
   if(!box) return;
-  _assignBound = true;
+  _assignBound.add(boxId);
   box.addEventListener('click', onAssignClick);
   box.addEventListener('change', onAssignChange);
   box.addEventListener('keydown', e => {
@@ -4336,7 +4387,7 @@ function onAssignChange(e){
     // An empty date would drop the row out of every group and out of sight, so
     // a cleared picker just snaps back to what it was.
     if(el.value) commitLawEdit({kind: 'edit-date', courseId, assignmentId, value: el.value});
-    else renderAssignments();
+    else renderAssignmentViews();
   } else if(el.classList.contains('ae-type')){
     commitLawEdit({kind: 'edit-type', courseId, assignmentId, value: el.value});
   } else if(el.classList.contains('ae-course')){
@@ -4365,7 +4416,7 @@ function onAssignClick(e){
   if(act === 'edit-open'){
     const key = asgKey(courseId, assignmentId);
     _asgEditing = _asgEditing === key ? null : key;
-    return renderAssignments();
+    return renderAssignmentViews();
   }
   if(act === 'nudge-date'){
     const days = Number(hit.dataset.days) || 1;
@@ -4437,7 +4488,7 @@ function startAssignInput(el, initial, onCommit, placeholder, chain){
     const text = input.value.trim();
     if(chained && chain) chain();          // queue the next box before the re-render
     if(commit && text && text !== initial.trim()) onCommit(text);
-    else renderAssignments();
+    else renderAssignmentViews();
   };
   input.addEventListener('keydown', ev => {
     if(ev.key === 'Enter'){ ev.preventDefault(); finish(true, true); }
@@ -4460,7 +4511,7 @@ function openPendingStepInput(){
   // CSS.escape, which is for identifiers and turns a leading digit into "\36 "
   // that then matches nothing.
   const q = v => String(v).replace(/["\\]/g, '\\$&');
-  const item = document.querySelector(`.asg[data-course="${q(p.courseId)}"][data-asg="${q(p.assignmentId)}"]`);
+  const item = document.querySelector(`.view.active .asg[data-course="${q(p.courseId)}"][data-asg="${q(p.assignmentId)}"]`);
   if(!item) return;
   const a = findAssignment(p.courseId, p.assignmentId);
   const row = document.createElement('div');
