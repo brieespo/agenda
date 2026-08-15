@@ -256,6 +256,22 @@ h3 { font-size: var(--fs-md); font-weight: 600; margin-bottom: 6px; }
 .asg-done-group .task-group-head { padding: 7px 4px; }
 .asg-done-group .task-group-body { padding-left: 0; }
 .asg-clear { padding: 6px 4px; }
+/* Everything about one assignment, opened from the pencil. Indented to the
+   text column so it reads as belonging to its row rather than to the day. */
+.asg-editor { margin: 4px 0 8px 32px; padding: 8px 10px; border: 1px solid var(--border); border-radius: 10px; background: var(--page); display: flex; flex-direction: column; gap: 7px; }
+.ae-field { display: flex; flex-direction: column; gap: 2px; flex: 1; min-width: 0; }
+.ae-field > span { font-size: var(--fs-micro); text-transform: uppercase; letter-spacing: 0.04em; color: var(--muted); font-weight: 650; }
+.ae-input { font: inherit; font-size: var(--fs-base); padding: 5px 7px; border-radius: 7px; border: 1px solid var(--border); background: var(--surface); color: var(--ink); width: 100%; }
+.ae-input:focus { border-color: var(--accent); outline: none; }
+textarea.ae-input { resize: vertical; line-height: 1.4; min-height: 2.4em; }
+.ae-row { display: flex; gap: 8px; align-items: flex-end; flex-wrap: wrap; }
+.ae-narrow { flex: 0 1 auto; min-width: 118px; }
+.ae-nudges { display: inline-flex; gap: 4px; padding-bottom: 1px; }
+.ae-nudge { font: inherit; font-size: var(--fs-xs); padding: 5px 8px; border-radius: 7px; border: 1px solid var(--border); background: var(--surface); color: var(--ink-2); cursor: pointer; white-space: nowrap; }
+.ae-nudge:hover { border-color: var(--accent); color: var(--accent-strong); }
+.asg-pencil.on { opacity: 1; color: var(--accent); }
+.asg-add-day { display: inline-flex; align-items: center; gap: 5px; font-size: var(--fs-xs); color: var(--muted); margin-left: auto; }
+.asg-add-day input { font: inherit; font-size: var(--fs-xs); padding: 4px 6px; border-radius: 7px; border: 1px solid var(--border); background: var(--surface); color: var(--ink); }
 .asg-add { display: flex; gap: 6px; align-items: center; margin-top: 6px; padding-top: 6px; border-top: 1px solid var(--hairline); }
 .asg-pick { font: inherit; font-size: var(--fs-xs); padding: 4px 6px; border-radius: 6px; border: 1px solid var(--border); background: var(--page); color: var(--ink-2); max-width: 40%; }
 .asg-new { flex: 1; font: inherit; font-size: var(--fs-base); padding: 5px 8px; border-radius: 8px; border: 1px solid var(--border); background: var(--page); color: var(--ink); }
@@ -812,6 +828,9 @@ footer button { font: inherit; font-size: var(--fs-sm); border: none; background
           <button class="ghost" data-range="14" onclick="setAssignRange(14)">2 weeks</button>
           <button class="ghost" data-range="42" onclick="setAssignRange(42)">6 weeks</button>
           <button class="ghost" data-range="0" onclick="setAssignRange(0)">All</button>
+          <label class="asg-add-day">Add a day
+            <input type="date" id="asg-add-day" onchange="addAssignDay(this.value); this.value='';">
+          </label>
         </div>
         <div id="assign-list"></div>
       </section>
@@ -3980,6 +3999,16 @@ function applyLawEdit(courses, e){
   if(e.kind === 'add-asg'){ c.assignments.push(JSON.parse(JSON.stringify(e.row))); return true; }
   const a = c.assignments.find(x => x && String(x.id) === String(e.assignmentId));
   if(!a) return false;
+  if(e.kind === 'move-course'){
+    // Moving between courses means moving the row between two arrays. Applied
+    // to each copy in turn, so it works from whatever state that copy is in;
+    // if the row isn't in the source array the edit simply doesn't apply.
+    const to = (courses || []).find(x => x && String(x.id) === String(e.toCourseId));
+    if(!to || String(e.toCourseId) === String(e.courseId)) return false;
+    c.assignments = c.assignments.filter(x => String(x.id) !== String(e.assignmentId));
+    (to.assignments = to.assignments || []).push(a);
+    return true;
+  }
   if(e.kind === 'split-asg'){
     // The rows arrive fully built, ids and all, because this runs twice — on
     // screen and again on the re-read copy — and freshly minted ids the second
@@ -3992,6 +4021,9 @@ function applyLawEdit(courses, e){
   switch(e.kind){
     case 'toggle-asg': a.done = !!e.value; return true;
     case 'edit-asg': a.title = e.text; return true;
+    case 'edit-detail': a.detail = e.text; return true;
+    case 'edit-type': a.type = e.value; return true;
+    case 'edit-date': a.due_date = e.value; return true;
     case 'del-asg': c.assignments = c.assignments.filter(x => String(x.id) !== String(e.assignmentId)); return true;
     case 'add-step': (a.subtasks = a.subtasks || []).push(JSON.parse(JSON.stringify(e.sub))); return true;
     case 'toggle-step': { const s = sub(); if(!s) return false; s.done = !!e.value; return true; }
@@ -4003,6 +4035,10 @@ function applyLawEdit(courses, e){
 // Persistence is serialized. Two quick ticks would otherwise both re-read the
 // same row, and whichever wrote second would carry the other's item back to its
 // old state — the classic lost update, and easy to hit on a checklist.
+function assignEditorFocused(){
+  const ae = document.activeElement;
+  return !!(ae && ae.closest && ae.closest('#assign-list') && /^(INPUT|TEXTAREA|SELECT)$/.test(ae.tagName));
+}
 let _lawWriteQueue = Promise.resolve();
 function commitLawEdit(edit){
   if(_guestMode || !_currentUser){ showNotice('Sign in to change coursework.', 'warn'); return; }
@@ -4018,12 +4054,12 @@ function commitLawEdit(edit){
         .update({courses, updated_at: new Date().toISOString()}).eq('user_id', _currentUser.id);
       if(wErr) throw wErr;
       LAW_COURSES = courses;
-      // Don't re-render on top of an open editor. The write lands a couple of
-      // hundred milliseconds after the tick, which is exactly when she is
-      // typing the next step — re-rendering here threw the box away mid-word.
-      // The optimistic pass already put this change on screen; the server copy
-      // is now in LAW_COURSES and will show on the next render either way.
-      if(!document.querySelector('input.asg-input')) renderAssignments();
+      // Don't re-render on top of anything she is typing in. The write lands a
+      // couple of hundred milliseconds after the edit, which is exactly when
+      // she is typing the next step or the next field — re-rendering here threw
+      // the box away mid-word. The optimistic pass already put this change on
+      // screen; the server copy is in LAW_COURSES and shows on the next render.
+      if(!assignEditorFocused()) renderAssignments();
     }catch(err){
       console.error('law write error:', err);
       showNotice("Couldn't save that to your law school tracker — reloading what's there.", 'warn');
@@ -4106,10 +4142,42 @@ function splitParts(a){
   const src = (a.detail || '').trim() || (a.title || '').trim();
   return src.split(/\s*;\s*|\s*•\s*|\n+/).map(s => s.trim()).filter(s => s.length > 1);
 }
+// Every field of an assignment, reachable. The row itself stays a checklist
+// line — clicking the title still edits it in place, which is the common case —
+// and everything else lives behind the pencil so the day list doesn't turn into
+// a form. Dates get nudge buttons beside the picker: work slips by a day or a
+// week far more often than it moves to an arbitrary date, and a nudge is one
+// tap where the picker is four.
+const ASSIGN_TYPES = ['reading', 'paper', 'exam', 'other'];
+let _asgEditing = null;   // "courseId|assignmentId" of the open editor, if any
+const asgKey = (courseId, assignmentId) => `${courseId}|${assignmentId}`;
+function assignEditorHtml(row){
+  const a = row.a;
+  const courses = assignCourses();
+  return `<div class="asg-editor">
+    <label class="ae-field"><span>Assignment</span>
+      <input type="text" class="ae-input ae-title" value="${esc(a.title || '')}" placeholder="What is it?"></label>
+    <label class="ae-field"><span>Detail</span>
+      <textarea class="ae-input ae-detail" rows="2" placeholder="Pages, cases, rules — what to actually read">${esc(a.detail || '')}</textarea></label>
+    <div class="ae-row">
+      <label class="ae-field ae-narrow"><span>Due</span>
+        <input type="date" class="ae-input ae-date" value="${esc(a.due_date || '')}"></label>
+      <span class="ae-nudges">
+        <button class="ae-nudge" data-act="nudge-date" data-days="1">+1 day</button>
+        <button class="ae-nudge" data-act="nudge-date" data-days="7">+1 week</button>
+      </span>
+      <label class="ae-field ae-narrow"><span>Type</span>
+        <select class="ae-input ae-type">${ASSIGN_TYPES.map(t => `<option value="${t}"${(a.type||'other')===t?' selected':''}>${t}</option>`).join('')}</select></label>
+      <label class="ae-field ae-narrow"><span>Course</span>
+        <select class="ae-input ae-course">${courses.map(c => `<option value="${esc(c.id)}"${String(c.id)===String(row.courseId)?' selected':''}>${esc(c.name || 'Course')}</option>`).join('')}</select></label>
+    </div>
+  </div>`;
+}
 function assignItemHtml(row){
   const a = row.a, subs = (a.subtasks || []);
   const left = subs.filter(s => !s.done).length;
   const parts = splitParts(a);
+  const editing = _asgEditing === asgKey(row.courseId, a.id);
   return `<div class="asg ${a.done?'done':''}" data-course="${esc(row.courseId)}" data-asg="${esc(a.id)}">
     <div class="asg-main">
       <span class="chk ${a.done?'done':''}" data-act="toggle-asg">${a.done?ico('check'):''}</span>
@@ -4123,9 +4191,11 @@ function assignItemHtml(row){
       </div>
       <span class="asg-tools">
         ${parts.length > 1 ? `<button class="asg-step-add asg-split" data-act="split-asg">split into ${parts.length}</button>` : ''}
+        <button class="asg-del asg-pencil${editing ? ' on' : ''}" data-act="edit-open" title="Edit date, detail, type, course">${ico('pencil')}</button>
         <button class="asg-del" data-act="del-asg" title="Delete this assignment">${ico('x')}</button>
       </span>
     </div>
+    ${editing ? assignEditorHtml(row) : ''}
     ${subs.map(assignSubHtml).join('')}
   </div>`;
 }
@@ -4135,6 +4205,16 @@ function assignItemHtml(row){
 // unfinished. Expanded state is per-day and lasts the session — long enough to
 // undo a mis-tick, short enough that every day starts tidy.
 const _asgDoneOpen = new Set();
+// Days she opened by hand that carry nothing yet.
+const _asgExtraDays = new Set();
+function addAssignDay(dateStr){
+  if(!dateStr) return;
+  _asgExtraDays.add(dateStr);
+  if(ASSIGN_RANGE && dateStr > addDays(todayStr(), ASSIGN_RANGE)) setAssignRange(0);   // don't add a day out of view
+  else renderAssignments();
+  const grp = document.querySelector(`.asg-group[data-date="${dateStr.replace(/["\\]/g, '\\$&')}"] .asg-new`);
+  if(grp) grp.focus();
+}
 function toggleAsgDone(dateStr){
   _asgDoneOpen.has(dateStr) ? _asgDoneOpen.delete(dateStr) : _asgDoneOpen.add(dateStr);
   renderAssignments();
@@ -4171,13 +4251,16 @@ function renderAssignments(){
     return;
   }
   const rows = assignmentRows();
-  if(!rows.length){
+  if(!rows.length && !_asgExtraDays.size){
     box.innerHTML = `<p class="empty-note">Nothing here yet. Import a syllabus in the law school tracker — every reading and deliverable it finds shows up here to tick off.</p>`;
     return;
   }
   const today = todayStr();
   const byDate = new Map();
   const push = r => { if(!byDate.has(r.a.due_date)) byDate.set(r.a.due_date, []); byDate.get(r.a.due_date).push(r); };
+  // Days she asked for by hand. A group only exists if something is due that
+  // day, so a Friday with no class — or a weekend — had nowhere to add to.
+  _asgExtraDays.forEach(d => { if(!byDate.has(d)) byDate.set(d, []); });
 
   // Anything unfinished from before today rides at the top under one heading
   // rather than sitting on a date she has already scrolled past. 83 of her
@@ -4195,6 +4278,8 @@ function renderAssignments(){
       ${overdue.map(r => assignItemHtml(r)).join('')}
     </div>`;
   }
+  // An added day sits in date order with the rest, even if it is in the past or
+  // beyond the range — she asked for it, so it stays until the tab is reloaded.
   [...byDate.keys()].sort().forEach(d => {
     const label = d === today ? `Today · ${fmtLong(d)}` : fmtLong(d);
     html += assignGroupHtml(d, byDate.get(d).sort(byCourseThenOrder), label);
@@ -4215,6 +4300,7 @@ function bindAssignHandlers(){
   if(!box) return;
   _assignBound = true;
   box.addEventListener('click', onAssignClick);
+  box.addEventListener('change', onAssignChange);
   box.addEventListener('keydown', e => {
     if(e.key !== 'Enter' || !e.target.classList.contains('asg-new')) return;
     const title = e.target.value.trim();
@@ -4230,6 +4316,35 @@ function bindAssignHandlers(){
       source: 'manual'
     }});
   });
+}
+// The editor's fields commit on change — blur for the text ones, immediately
+// for the pickers — so there is no save button to forget to press.
+function onAssignChange(e){
+  const el = e.target;
+  const item = el.closest && el.closest('[data-asg]');
+  if(!item || !el.classList.contains('ae-input')) return;
+  const courseId = item.dataset.course, assignmentId = item.dataset.asg;
+  const a = findAssignment(courseId, assignmentId);
+  if(!a) return;
+  if(el.classList.contains('ae-title')){
+    const text = el.value.trim();
+    if(text && text !== (a.title || '')) commitLawEdit({kind: 'edit-asg', courseId, assignmentId, text});
+  } else if(el.classList.contains('ae-detail')){
+    const text = el.value.trim();
+    if(text !== (a.detail || '')) commitLawEdit({kind: 'edit-detail', courseId, assignmentId, text});
+  } else if(el.classList.contains('ae-date')){
+    // An empty date would drop the row out of every group and out of sight, so
+    // a cleared picker just snaps back to what it was.
+    if(el.value) commitLawEdit({kind: 'edit-date', courseId, assignmentId, value: el.value});
+    else renderAssignments();
+  } else if(el.classList.contains('ae-type')){
+    commitLawEdit({kind: 'edit-type', courseId, assignmentId, value: el.value});
+  } else if(el.classList.contains('ae-course')){
+    if(String(el.value) !== String(courseId)){
+      _asgEditing = asgKey(el.value, assignmentId);   // keep the editor open on the row's new home
+      commitLawEdit({kind: 'move-course', courseId, assignmentId, toCourseId: el.value});
+    }
+  }
 }
 function findAssignment(courseId, asgId){
   const c = (LAW_COURSES || []).find(x => x && String(x.id) === String(courseId));
@@ -4247,6 +4362,15 @@ function onAssignClick(e){
   const a = findAssignment(courseId, assignmentId);
   if(!a) return;
 
+  if(act === 'edit-open'){
+    const key = asgKey(courseId, assignmentId);
+    _asgEditing = _asgEditing === key ? null : key;
+    return renderAssignments();
+  }
+  if(act === 'nudge-date'){
+    const days = Number(hit.dataset.days) || 1;
+    return commitLawEdit({kind: 'edit-date', courseId, assignmentId, value: addDays(a.due_date || todayStr(), days)});
+  }
   if(act === 'toggle-asg') return commitLawEdit({kind: 'toggle-asg', courseId, assignmentId, value: !a.done});
   if(act === 'toggle-step'){
     const s = (a.subtasks || []).find(x => String(x.id) === String(subId));
