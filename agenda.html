@@ -276,8 +276,24 @@ textarea.ae-input { resize: vertical; line-height: 1.4; min-height: 2.4em; }
 .ae-nudge { font: inherit; font-size: var(--fs-xs); padding: 5px 8px; border-radius: 7px; border: 1px solid var(--border); background: var(--surface); color: var(--ink-2); cursor: pointer; white-space: nowrap; }
 .ae-nudge:hover { border-color: var(--accent); color: var(--accent-strong); }
 .asg-pencil.on { opacity: 1; color: var(--accent); }
-.asg-add-day { display: inline-flex; align-items: center; gap: 5px; font-size: var(--fs-xs); color: var(--muted); margin-left: auto; }
-.asg-add-day input { font: inherit; font-size: var(--fs-xs); padding: 4px 6px; border-radius: 7px; border: 1px solid var(--border); background: var(--surface); color: var(--ink); }
+/* ---- weeks ----
+   The week is the unit she plans in, so it wraps the days rather than being a
+   separate view. A folded week is one line carrying its own summary, which is
+   what makes "how loaded is next week" answerable without opening it. */
+.asg-week { margin-bottom: 12px; }
+.asg-week-head { display: flex; align-items: center; gap: 8px; width: 100%; background: none; border: none; border-bottom: 1px solid var(--hairline); padding: 7px 4px; font: inherit; cursor: pointer; text-align: left; color: var(--ink); }
+.asg-week-head:hover { color: var(--accent-strong); }
+.asg-week-label { font-size: var(--fs-md); font-weight: 650; font-variant-numeric: tabular-nums; }
+.asg-week-sum { margin-left: auto; font-size: var(--fs-xs); color: var(--muted); font-variant-numeric: tabular-nums; }
+.asg-week.clear .asg-week-sum { color: var(--good); }
+.asg-week.open > .asg-week-head { margin-bottom: 8px; }
+.asg-week .asg-group { margin-left: 10px; }
+/* An empty day is a quiet line that opens to an add row. */
+.asg-group.empty { padding: 2px 12px; box-shadow: none; background: none; border-style: dashed; }
+.asg-group.empty.open { background: var(--surface); border-style: solid; }
+.asg-empty-head { display: flex; align-items: center; gap: 7px; width: 100%; background: none; border: none; padding: 5px 0; font: inherit; font-size: var(--fs-base); color: var(--muted); cursor: pointer; text-align: left; }
+.asg-empty-head:hover { color: var(--accent); }
+.asg-group.empty .asg-add { border-top: none; margin-top: 0; padding-top: 0; padding-bottom: 6px; }
 .asg-add { display: flex; gap: 6px; align-items: center; margin-top: 6px; padding-top: 6px; border-top: 1px solid var(--hairline); }
 .asg-pick { font: inherit; font-size: var(--fs-xs); padding: 4px 6px; border-radius: 6px; border: 1px solid var(--border); background: var(--page); color: var(--ink-2); max-width: 40%; }
 .asg-new { flex: 1; font: inherit; font-size: var(--fs-base); padding: 5px 8px; border-radius: 8px; border: 1px solid var(--border); background: var(--page); color: var(--ink); }
@@ -845,9 +861,6 @@ footer button { font: inherit; font-size: var(--fs-sm); border: none; background
           <button class="ghost" data-range="14" onclick="setAssignRange(14)">2 weeks</button>
           <button class="ghost" data-range="42" onclick="setAssignRange(42)">6 weeks</button>
           <button class="ghost" data-range="0" onclick="setAssignRange(0)">All</button>
-          <label class="asg-add-day">Add a day
-            <input type="date" id="asg-add-day" onchange="addAssignDay(this.value); this.value='';">
-          </label>
         </div>
         <div id="assign-list"></div>
       </section>
@@ -4223,17 +4236,27 @@ function assignItemHtml(row){
 // unfinished. Expanded state is per-day and lasts the session — long enough to
 // undo a mis-tick, short enough that every day starts tidy.
 const _asgDoneOpen = new Set();
-// Days she opened by hand that carry nothing yet.
-const _asgExtraDays = new Set();
-function addAssignDay(dateStr){
-  if(!dateStr) return;
-  _asgExtraDays.add(dateStr);
-  if(ASSIGN_RANGE && dateStr > addDays(todayStr(), ASSIGN_RANGE)) setAssignRange(0);   // don't add a day out of view
-  else renderAssignments();
-  // Scoped to the tab: the day view renders a group for the same date, and a
-  // document-wide lookup would focus the add row in the hidden card.
-  const grp = document.querySelector(`#assign-list .asg-group[data-date="${dateStr.replace(/["\\]/g, '\\$&')}"] .asg-new`);
-  if(grp) grp.focus();
+// Empty days she has opened to add something to, and which weeks are unfolded.
+const _asgEmptyDayOpen = new Set();
+// Hard stop on how far ahead days are drawn. "All" reaches the last assignment
+// on the books, which late in a semester is months of blank days.
+const ASSIGN_DAY_CAP = 120;
+let _asgWeekOpen = null;
+function ensureWeekState(){
+  // This week starts open, the rest folded — the common case is "what's left
+  // this week", and a semester of open weeks is a very long page.
+  if(!_asgWeekOpen) _asgWeekOpen = new Set([weekKeyForDate(todayStr())]);
+}
+function toggleAsgWeek(k){
+  ensureWeekState();
+  _asgWeekOpen.has(k) ? _asgWeekOpen.delete(k) : _asgWeekOpen.add(k);
+  renderAssignments();
+}
+function toggleAsgEmptyDay(d){
+  _asgEmptyDayOpen.has(d) ? _asgEmptyDayOpen.delete(d) : _asgEmptyDayOpen.add(d);
+  renderAssignments();
+  const inp = document.querySelector(`#assign-list .asg-group[data-date="${d.replace(/["\\]/g, '\\$&')}"] .asg-new`);
+  if(inp) inp.focus();
 }
 function toggleAsgDone(dateStr){
   _asgDoneOpen.has(dateStr) ? _asgDoneOpen.delete(dateStr) : _asgDoneOpen.add(dateStr);
@@ -4288,26 +4311,31 @@ function renderAssignments(){
     return;
   }
   const rows = assignmentRows();
-  if(!rows.length && !_asgExtraDays.size){
+  if(!rows.length){
     box.innerHTML = `<p class="empty-note">Nothing here yet. Import a syllabus in the law school tracker — every reading and deliverable it finds shows up here to tick off.</p>`;
     return;
   }
   const today = todayStr();
   const byDate = new Map();
-  const push = r => { if(!byDate.has(r.a.due_date)) byDate.set(r.a.due_date, []); byDate.get(r.a.due_date).push(r); };
-  // Days she asked for by hand. A group only exists if something is due that
-  // day, so a Friday with no class — or a weekend — had nowhere to add to.
-  _asgExtraDays.forEach(d => { if(!byDate.has(d)) byDate.set(d, []); });
+  rows.forEach(r => { if(!byDate.has(r.a.due_date)) byDate.set(r.a.due_date, []); byDate.get(r.a.due_date).push(r); });
 
   // Anything unfinished from before today rides at the top under one heading
   // rather than sitting on a date she has already scrolled past. 83 of her
   // items last year ended the semester unticked; they should be visible.
   const overdue = rows.filter(r => r.a.due_date < today && !r.a.done)
                       .sort((x, y) => x.a.due_date.localeCompare(y.a.due_date));
-  const horizon = ASSIGN_RANGE ? addDays(today, ASSIGN_RANGE) : null;
-  rows.filter(r => r.a.due_date >= today && (!horizon || r.a.due_date <= horizon)).forEach(push);
 
-  const byCourseThenOrder = (x, y) => (x.courseName || '').localeCompare(y.courseName || '');
+  // Every day in range gets a line, not just the days something is already due
+  // on. A blank Friday is one collapsed row she can open and add to, which
+  // beats a separate "add a day" mode: the day is simply always there.
+  const lastAssigned = rows.reduce((m, r) => r.a.due_date > m ? r.a.due_date : m, today);
+  let last = ASSIGN_RANGE ? addDays(today, ASSIGN_RANGE) : lastAssigned;
+  if(last < today) last = today;
+  if(last > addDays(today, ASSIGN_DAY_CAP)) last = addDays(today, ASSIGN_DAY_CAP);
+  const days = [];
+  for(let d = today; d <= last; d = addDays(d, 1)) days.push(d);
+
+  const byCourse = (x, y) => (x.courseName || '').localeCompare(y.courseName || '');
   let html = '';
   if(overdue.length){
     html += `<div class="asg-group overdue" data-date="">
@@ -4315,16 +4343,60 @@ function renderAssignments(){
       ${overdue.map(r => assignItemHtml(r)).join('')}
     </div>`;
   }
-  // An added day sits in date order with the rest, even if it is in the past or
-  // beyond the range — she asked for it, so it stays until the tab is reloaded.
-  [...byDate.keys()].sort().forEach(d => {
-    const label = d === today ? `Today · ${fmtLong(d)}` : fmtLong(d);
-    html += assignGroupHtml(d, byDate.get(d).sort(byCourseThenOrder), label);
+
+  // Weeks wrap the days: a semester of daily rows is a lot to scroll, and the
+  // week is the unit she plans in. This week is open, the rest start folded.
+  ensureWeekState();
+  const weeks = new Map();
+  days.forEach(d => {
+    const k = weekKeyForDate(d);
+    if(!weeks.has(k)) weeks.set(k, []);
+    weeks.get(k).push(d);
   });
-  if(!html) html = `<p class="empty-note">Nothing due in this stretch. Try a longer range.</p>`;
+  [...weeks.keys()].sort().forEach(k => {
+    const ds = weeks.get(k);
+    const items = ds.reduce((n, d) => n + (byDate.get(d) || []).length, 0);
+    const left = ds.reduce((n, d) => n + (byDate.get(d) || []).filter(r => !r.a.done).length, 0);
+    const open = _asgWeekOpen.has(k);
+    // Label the whole week, not the slice of it being drawn — the current week
+    // starts at today, and "Aug 15 – Aug 15" reads like a one-day week.
+    const label = `${fmtShort(k)} – ${fmtShort(addDays(k, 6))}`;
+    const summary = !items ? 'nothing due' : left ? `${left} to do` : `all done · ${items}`;
+    html += `<div class="asg-week${open ? ' open' : ''}${left ? '' : ' clear'}" data-week="${esc(k)}">
+      <button class="asg-week-head" onclick="toggleAsgWeek('${esc(k)}')">
+        <span class="tg-chevron ${open ? 'open' : ''}">${ico('chevron-right')}</span>
+        <span class="asg-week-label">${esc(label)}</span>
+        <span class="asg-week-sum">${esc(summary)}</span>
+      </button>
+      ${open ? ds.map(d => {
+        const dayRows = byDate.get(d) || [];
+        const dayLabel = d === today ? `Today · ${fmtLong(d)}` : fmtLong(d);
+        return dayRows.length ? assignGroupHtml(d, dayRows.sort(byCourse), dayLabel)
+                              : emptyDayHtml(d, dayLabel);
+      }).join('') : ''}
+    </div>`;
+  });
   box.innerHTML = html;
   paintIcons(box);
   openPendingStepInput();
+}
+
+// A day with nothing on it: one line, opening to just the add row. It keeps
+// its place in the week so the shape of the week stays honest — a clear
+// Wednesday reads as clear, not as missing.
+function emptyDayHtml(dateStr, label){
+  const open = _asgEmptyDayOpen.has(dateStr);
+  const courses = assignCourses();
+  return `<div class="asg-group empty${open ? ' open' : ''}" data-date="${esc(dateStr)}">
+    <button class="asg-empty-head" onclick="toggleAsgEmptyDay('${esc(dateStr)}')">
+      <span class="tg-chevron ${open ? 'open' : ''}">${ico('chevron-right')}</span>
+      <span class="asg-empty-label">${esc(label)}</span>
+    </button>
+    ${open && courses.length ? `<div class="asg-add">
+      <select class="asg-pick" aria-label="Course">${courses.map(c => `<option value="${esc(c.id)}">${esc(c.name || 'Course')}</option>`).join('')}</select>
+      <input class="asg-new" type="text" placeholder="Add an assignment…" data-act="add-asg">
+    </div>` : ''}
+  </div>`;
 }
 
 /* The same rows appear in two places — the Assignments tab and the day view's
