@@ -219,6 +219,10 @@ h3 { font-size: var(--fs-md); font-weight: 600; margin-bottom: 6px; }
 .asg-group.overdue { border-color: var(--serious); }
 /* Inside the day view's card the group is not its own card — the card is. */
 .asg-group.bare { background: none; border: none; border-radius: 0; padding: 0; margin: 0; box-shadow: none; }
+/* A finished day is a quiet line, not an empty card shouting about itself. */
+.asg-group.all-done .asg-date { border-bottom: none; margin-bottom: 0; padding-bottom: 2px; opacity: 0.75; }
+.asg-group.all-done .task-group-head { border-top: none; padding: 4px 6px; }
+.asg-group.all-done .tg-name { color: var(--good); }
 .asg-date { font-size: var(--fs-md); font-weight: 650; color: var(--ink); padding-bottom: 6px; border-bottom: 1px solid var(--hairline); margin-bottom: 4px; font-variant-numeric: tabular-nums; }
 .asg-group.overdue .asg-date { color: var(--serious); }
 .asg { border-radius: 8px; }
@@ -4226,7 +4230,9 @@ function addAssignDay(dateStr){
   _asgExtraDays.add(dateStr);
   if(ASSIGN_RANGE && dateStr > addDays(todayStr(), ASSIGN_RANGE)) setAssignRange(0);   // don't add a day out of view
   else renderAssignments();
-  const grp = document.querySelector(`.asg-group[data-date="${dateStr.replace(/["\\]/g, '\\$&')}"] .asg-new`);
+  // Scoped to the tab: the day view renders a group for the same date, and a
+  // document-wide lookup would focus the add row in the hidden card.
+  const grp = document.querySelector(`#assign-list .asg-group[data-date="${dateStr.replace(/["\\]/g, '\\$&')}"] .asg-new`);
   if(grp) grp.focus();
 }
 function toggleAsgDone(dateStr){
@@ -4239,6 +4245,22 @@ function assignGroupHtml(dateStr, rows, label, opts){
   const picker = courses.map(c => `<option value="${esc(c.id)}">${esc(c.name || 'Course')}</option>`).join('');
   const open = rows.filter(r => !r.a.done), done = rows.filter(r => r.a.done);
   const showDone = _asgDoneOpen.has(dateStr);
+  // A day with nothing left folds to a single line. Ticking the last item off
+  // and being left with a heading, an "All done." note, a Done fold and an add
+  // row is four lines of paperwork for a day that needs none. The same click
+  // that reveals a Done group opens it back up, so it is one piece of state,
+  // not two — and the day keeps its date, so a cleared day still reads as
+  // handled rather than disappearing.
+  if(rows.length && !open.length && !showDone){
+    return `<div class="asg-group${bare ? ' bare' : ''} all-done" data-date="${esc(dateStr)}">
+      ${bare ? '' : `<div class="asg-date">${esc(label)}</div>`}
+      <button class="task-group-head" onclick="toggleAsgDone('${esc(dateStr)}')" title="Show what you finished">
+        <span class="tg-chevron">${ico('chevron-right')}</span>
+        <span class="tg-name">All done</span>
+        <span class="tg-count">${done.length}</span>
+      </button>
+    </div>`;
+  }
   return `<div class="asg-group${bare ? ' bare' : ''}" data-date="${esc(dateStr)}">
     ${bare ? '' : `<div class="asg-date">${esc(label)}</div>`}
     ${open.map(assignItemHtml).join('')}
