@@ -878,7 +878,6 @@ footer button { font: inherit; font-size: var(--fs-sm); border: none; background
           <button class="ghost" onclick="tsPreset('half')">This half</button>
           <button class="ghost" onclick="tsPreset('lasthalf')">Last half</button>
           <button class="ghost" onclick="tsPreset('month')">This month</button>
-          <button class="ghost" onclick="tsPreset('period')">Pay period</button>
         </div>
         <div class="day-toolbar time-toolbar">
           <label>Category <select id="ts-cat" onchange="renderTimeView()"></select></label>
@@ -2560,7 +2559,9 @@ function switchView(v){
     loadLawData(true).then(renderAssignments);
   }
   if(v === 'time'){
-    if(!_tsInit){ tsPreset('period'); _tsInit = true; }
+    // Opens on the current half-month — the period her time log is actually
+    // handed in for, and the range she'd otherwise set by hand every time.
+    if(!_tsInit){ tsPreset('half'); _tsInit = true; }
     // Always re-read on open. Opening this tab before anything pulled time data
     // would otherwise show an empty sheet that reads as "you logged nothing"
     // rather than "not loaded yet" — and she may have logged in the tracker
@@ -3824,7 +3825,7 @@ function tsPreset(kind){
     from.value = fmtDate(new Date(y, m, first ? 1 : 16));
     to.value = fmtDate(first ? new Date(y, m, 15) : new Date(y, m + 1, 0));
   }
-  else if(kind === 'month'){
+  else {
     // Calendar month, not the last 30 days: this is the range someone asks for
     // when they're totalling hours for a month, and the last day is computed
     // rather than assumed (day 0 of the next month is the previous month's
@@ -3832,13 +3833,6 @@ function tsPreset(kind){
     const d = parseLocalDate(today);
     from.value = fmtDate(new Date(d.getFullYear(), d.getMonth(), 1));
     to.value = fmtDate(new Date(d.getFullYear(), d.getMonth() + 1, 0));
-  }
-  else {
-    // Pay period: two weeks ending on the week's last day. Deliberately just a
-    // starting point — the boundaries are hers to set, and a final period runs
-    // short, which is exactly when a hardcoded rule would be wrong.
-    const d = weekDates(today);
-    to.value = d[6]; from.value = addDays(d[0], -7);
   }
   renderTimeView();
 }
@@ -3867,8 +3861,9 @@ function renderTimeView(){
   const rows = tsRangeEntries();
   if(!rows.length){ host.innerHTML = `<div class="card"><p class="ts-empty">Nothing logged in this range.</p></div>`; return; }
   const hoursOf = e => exact ? (e.minutes || 0) / 60 : roundQuarterHours(e.minutes || 0);
-  // Week buckets run from the range start, not from the calendar week, so a pay
-  // period beginning mid-week still breaks where the form breaks.
+  // Week buckets run from the range start, not from the calendar week, so a
+  // range beginning mid-week — a half-month starting on the 16th, say — still
+  // breaks where the form breaks.
   const weekOf = d => Math.floor(daysBetween(from, d) / 7);
   const weeks = [];
   rows.forEach(e => {
