@@ -875,6 +875,8 @@ footer button { font: inherit; font-size: var(--fs-sm); border: none; background
           <label>To <input type="date" id="ts-to" onchange="renderTimeView()"></label>
           <button class="ghost" onclick="tsPreset('week')">This week</button>
           <button class="ghost" onclick="tsPreset('lastweek')">Last week</button>
+          <button class="ghost" onclick="tsPreset('half')">This half</button>
+          <button class="ghost" onclick="tsPreset('lasthalf')">Last half</button>
           <button class="ghost" onclick="tsPreset('month')">This month</button>
           <button class="ghost" onclick="tsPreset('period')">Pay period</button>
         </div>
@@ -3807,6 +3809,21 @@ function tsPreset(kind){
   const today = todayStr();
   if(kind === 'week'){ const d = weekDates(today); from.value = d[0]; to.value = d[6]; }
   else if(kind === 'lastweek'){ const d = weekDates(addDays(today, -7)); from.value = d[0]; to.value = d[6]; }
+  else if(kind === 'half' || kind === 'lasthalf'){
+    // The halves KIP's time logs are handed in on: the 1st–15th, and the 16th
+    // through month end. "Last half" steps back one period the way "Last week"
+    // does, which is what rolls it into the previous month — the log due on the
+    // 1st covers the second half of the month before, and on that morning the
+    // current half is barely started.
+    const d = parseLocalDate(today);
+    let y = d.getFullYear(), m = d.getMonth(), first = d.getDate() <= 15;
+    if(kind === 'lasthalf'){
+      if(first){ m -= 1; if(m < 0){ m = 11; y -= 1; } first = false; }
+      else first = true;
+    }
+    from.value = fmtDate(new Date(y, m, first ? 1 : 16));
+    to.value = fmtDate(first ? new Date(y, m, 15) : new Date(y, m + 1, 0));
+  }
   else if(kind === 'month'){
     // Calendar month, not the last 30 days: this is the range someone asks for
     // when they're totalling hours for a month, and the last day is computed
