@@ -875,6 +875,7 @@ footer button { font: inherit; font-size: var(--fs-sm); border: none; background
           <label>To <input type="date" id="ts-to" onchange="renderTimeView()"></label>
           <button class="ghost" onclick="tsPreset('week')">This week</button>
           <button class="ghost" onclick="tsPreset('lastweek')">Last week</button>
+          <button class="ghost" onclick="tsPreset('month')">This month</button>
           <button class="ghost" onclick="tsPreset('period')">Pay period</button>
         </div>
         <div class="day-toolbar time-toolbar">
@@ -3806,6 +3807,15 @@ function tsPreset(kind){
   const today = todayStr();
   if(kind === 'week'){ const d = weekDates(today); from.value = d[0]; to.value = d[6]; }
   else if(kind === 'lastweek'){ const d = weekDates(addDays(today, -7)); from.value = d[0]; to.value = d[6]; }
+  else if(kind === 'month'){
+    // Calendar month, not the last 30 days: this is the range someone asks for
+    // when they're totalling hours for a month, and the last day is computed
+    // rather than assumed (day 0 of the next month is the previous month's
+    // last day, which handles 28/29/30/31 without a table).
+    const d = parseLocalDate(today);
+    from.value = fmtDate(new Date(d.getFullYear(), d.getMonth(), 1));
+    to.value = fmtDate(new Date(d.getFullYear(), d.getMonth() + 1, 0));
+  }
   else {
     // Pay period: two weeks ending on the week's last day. Deliberately just a
     // starting point — the boundaries are hers to set, and a final period runs
