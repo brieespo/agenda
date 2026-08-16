@@ -171,9 +171,11 @@ h3 { font-size: var(--fs-md); font-weight: 600; margin-bottom: 6px; }
    body text under it — a spare layout with no anchor reads as thin rather than
    composed. Negative tracking is what keeps a larger size from looking loose;
    headline sizes need it, body sizes don't. */
+.day-wx { display: inline-flex; align-items: center; gap: 5px; margin-left: 4px; color: var(--muted); font-size: var(--fs-sm); font-variant-numeric: tabular-nums; white-space: nowrap; }
+.day-wx .icon { width: 1.1em; height: 1.1em; opacity: 0.8; }
+.day-wx .wx-lo { opacity: 0.75; }
+.day-wx .wx-pop { color: var(--accent); opacity: 0.85; }
 .day-toolbar .day-title { font-size: var(--fs-title); font-weight: 650; letter-spacing: -0.015em; min-width: 170px; font-variant-numeric: tabular-nums; }
-.headline-card { margin-bottom: 14px; font-size: var(--fs-md); color: var(--ink-2); }
-.headline-card strong { color: var(--ink); }
 
 .list-drop { min-height: 12px; }
 .task-row { display: flex; align-items: center; gap: 8px; padding: 8px 6px; border-radius: 8px; transition: transform 120ms ease, box-shadow 120ms ease, background 120ms ease; cursor: default; user-select: none; }
@@ -800,12 +802,12 @@ footer button { font: inherit; font-size: var(--fs-sm); border: none; background
           <span class="day-title" id="day-title"></span>
           <button class="icon-btn" onclick="navDay(1)" data-ico="chevron-right"></button>
           <button class="ghost" onclick="goToday()">Today</button>
+          <span class="day-wx" id="day-wx"></span>
         </div>
         <div class="quick-add-bar" id="quick-add-bar" style="display:none">
           <input type="text" id="quick-parse-input" placeholder="Tell the assistant what's happening… (e.g. &quot;dentist Friday 2pm&quot;)" onkeydown="if(event.key==='Enter')quickParseAdd()">
           <button class="primary" onclick="quickParseAdd()">Add</button>
         </div>
-        <div class="card headline-card" id="day-headline"></div>
         <div class="meal-strip" id="meal-strip" data-drop="meal-day"></div>
         <div class="skin-strip" id="skin-strip"></div>
         <div class="card" id="today-card" data-drop="today-list">
@@ -1166,7 +1168,16 @@ const ICONS = {
   "external": '<path d="M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6"/><polyline points="15 3 21 3 21 9"/><line x1="10" y1="14" x2="21" y2="3"/>',
   "eye": '<path d="M2 12s3.5-7 10-7 10 7 10 7-3.5 7-10 7-10-7-10-7z"/><circle cx="12" cy="12" r="3"/>',
   "eye-off": '<path d="M17.9 17.9A10.4 10.4 0 0 1 12 19c-6.5 0-10-7-10-7a18.6 18.6 0 0 1 5.1-5.9"/><path d="M9.9 4.2A10.6 10.6 0 0 1 12 4c6.5 0 10 7 10 7a18.7 18.7 0 0 1-2.2 3.2"/><path d="M9.9 9.9a3 3 0 0 0 4.2 4.2"/><line x1="2" y1="2" x2="22" y2="22"/>',
-  "droplet": '<path d="M12 22a7 7 0 0 0 7-7c0-2-1-3.9-3-5.5s-3.5-4-4-6.5c-.5 2.5-2 4.9-4 6.5C6 11.1 5 13 5 15a7 7 0 0 0 7 7z"/>'
+  "droplet": '<path d="M12 22a7 7 0 0 0 7-7c0-2-1-3.9-3-5.5s-3.5-4-4-6.5c-.5 2.5-2 4.9-4 6.5C6 11.1 5 13 5 15a7 7 0 0 0 7 7z"/>',
+  // Weather, drawn to the same line-icon language as the rest — no emoji in
+  // chrome, no icon CDN.
+  "wx-sun": '<circle cx="12" cy="12" r="4.2"/><path d="M12 2.6v2M12 19.4v2M2.6 12h2M19.4 12h2M5.4 5.4l1.4 1.4M17.2 17.2l1.4 1.4M18.6 5.4l-1.4 1.4M6.8 17.2l-1.4 1.4"/>',
+  "wx-partly": '<circle cx="8.5" cy="8" r="3.1"/><path d="M8.5 2.4v1.6M2.9 8h1.6M4.6 4.1l1.1 1.1M12.4 4.1l-1.1 1.1"/><path d="M17.5 20H8a3.6 3.6 0 0 1-.3-7.2 5 5 0 0 1 9.5 1.3 3 3 0 0 1 .3 5.9z"/>',
+  "wx-cloud": '<path d="M17.5 19H8a4 4 0 0 1-.4-8 5.5 5.5 0 0 1 10.5 1.4 3.3 3.3 0 0 1-.6 6.6z"/>',
+  "wx-rain": '<path d="M17.5 15H8a4 4 0 0 1-.4-8 5.5 5.5 0 0 1 10.5 1.4 3.3 3.3 0 0 1-.6 6.6z"/><path d="M9 18.5l-.8 2M13 18.5l-.8 2M17 18.5l-.8 2"/>',
+  "wx-snow": '<path d="M17.5 15H8a4 4 0 0 1-.4-8 5.5 5.5 0 0 1 10.5 1.4 3.3 3.3 0 0 1-.6 6.6z"/><path d="M9 19h.01M13 19h.01M17 19h.01M11 21.5h.01M15 21.5h.01"/>',
+  "wx-storm": '<path d="M17.5 14H8a4 4 0 0 1-.4-8 5.5 5.5 0 0 1 10.5 1.4 3.3 3.3 0 0 1-.6 6.6z"/><path d="M13 16l-2.5 3.5h3L11 23"/>',
+  "wx-fog": '<path d="M17.5 13H8a4 4 0 0 1-.4-8 5.5 5.5 0 0 1 10.5 1.4 3.3 3.3 0 0 1-.6 6.6z"/><path d="M5 17h14M7 20.5h11"/>'
 };
 function ico(name){ return `<svg class="icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">${ICONS[name]||''}</svg>`; }
 function paintIcons(root){ (root||document).querySelectorAll('[data-ico]').forEach(el => { if(!el.querySelector('svg')) el.insertAdjacentHTML('afterbegin', ico(el.dataset.ico)); }); }
@@ -2168,6 +2179,80 @@ async function commitGcalReschedule(item, newTime, newDurationMin){
 }
 
 /* =====================================================================
+   WEATHER — a quiet high/low and a condition icon on the day toolbar
+   =====================================================================
+   Open-Meteo: no API key, no account, and it sends
+   `access-control-allow-origin: *`, so a static page can call it directly.
+   That is the whole reason it was chosen over a keyed service — with no
+   server of our own, a key would either sit in public JavaScript or need an
+   edge function built to hide it.
+
+   The cache lives in localStorage, deliberately NOT in SETTINGS: settings sync
+   to the shared row, and a forecast refreshing hourly on two devices would
+   republish that row all day, which is exactly the load-time write the sync
+   rules forbid. Weather is per-device and disposable. */
+const WX_LOCATION = {lat: 38.2527, lon: -85.7585};   // Louisville
+const WX_CACHE_KEY = 'agenda-weather';
+const WX_TTL_MIN = 60;
+let WEATHER = null;
+function wxIcon(code){
+  if(code === 0) return 'wx-sun';
+  if(code === 1 || code === 2) return 'wx-partly';
+  if(code === 3) return 'wx-cloud';
+  if(code === 45 || code === 48) return 'wx-fog';
+  if(code >= 71 && code <= 77) return 'wx-snow';
+  if(code === 85 || code === 86) return 'wx-snow';
+  if(code >= 95) return 'wx-storm';
+  if(code >= 51) return 'wx-rain';   // drizzle, rain, freezing rain, showers
+  return 'wx-cloud';
+}
+function readWxCache(){
+  try{
+    const raw = localStorage.getItem(WX_CACHE_KEY);
+    if(!raw) return null;
+    const c = JSON.parse(raw);
+    return (c && c.days && c.at) ? c : null;
+  }catch(e){ return null; }
+}
+async function loadWeather(force){
+  const cached = readWxCache();
+  const fresh = cached && (Date.now() - cached.at) < WX_TTL_MIN * 60000;
+  if(cached) WEATHER = cached.days;         // show something immediately, even if stale
+  if(fresh && !force) return;
+  const loc = (SETTINGS && SETTINGS.weatherLoc) || WX_LOCATION;
+  const url = `https://api.open-meteo.com/v1/forecast?latitude=${loc.lat}&longitude=${loc.lon}`
+    + `&daily=temperature_2m_max,temperature_2m_min,precipitation_probability_max,weather_code`
+    + `&temperature_unit=fahrenheit&timezone=auto&forecast_days=16`;
+  try{
+    const r = await fetch(url);
+    if(!r.ok) throw new Error('weather ' + r.status);
+    const j = await r.json(), d = j.daily || {};
+    const days = {};
+    (d.time || []).forEach((date, i) => {
+      days[date] = {hi: Math.round(d.temperature_2m_max[i]), lo: Math.round(d.temperature_2m_min[i]),
+                    pop: d.precipitation_probability_max[i], code: d.weather_code[i]};
+    });
+    WEATHER = days;
+    try{ localStorage.setItem(WX_CACHE_KEY, JSON.stringify({at: Date.now(), days})); }catch(e){}
+    renderWeather();
+  }catch(e){
+    // Weather is decoration. A failed fetch shows yesterday's cache or nothing
+    // at all — it never gets an error message or a retry loop.
+    console.warn('weather fetch failed', e);
+  }
+}
+function renderWeather(){
+  const el = document.getElementById('day-wx');
+  if(!el) return;
+  const w = WEATHER && WEATHER[currentDate];
+  // Past days and anything past the 16-day horizon simply have no forecast;
+  // the slot collapses rather than showing a placeholder.
+  if(!w){ el.innerHTML = ''; return; }
+  const pop = (typeof w.pop === 'number' && w.pop >= 20) ? `<span class="wx-pop">${w.pop}%</span>` : '';
+  el.innerHTML = `${ico(wxIcon(w.code))}<span class="wx-temp">${w.hi}° <span class="wx-lo">${w.lo}°</span></span>${pop}`;
+}
+
+/* =====================================================================
    RENDER: DAY VIEW
    ===================================================================== */
 // Category names are user-typed text, so — same reason task titles never go
@@ -2232,15 +2317,6 @@ function renderDay(){
   const gcalAllDay = gcalToday.filter(e => e.allDay);
   const gcalTimed = gcalToday.filter(e => !e.allDay);
 
-  const doneCount = items.filter(it=>it.done).length;
-  const leftCount = items.length - doneCount;
-  // Ghosted events don't count — the headline is what she still has to hold in
-  // her head, and ghosting one is her saying it isn't that.
-  const evtCount = gcalToday.filter(e => !isGhosted(e)).length;
-  document.getElementById('day-headline').innerHTML = (items.length || evtCount)
-    ? `<strong>${leftCount}</strong> task${leftCount===1?'':'s'} left · <strong>${doneCount}</strong> done${evtCount?` · <strong>${evtCount}</strong> event${evtCount===1?'':'s'}`:''}`
-    : `Nothing on the books — add a task below.`;
-
   const listEl = document.getElementById('today-list');
   listEl.dataset.date = currentDate;
   listEl.innerHTML = renderUntimedGroups(untimed);
@@ -2267,6 +2343,7 @@ function renderDay(){
   paintIcons(listEl);
   applyTodayCollapseState();
   renderCoursework();
+  renderWeather();
 }
 function applyTodayCollapseState(){
   const collapsed = !!SETTINGS.todayBoxCollapsed;
@@ -5805,6 +5882,9 @@ function afterLoad(){
   if(_currentUser && !_guestMode && !_lawLoaded) loadLawData().then(renderAll);
   // Categories for the picker, and any timer already running on another device.
   if(_currentUser && !_guestMode && !_timeLoaded) loadTimeData();
+  // Weather needs no account and belongs to nobody's row, so it loads in guest
+  // mode too and never blocks anything.
+  loadWeather();
 }
 
 /* ---- sync safety net (same pattern as sibling apps) ---- */
