@@ -626,6 +626,8 @@ body.time-view .sidebar-col, body.assign-view .sidebar-col { display: none; }
 .field textarea { min-height: 60px; resize: vertical; }
 .field-row { display: flex; gap: 8px; }
 .field-row .field { flex: 1; }
+.nth-picker { display: flex; gap: 6px; }
+.nth-picker select { flex: 1; min-width: 0; }
 .dow-picker { display: flex; gap: 4px; flex-wrap: wrap; }
 .dow-picker label { display: inline-flex; align-items: center; justify-content: center; width: 34px; height: 30px; border: 1px solid var(--border); border-radius: 8px; font-size: var(--fs-sm); cursor: pointer; color: var(--ink-2); }
 .dow-picker input { display: none; }
@@ -1124,7 +1126,7 @@ footer button { font: inherit; font-size: var(--fs-sm); border: none; background
         <select id="tpm-freq" onchange="renderTemplateFreqFields()">
           <option value="daily">Every day</option>
           <option value="weekly" selected>Weekly on…</option>
-          <option value="monthly">Monthly on day…</option>
+          <option value="monthly">Monthly on…</option>
         </select>
       </div>
       <div id="tpm-freq-fields"></div>
@@ -1197,6 +1199,7 @@ function addDays(dateStr, n){ const d = parseLocalDate(dateStr); d.setDate(d.get
 function daysBetween(a, b){ return Math.round((parseLocalDate(b) - parseLocalDate(a)) / 86400000); }
 const DOW_SHORT = ['Sun','Mon','Tue','Wed','Thu','Fri','Sat'];
 const DOW_LONG = ['sun','mon','tue','wed','thu','fri','sat'];
+const DOW_FULL = ['Sunday','Monday','Tuesday','Wednesday','Thursday','Friday','Saturday'];
 function dowShort(dateStr){ return DOW_SHORT[parseLocalDate(dateStr).getDay()]; }
 function fmtLong(dateStr){ const d = parseLocalDate(dateStr); return d.toLocaleDateString(undefined,{weekday:'long', month:'short', day:'numeric'}); }
 function fmtShort(dateStr){ const d = parseLocalDate(dateStr); return d.toLocaleDateString(undefined,{month:'short', day:'numeric'}); }
@@ -1284,8 +1287,27 @@ function templateOccursOn(tpl, dateStr){
   const r = tpl.recurrence || {};
   if(r.freq === 'daily') return true;
   if(r.freq === 'weekly') return (r.days||[]).includes(DOW_LONG[parseLocalDate(dateStr).getDay()]);
-  if(r.freq === 'monthly') return parseLocalDate(dateStr).getDate() === r.day;
+  if(r.freq === 'monthly'){
+    // Two ways to say "monthly": a date ("the 5th") or a weekday position
+    // ("the 2nd Friday"). Older templates carry only `day`, so that stays the
+    // meaning when no weekday is set.
+    if(r.dow) return nthWeekdayMatches(dateStr, r.nth, r.dow);
+    return parseLocalDate(dateStr).getDate() === r.day;
+  }
   return false;
+}
+// nth is 1–4, or -1 for "last". Counting from the 1st: days 1–7 are the first
+// of that weekday, 8–14 the second, and so on. "Last" is whichever falls in the
+// final seven days — the only definition that behaves in a 28-day February,
+// where the 4th Friday and the last Friday are the same day.
+function nthWeekdayMatches(dateStr, nth, dow){
+  const d = parseLocalDate(dateStr);
+  if(DOW_LONG[d.getDay()] !== dow) return false;
+  if(nth === -1){
+    const daysInMonth = new Date(d.getFullYear(), d.getMonth() + 1, 0).getDate();
+    return d.getDate() + 7 > daysInMonth;
+  }
+  return Math.floor((d.getDate() - 1) / 7) + 1 === nth;
 }
 function hasException(templateId, dateStr){
   return TASKS.some(t => t.source==='template_exception' && t.template_id===templateId && t.exception_date===dateStr);
@@ -1549,7 +1571,12 @@ function recurLabel(tpl){
   const r = tpl.recurrence||{};
   if(r.freq==='daily') return 'Every day' + (tpl.time?` at ${fmtTime(tpl.time)}`:'');
   if(r.freq==='weekly') return 'Weekly: ' + (r.days||[]).map(d=>DOW_SHORT[DOW_LONG.indexOf(d)]).join(', ') + (tpl.time?` at ${fmtTime(tpl.time)}`:'');
-  if(r.freq==='monthly') return `Monthly on day ${r.day}` + (tpl.time?` at ${fmtTime(tpl.time)}`:'');
+  if(r.freq==='monthly'){
+    const when = r.dow
+      ? `${r.nth === -1 ? 'Last' : ['','1st','2nd','3rd','4th'][r.nth]} ${DOW_FULL[DOW_LONG.indexOf(r.dow)]} of the month`
+      : `Monthly on day ${r.day}`;
+    return when + (tpl.time?` at ${fmtTime(tpl.time)}`:'');
+  }
   return '';
 }
 let editingTemplate = null;
@@ -1560,11 +1587,33 @@ function renderTemplateFreqFields(){
     const sel = (editingTemplate && editingTemplate.recurrence.days) || [];
     el.innerHTML = `<div class="field"><label>Days</label><div class="dow-picker">${DOW_LONG.map((d,i)=>`<label><input type="checkbox" value="${d}" ${sel.includes(d)?'checked':''}><span>${DOW_SHORT[i]}</span></label>`).join('')}</div></div>`;
   } else if(freq==='monthly'){
-    const day = (editingTemplate && editingTemplate.recurrence.day) || 1;
-    el.innerHTML = `<div class="field"><label>Day of month</label><input type="number" id="tpm-monthday" min="1" max="31" value="${day}"></div>`;
+    const r = (editingTemplate && editingTemplate.recurrence) || {};
+    const byDow = !!r.dow;
+    const day = r.day || 1, nth = r.nth || 1, dow = r.dow || 'fri';
+    const NTH = [[1,'1st'],[2,'2nd'],[3,'3rd'],[4,'4th'],[-1,'last']];
+    el.innerHTML = `<div class="field"><label>Repeats on</label>
+        <select id="tpm-monthmode" onchange="renderTemplateMonthMode()">
+          <option value="date" ${byDow?'':'selected'}>a date each month</option>
+          <option value="dow" ${byDow?'selected':''}>a weekday each month</option>
+        </select></div>
+      <div class="field" id="tpm-month-date" style="${byDow?'display:none':''}">
+        <label>Day of month</label><input type="number" id="tpm-monthday" min="1" max="31" value="${day}">
+      </div>
+      <div class="field" id="tpm-month-dow" style="${byDow?'':'display:none'}">
+        <label>Which one</label>
+        <div class="nth-picker">
+          <select id="tpm-nth">${NTH.map(([v,l])=>`<option value="${v}" ${v===nth?'selected':''}>${l}</option>`).join('')}</select>
+          <select id="tpm-dow">${DOW_LONG.map((d,i)=>`<option value="${d}" ${d===dow?'selected':''}>${DOW_FULL[i]}</option>`).join('')}</select>
+        </div>
+      </div>`;
   } else {
     el.innerHTML = '';
   }
+}
+function renderTemplateMonthMode(){
+  const dow = document.getElementById('tpm-monthmode').value === 'dow';
+  document.getElementById('tpm-month-date').style.display = dow ? 'none' : '';
+  document.getElementById('tpm-month-dow').style.display = dow ? '' : 'none';
 }
 function openTemplateModal(tpl){
   editingTemplate = tpl || null;
@@ -1590,7 +1639,12 @@ function saveTemplateFromModal(){
     recurrence.days = Array.from(document.querySelectorAll('#tpm-freq-fields input[type=checkbox]:checked')).map(el=>el.value);
     if(!recurrence.days.length) return;
   } else if(freq==='monthly'){
-    recurrence.day = parseInt(document.getElementById('tpm-monthday').value,10) || 1;
+    if(document.getElementById('tpm-monthmode').value === 'dow'){
+      recurrence.nth = parseInt(document.getElementById('tpm-nth').value, 10);
+      recurrence.dow = document.getElementById('tpm-dow').value;
+    } else {
+      recurrence.day = parseInt(document.getElementById('tpm-monthday').value,10) || 1;
+    }
   }
   if(editingTemplate){
     editingTemplate.title = title; editingTemplate.recurrence = recurrence; editingTemplate.time = time; editingTemplate.category = category; editingTemplate.include_in_brief = includeInBrief;

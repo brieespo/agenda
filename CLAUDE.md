@@ -64,7 +64,11 @@ If a task appears to exceed your ability — a fix has failed twice, architectur
 {
   id: 1,
   title: "Take medication",
-  recurrence: {freq: "weekly", days: ["sat"]},   // or {freq:"daily"}, {freq:"monthly", day: 1}
+  recurrence: {freq: "weekly", days: ["sat"]},   // or {freq:"daily"}
+                                                // monthly by date:    {freq:"monthly", day: 1}
+                                                // monthly by weekday: {freq:"monthly", nth: 2, dow: "fri"}
+                                                //   nth 1-4, or -1 for "last". A template with `dow`
+                                                //   ignores `day` — the presence of dow is the mode.
   time: null,               // optional fixed time
   active: true
 }
