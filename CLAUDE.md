@@ -420,13 +420,24 @@ everywhere, read nowhere.
   is the only way a stopped timer can beat a running one, since absence cannot
   win on recency by itself.
 
-**Phase B — not started.** Write `mergeRow()` as a pure function, wire it to a
-dry run that logs the diff it *would* have produced, and discard the result.
+**Phase B/C — SHIPPED 2026-08-24 in the time-tracker only.** Brought forward
+from the planned dry-run period by a real loss: an entry logged from this app on
+the morning of 2026-08-24 was gone by the afternoon, overwritten by the
+tracker's whole-row upsert. The gate the phasing existed to protect — never
+merge with a build that deletes without tombstoning — is now enforced in code
+(`mergeRow` returns null unless both rows carry `_sync.v >= 2`), so waiting had
+stopped being the thing that made it safe.
 
-**Phase C — not started.** Turn merge on. The first phase that can lose or
-resurrect data. Do not start it until both devices have been running Phase A for
-a while — a device on the old build deletes without leaving a tombstone, and a
-merge that trusted absence would resurrect what it deleted.
+`mergeRow(mine, theirs)` lives in `time-tracker.html` and is pure: two rows in,
+one row out, no globals and no writes, covered by 19 cases. Full rules are in
+the tracker's CLAUDE.md. It is wired into the tracker's `_doSave` (re-read and
+merge immediately before the upsert) and its `loadUserData` (merge an unsynced
+cache with the server rather than adopting it wholesale).
+
+**Not ported here or to restock.** `agenda_data` and `restock_data` are still
+wholesale last-write-wins between devices. This app was never the one destroying
+time entries — it already re-reads before every cross-app write — so the fix
+belonged where the clobber was.
 
 **Open gap found during Phase A:** agenda's `ensureMonthlyRecurring` creates
 this month's copy of a monthly task when one is missing. Two devices both
@@ -456,5 +467,7 @@ real competing edit; they do not make concurrent edits safe. That is Phase B/C.
 
 This sync block is copied between apps in the suite. Apps carrying it: agenda,
 restock, time-tracker. Copy the corrected version, not an older sibling.
-**The 2026-08-08 fixes have NOT been ported to restock or time-tracker yet** —
-both still republish their row from load-time normalization.
+**Restock has NOT had the 2026-08-08 fixes ported yet** — it still republishes
+its row from load-time normalization. The time-tracker has the corrected load
+path (it compares `updated_at`/`synced`, never item counts) and, as of
+2026-08-24, merges instead of overwriting.
