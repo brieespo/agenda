@@ -88,7 +88,30 @@ If a task appears to exceed your ability — a fix has failed twice, architectur
 
 ### Rollover rule (decided)
 
-At load, any **one-time task** with `date` in the past and `done: false` moves to today with `rolled_from` set (rendered as a subtle "from Tue" chip). Template instances never roll (they recur anyway) — missed ones just show as not-done in history. Google Calendar events never roll (they're facts, not intentions).
+At load, any **one-time task** with `date` in the past and `done: false` moves to today with `rolled_from` set (rendered as a subtle "from Tue" chip). Google Calendar events never roll (they're facts, not intentions).
+
+Template instances originally never rolled either. They now follow a **per-routine rule** — see below.
+
+### A missed routine: `tpl.miss` (2026-08-24)
+
+Set per routine in its editor, because the right answer genuinely varies and only she knows which is which. `'drop'` is the default and is exactly the old behaviour.
+
+| value | what happens |
+|---|---|
+| `drop` | the missed day is gone. Most routines. |
+| `next` | it stays on **today** until ticked. |
+| `week` | it also appears in that week's list. |
+
+**Carrying is a rendering rule, not a migration.** Instances are already virtual, so nothing is written, nothing needs cleaning up, and ticking the original late makes the carried copy vanish on its own. A carried item keeps its **original date** — `toggleDoneVirtual` is handed that date, so the tick lands on the day the routine was actually for, and one completion record clears it everywhere it appears.
+
+Decisions that are load-bearing:
+
+- **One row, never two.** If the routine comes round again today, today's occurrence supersedes the missed one (`templateOccursOn(tpl, today)` → don't carry). This is also what stops a *daily* routine carrying forward into a duplicate of itself every morning — the case that would otherwise make `next` useless.
+- **`week` keeps every slipped day of that week, not just the latest.** The rule exists so a missed day is still owed somewhere; collapsing them would quietly forgive the earlier ones. `next` collapses, `week` does not — they answer different questions.
+- **A settled occurrence stops the search.** In `outstandingOccurrence`, both a completion and an *exception* return null rather than skipping further back. An exception means that occurrence became a real task, which does its own rolling over; skipping past it would resurrect an older miss the current one had already superseded.
+- **Carried items lose their clock time.** They go in the untimed list, never back onto the hour grid — that hour has gone.
+- **`miss_since`** is stamped when a rule is first set to something other than `drop`, backdated to the start of that week. Turning the rule on must not dredge up months of "misses" from before she asked for any, but it should still catch the Tuesday she is thinking of when she sets it.
+- **Carried items are not draggable out of the weekly list.** Dragging assigns a date to an undated task, and this one already has one — the day it slipped from. Tapping opens it, which is the path to making it a real, movable task.
 
 ### Completion (decided)
 

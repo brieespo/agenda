@@ -1145,6 +1145,14 @@ footer button { font: inherit; font-size: var(--fs-sm); border: none; background
       <div id="tpm-freq-fields"></div>
       <div class="field"><label>Time (optional — blank = untimed)</label><input type="time" id="tpm-time"></div>
       <div class="field"><label>Category</label><select id="tpm-category"></select></div>
+      <div class="field">
+        <label>If it's not done that day</label>
+        <select id="tpm-miss">
+          <option value="drop">Let it go</option>
+          <option value="next">Keep it on today until it's done</option>
+          <option value="week">Put it in this week's list</option>
+        </select>
+      </div>
       <label style="display:flex;align-items:center;gap:7px;font-size: var(--fs-base);color:var(--ink-2);margin-top:4px"><input type="checkbox" id="tpm-include-brief"> Include in morning brief</label>
     </div>
     <div class="modal-foot">
@@ -1329,6 +1337,99 @@ function hasException(templateId, dateStr){
 function instanceDone(templateId, dateStr){
   return COMPLETIONS.some(c => c.template_id===templateId && c.date===dateStr);
 }
+/* ---------------------------------------------------------------------
+   MISSED ROUTINES (per-template rule; default is the old behaviour)
+
+   tpl.miss: 'drop' — a missed day is simply gone. The default, and what
+                      every routine did before this existed.
+             'next' — it follows her forward until she ticks it.
+             'week' — it also shows in that week's list, so a day that
+                      slipped is still owed somewhere.
+
+   A routine instance is not stored anywhere — materializeInstances conjures
+   it per date and ticking one writes {template_id, date} into completions.
+   So carrying is a RENDERING rule, not a migration: nothing new is written,
+   nothing needs cleaning up, and ticking the original late makes the carried
+   copy disappear on its own. A carried item keeps its ORIGINAL date, which is
+   what makes that work — toggleDoneVirtual is handed that date, so the tick
+   lands on the day the routine was actually for.
+
+   miss_since is stamped when the rule is first set to something other than
+   'drop', so turning it on cannot dredge up months of "misses" from before
+   she asked for any. It backdates to the start of that week, which is far
+   enough to catch the Tuesday she is thinking of when she sets it.
+   --------------------------------------------------------------------- */
+function missRule(tpl){
+  const m = tpl && tpl.miss;
+  return (m === 'next' || m === 'week') ? m : 'drop';
+}
+// Only shown when it is not the default — the routines list should read as a
+// list of routines, not a list of their settings.
+function missLabel(tpl){
+  const m = missRule(tpl);
+  return m === 'next' ? ' · carries over' : m === 'week' ? " · goes to the week's list" : '';
+}
+// 60 days is past the longest recurrence (monthly) with room to spare, and
+// stops a routine untouched since spring from being walked day by day.
+const MISS_LOOKBACK_DAYS = 60;
+function outstandingOccurrence(tpl, beforeDate){
+  const floor = tpl.miss_since || '';
+  for(let i = 1; i <= MISS_LOOKBACK_DAYS; i++){
+    const d = addDays(beforeDate, -i);
+    if(floor && d < floor) return null;
+    if(!templateOccursOn(tpl, d)) continue;
+    // Both of these mean the most recent occurrence is settled, so nothing is
+    // owed — stop rather than skip back to an older one this already
+    // superseded. An exception is settled because that occurrence became a
+    // real task, which does its own rolling over.
+    if(hasException(tpl.id, d) || instanceDone(tpl.id, d)) return null;
+    return d;
+  }
+  return null;
+}
+// One row, never two: a routine that comes round again today supersedes the
+// day it missed. Ticking today's is the honest record, and a debt she can no
+// longer distinguish from the fresh instance is just noise.
+function carriedInstances(dateStr){
+  if(dateStr !== todayStr()) return [];
+  const out = [];
+  TEMPLATES.forEach(tpl => {
+    if(!tpl.active || missRule(tpl) !== 'next') return;
+    if(templateOccursOn(tpl, dateStr)) return;       // today has its own
+    if(hasException(tpl.id, dateStr)) return;
+    const from = outstandingOccurrence(tpl, dateStr);
+    if(!from) return;
+    const it = itemByVirtual(tpl.id, from);
+    if(!it) return;
+    // A carried routine is owed "sometime today", not at its original clock
+    // time — putting it back on the hour grid would claim an hour that has
+    // already gone by.
+    out.push({...it, time: null, rolled_from: from, carried: true});
+  });
+  return out;
+}
+// The weekly list keeps every slipped day of that week, not just the latest:
+// this rule exists so a missed day is still owed somewhere, and collapsing
+// them would quietly forgive the earlier ones.
+function carriedWeekInstances(weekKey){
+  const today = todayStr();
+  const out = [];
+  TEMPLATES.forEach(tpl => {
+    if(!tpl.active || missRule(tpl) !== 'week') return;
+    const floor = tpl.miss_since || '';
+    for(let i = 0; i < 7; i++){
+      const d = addDays(weekKey, i);
+      if(d >= today) break;                          // today still has its chance
+      if(floor && d < floor) continue;
+      if(!templateOccursOn(tpl, d)) continue;
+      if(hasException(tpl.id, d)) continue;
+      if(instanceDone(tpl.id, d)) continue;
+      const it = itemByVirtual(tpl.id, d);
+      if(it) out.push({...it, time: null, rolled_from: d, carried: true});
+    }
+  });
+  return out;
+}
 function materializeInstances(dateStr){
   const out = [];
   TEMPLATES.forEach(tpl => {
@@ -1340,7 +1441,7 @@ function materializeInstances(dateStr){
       rolled_from: null, source: 'template', template_id: tpl.id, virtual: true, notes: '', category: tpl.category || null
     });
   });
-  return out;
+  return out.concat(carriedInstances(dateStr));
 }
 function itemsForDate(dateStr){
   const real = TASKS.filter(t => t.date === dateStr);
@@ -1637,6 +1738,7 @@ function openTemplateModal(tpl){
   document.getElementById('tpm-time').value = tpl && tpl.time ? tpl.time : '';
   populateCategorySelect(document.getElementById('tpm-category'), (tpl && tpl.category) || '');
   document.getElementById('tpm-include-brief').checked = !!(tpl && tpl.include_in_brief);
+  document.getElementById('tpm-miss').value = tpl ? missRule(tpl) : 'drop';
   document.getElementById('tpm-delete').style.display = tpl ? '' : 'none';
   renderTemplateFreqFields();
   openModal('template-modal');
@@ -1648,6 +1750,7 @@ function saveTemplateFromModal(){
   const time = document.getElementById('tpm-time').value || null;
   const category = document.getElementById('tpm-category').value || null;
   const includeInBrief = document.getElementById('tpm-include-brief').checked;
+  const miss = document.getElementById('tpm-miss').value;
   let recurrence = {freq};
   if(freq==='weekly'){
     recurrence.days = Array.from(document.querySelectorAll('#tpm-freq-fields input[type=checkbox]:checked')).map(el=>el.value);
@@ -1660,11 +1763,19 @@ function saveTemplateFromModal(){
       recurrence.day = parseInt(document.getElementById('tpm-monthday').value,10) || 1;
     }
   }
+  // Stamped the first time a carry rule is chosen, so turning one on cannot
+  // dredge up months of "misses" from before she asked for any. Backdated to
+  // the start of the week, which is far enough to catch the day she is
+  // thinking of when she sets it and no further.
+  const missFloor = tpl => (miss === 'drop' || tpl.miss_since) ? tpl.miss_since : startOfWeek(todayStr());
   if(editingTemplate){
-    editingTemplate.title = title; editingTemplate.recurrence = recurrence; editingTemplate.time = time; editingTemplate.category = category; editingTemplate.include_in_brief = includeInBrief;
+    editingTemplate.miss_since = missFloor(editingTemplate);
+    editingTemplate.title = title; editingTemplate.recurrence = recurrence; editingTemplate.time = time; editingTemplate.category = category; editingTemplate.include_in_brief = includeInBrief; editingTemplate.miss = miss;
     touch(editingTemplate);
   } else {
-    TEMPLATES.push(touch({id: newId(), title, recurrence, time, active:true, category, include_in_brief: includeInBrief}));
+    const tpl = {id: newId(), title, recurrence, time, active:true, category, include_in_brief: includeInBrief, miss};
+    tpl.miss_since = missFloor(tpl);
+    TEMPLATES.push(touch(tpl));
   }
   saveToStorage();
   closeModal('template-modal');
@@ -1883,7 +1994,7 @@ function renderRoutinesList(){
   el.innerHTML = TEMPLATES.map(tpl => `
     <div class="routine-row">
       <button class="toggle ${tpl.active?'on':''}" onclick="toggleTemplateActive(${tpl.id})"></button>
-      <span class="r-title">${esc(tpl.title)}<div class="r-recur">${esc(recurLabel(tpl))}${tpl.include_in_brief?' · in morning brief':''}</div></span>
+      <span class="r-title">${esc(tpl.title)}<div class="r-recur">${esc(recurLabel(tpl))}${tpl.include_in_brief?' · in morning brief':''}${missLabel(tpl)}</div></span>
       <select class="r-cat-select" data-tpl-id="${tpl.id}" onchange="setTemplateCategory(${tpl.id}, this.value)"></select>
       <button onclick='openTemplateModal(TEMPLATES.find(t=>t.id===${tpl.id}))' title="Edit">${ico('settings')}</button>
     </div>
@@ -2645,13 +2756,19 @@ function attachDoneCollapseHandlers(container){
 function renderSidebar(){
   const wk = weekKeyForDate(currentView==='week' ? weekAnchor : currentDate);
   document.getElementById('sidebar-week-label').textContent = `Week of ${fmtShort(wk)}`;
-  const items = TASKS.filter(t => t.date===null && t.week===wk).sort((a,b) => (a.done===b.done)?0:(a.done?1:-1));
+  const items = TASKS.filter(t => t.date===null && t.week===wk)
+    .concat(carriedWeekInstances(wk))
+    .sort((a,b) => (a.done===b.done)?0:(a.done?1:-1));
   const listEl = document.getElementById('sidebar-list');
   listEl.dataset.week = wk;
+  // A carried routine names the day it slipped from — "from Tue" is the whole
+  // point of it being here, where an undated task's dot only means "last week".
   const rowHtml = item => `
-    <div class="sidebar-task ${item.done?'done':''}" data-id="${item.id}">
-      <span class="chk ${item.done?'done':''}" onclick='toggleDoneReal(${item.id})'>${item.done?ico('check'):''}</span>
-      <span class="t-title ${item.done?'done':''}" style="font-size: var(--fs-base)">${esc(item.title)}${item.rolled_from?`<span class="rolled-dot" title="Rolled over from last week"></span>`:''}</span>
+    <div class="sidebar-task ${item.done?'done':''}" data-id="${item.id}" data-kind="${item.virtual?'v':'r'}">
+      <span class="chk ${item.done?'done':''}" onclick='${item.virtual ? `toggleDoneVirtual(${item.template_id},&quot;${item.date}&quot;)` : `toggleDoneReal(${item.id})`}'>${item.done?ico('check'):''}</span>
+      <span class="t-title ${item.done?'done':''}" style="font-size: var(--fs-base)">${esc(item.title)}${
+        item.carried ? `<span class="t-rolled-chip">from ${dowShort(item.rolled_from)}</span>`
+        : item.rolled_from ? `<span class="rolled-dot" title="Rolled over from last week"></span>` : ''}</span>
     </div>`;
   const open = items.filter(it => !it.done);
   const done = items.filter(it => it.done);
@@ -2661,7 +2778,16 @@ function renderSidebar(){
     : '<p class="empty-note">Nothing waiting for a day yet.</p>';
   listEl.querySelectorAll('.sidebar-task').forEach(row => {
     const item = items.find(it => String(it.id)===row.dataset.id);
-    if(item) row.addEventListener('pointerdown', e => { if(!e.target.closest('.chk')) startItemDrag(e, item, row, () => openTaskModal(item)); });
+    if(!item) return;
+    // A carried routine is not draggable out of here. Dragging assigns a date
+    // to an undated task, and this one already has the date it belongs to —
+    // the day it slipped from. Tapping still opens it, which is the path to
+    // turning that occurrence into a real, movable task.
+    if(item.carried){
+      row.addEventListener('click', e => { if(!e.target.closest('.chk')) openTaskModal(item); });
+      return;
+    }
+    row.addEventListener('pointerdown', e => { if(!e.target.closest('.chk')) startItemDrag(e, item, row, () => openTaskModal(item)); });
   });
   attachDoneCollapseHandlers(listEl);
 }
