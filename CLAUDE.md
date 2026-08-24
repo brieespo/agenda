@@ -434,6 +434,11 @@ the tracker's CLAUDE.md. It is wired into the tracker's `_doSave` (re-read and
 merge immediately before the upsert) and its `loadUserData` (merge an unsynced
 cache with the server rather than adopting it wholesale).
 
+The tracker's pagehide write cannot merge — no page left to await a re-read on —
+so it is a **compare-and-swap** instead: `updated_at=eq.<the row it last saw>`.
+If this app moved the row in that window the write matches nothing and is a
+no-op, and the tracker's dirty cache carries the work to its next open.
+
 **Not ported here or to restock.** `agenda_data` and `restock_data` are still
 wholesale last-write-wins between devices. This app was never the one destroying
 time entries — it already re-reads before every cross-app write — so the fix
