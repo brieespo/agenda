@@ -524,7 +524,12 @@ real competing edit; they do not make concurrent edits safe. That is Phase B/C.
 
 This sync block is copied between apps in the suite. Apps carrying it: agenda,
 restock, time-tracker. Copy the corrected version, not an older sibling.
-**Restock has NOT had the 2026-08-08 fixes ported yet** — it still republishes
-its row from load-time normalization. The time-tracker has the corrected load
-path (it compares `updated_at`/`synced`, never item counts) and, as of
-2026-08-24, merges instead of overwriting.
+**All three apps now have the 2026-08-06 and 2026-08-08 fixes** (verified
+2026-08-24). This block claimed otherwise about the time-tracker and then about
+restock, and was wrong both times — the note outlived the work. Restock's
+`applyPaceRecalcMarks` and `migrateIfNeeded` mutate memory only, its cache
+compares `updated_at`/`synced` rather than item counts, it never pushes blind
+when the server is unreachable, and it flushes through a keepalive beacon on
+pagehide. **Check the code before trusting this paragraph.**
+
+What is genuinely uneven is the *merge*: only the time-tracker has one.
