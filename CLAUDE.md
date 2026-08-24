@@ -275,6 +275,27 @@ The entry and the cleared timer go up in **one** update (`clearTimer`). Two
 writes would leave a window where the time is logged and the timer still runs,
 and a phone frozen between them would log the block again on the next stop.
 
+### Writes to the tracker's row must prove they landed
+
+`writeTimeBlock` ends its update with `.select('user_id')` and treats zero rows
+back as a failure. **An update whose filter matches no row is not an error in
+PostgREST** — it succeeds, changes nothing, returns no rows. This app only ever
+*updates* `time_data`; it never inserts one. So on an account where the tracker
+had never written a row, every block logged from here would have vanished while
+the assistant replied "Logged 1h." A time log is the one thing that must never
+fail silently.
+
+That is not the same problem as the tracker not *showing* an entry this app
+wrote. The tracker saves with a **whole-row upsert from its in-memory copy**
+(`payload()` includes `entries`), and does not re-read first the way this app
+does. A tracker tab holding a stale `ENTRIES` — open in the background, or
+restored from an unsynced cache — will carry that array back up and delete
+anything the agenda logged in the meantime. It has Realtime and a focus refetch,
+so it usually has the entry before it saves; "usually" is the whole gap. This is
+the documented whole-row last-write-wins hole, and closing it properly is the
+Phase B/C merge, not a patch. Porting the 2026-08-08 fixes to the tracker is the
+prerequisite.
+
 **`parseDurationMins` refuses bare decimals.** "90", "1h30", "1:30", "1.5h",
 "2 hours" all parse; a bare "2.5" does not. Read as minutes it would log 3 and
 say nothing, when it plainly means two and a half hours — a visible refusal

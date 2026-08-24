@@ -3710,8 +3710,16 @@ async function writeTimeBlock({startDt, endDt, categoryId, subcategory, descript
   })));
   const patch = {entries, updated_at: nowStamp()};
   if(clearTimer){ patch.timer = null; patch.settings = await timeSettingsWithSlot(); }
-  const {error: werr} = await sb.from('time_data').update(patch).eq('user_id', _currentUser.id);
+  // .select() so the write reports what it actually touched. An update whose
+  // filter matches no row is not an error in PostgREST — it succeeds, changes
+  // nothing, and returns no rows. This app only ever updates `time_data`; it
+  // never inserts. So if the tracker has never written a row for her, every
+  // block logged from here would vanish while the assistant cheerfully replied
+  // "Logged 1h." Silence is the one outcome a time log must never have.
+  const {data: wrote, error: werr} = await sb.from('time_data')
+    .update(patch).eq('user_id', _currentUser.id).select('user_id');
   if(werr) throw werr;
+  if(!wrote || !wrote.length) throw new Error('no time_data row for this account — nothing was written');
   TIME_ENTRIES = entries;
   if(clearTimer){ RUNNING_TIMER = null; renderTimerButton(); }
   if(currentView === 'day') renderDay();
