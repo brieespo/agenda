@@ -24,7 +24,17 @@ Sanctioned additions (this app only):
 ## Design language (suite-wide rules)
 
 - No emoji in UI chrome — inline Lucide-style SVG icons (`stroke="currentColor"`, pasted inline, no CDN).
-- Status markers are CSS dots/chips; one logo glyph in the header only.
+- Status markers are CSS dots/chips.
+- **The header greets rather than labels** (changed 2026-08-24). The calendar
+  glyph and the word "Agenda" are gone; the slot now reads "Good morning, Bri" —
+  16px, weight 450, `--ink-2`, deliberately quieter than it was, so the day's
+  date in the toolbar is the one large thing on screen. Morning before noon,
+  afternoon until 5pm, evening after, off the wall clock rather than
+  `currentDate` (paging to next Tuesday must not change the time of day).
+  The name comes from `settings.displayName`, set under **Routines & settings →
+  Your name** — blank is a supported state and renders a bare "Good morning",
+  so the app has no hardcoded user. It lives in `settings`, not a new column,
+  for the `_tomb` reason: older builds round-trip that column untouched.
 - Emoji allowed in user content. Warmth via accent colors, rounded cards, micro-copy.
 - **Hover animations (Bri's request):** subtle and fast — cards lift slightly (translateY + shadow via CSS transition ~120ms), the checkbox circle fills on hover, drag handles fade in. Nothing bouncy or slow; animation should make the interface feel alive, not busy.
 
@@ -39,7 +49,7 @@ If a task appears to exceed your ability — a fix has failed twice, architectur
 | tasks | array of task objects |
 | templates | array of recurring-template objects |
 | completions | array of {template_id, date} — done-marks for template instances |
-| settings | selected Google calendars, week start day, theme, `ghosted`, `skincare` (see below) |
+| settings | selected Google calendars, week start day, theme, `displayName`, `ghosted`, `skincare` (see below) |
 
 ### Task object (one-time items)
 
