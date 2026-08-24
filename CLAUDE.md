@@ -241,6 +241,45 @@ Writes are **serialized** through a promise chain. Two quick ticks would otherwi
 
 Rows created here are `source: 'manual'`, so the law tracker's import — which replaces what a previous import of that course wrote — never deletes them.
 
+## Time: three ways a block gets logged (2026-08-24)
+
+The timer was originally the only way in, which meant every hour had to be
+predicted in advance and stopped on time. It now has three entrances, all
+appending through **one function, `writeTimeBlock()`** — the per-day split, the
+re-read-before-write rule, and the entries schema are written once. Adding a
+fourth entrance means calling that, not writing another update.
+
+1. **The running timer** — unchanged: start, stop, discard.
+2. **A finished block, typed** — *timer menu → Log a finished block*: what it
+   was, date, from, to, category. The date defaults to **the day the day-view is
+   showing**, the same bargain the skincare panel makes — navigate to yesterday
+   and yesterday is what you log. It reuses the assistant's `resolveLoggedBlock`,
+   so the menu and the chat agree on what "10pm to 1am" means and share the
+   more-than-a-day refusal.
+3. **A finished block, spoken** — `log_time`, already built. "Log 1 hour of Law
+   Review between 8am and 9am this morning."
+
+### Stop and log a different length
+
+The third way out of a running timer, between logging a wrong 14 hours and
+throwing the afternoon away. Offered in the timer menu and — more importantly —
+on the forgot-to-stop guard banner, which by definition only appears when the
+elapsed time is no longer worth logging.
+
+**The corrected block runs forward from the original start, not backward from
+now.** A timer left running is one she started when the work started and forgot
+to stop, so 90 minutes from a 9am start is 9:00–10:30. Anchoring to now would
+file this morning's reading at 11pm.
+
+The entry and the cleared timer go up in **one** update (`clearTimer`). Two
+writes would leave a window where the time is logged and the timer still runs,
+and a phone frozen between them would log the block again on the next stop.
+
+**`parseDurationMins` refuses bare decimals.** "90", "1h30", "1:30", "1.5h",
+"2 hours" all parse; a bare "2.5" does not. Read as minutes it would log 3 and
+say nothing, when it plainly means two and a half hours — a visible refusal
+naming the formats beats a silent fiftieth of the intended time.
+
 ## Suite sync (later phase — data model is ready via `source: 'suite'`)
 
 Future: read shared tables and surface law school study blocks, Law Review checkpoint days, and restock radar items as background items. Design now, build later — the `source` field and read-only rendering style are the only hooks required today.

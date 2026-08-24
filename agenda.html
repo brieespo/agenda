@@ -562,6 +562,16 @@ body.time-view .sidebar-col, body.assign-view .sidebar-col { display: none; }
 .timer-desc { width: 100%; font: inherit; font-size: var(--fs-base); padding: 6px 9px; margin: 2px 0 6px; border-radius: 8px; border: 1px solid var(--border); background: var(--page); color: var(--ink); }
 .timer-desc:focus { outline: none; border-color: var(--accent); }
 .timer-menu-note { font-size: var(--fs-sm); color: var(--muted); padding: 2px 9px 6px; margin: 0; line-height: 1.4; }
+/* The block form needs more room than a list of category names, so the menu
+   widens only while it is showing. Capped to the viewport so it can't push off
+   a phone's right edge, where the menu is pinned. */
+.apps-menu.wide { min-width: min(280px, calc(100vw - 24px)); }
+.block-row { display: flex; gap: 6px; padding: 0 1px 6px; }
+.block-row label { flex: 1; min-width: 0; font-size: var(--fs-xs); color: var(--muted); display: flex; flex-direction: column; gap: 2px; }
+.block-row input, .block-row select { width: 100%; font: inherit; font-size: var(--fs-base); padding: 6px 8px; border-radius: 8px; border: 1px solid var(--border); background: var(--page); color: var(--ink); }
+.block-row input:focus, .block-row select:focus { outline: none; border-color: var(--accent); }
+/* The one row that starts nothing — set apart from the category list above it. */
+.apps-menu-row.block-entry { border-top: 1px solid var(--hairline); border-radius: 0 0 8px 8px; margin-top: 4px; }
 
 /* ---- apps menu ---- */
 .apps-menu-wrap { position: relative; display: inline-flex; }
@@ -3626,6 +3636,31 @@ let TIME_CATS = [], RUNNING_TIMER = null, _timeLoaded = false, _timerTick = null
 let TIME_ENTRIES = [];
 let _timerDraft = '';   // kept across the menu's reload-and-rerender
 let _discardArmed = false, _discardArmTimer = null;   // first tap arms Discard, second acts
+// The timer menu is three screens, not one: its default (start, or the running
+// timer), the correction form for a timer left running, and the form for a
+// block that was never timed at all. Null is the default screen.
+let _timerMode = null;   // null | 'adjust' | 'block'
+// Accepts what someone actually types into a "how long was it" box. A bare
+// number is minutes, which is what the placeholder asks for; everything else is
+// a courtesy. Returns 0 for anything unparseable so the caller can refuse
+// rather than log a guess.
+function parseDurationMins(raw){
+  const s = String(raw || '').trim().toLowerCase();
+  if(!s) return 0;
+  let m = s.match(/^(\d+):([0-5]\d)$/);                                        // 1:30
+  if(m) return (+m[1]) * 60 + (+m[2]);
+  m = s.match(/^(\d+(?:\.\d+)?)\s*h(?:ou)?r?s?\.?\s*(?:(\d+)\s*m?(?:in(?:ute)?s?)?\.?)?$/);   // 1h, 1.5h, 1h30, 2 hours
+  if(m) return Math.round((+m[1]) * 60) + (m[2] ? +m[2] : 0);
+  m = s.match(/^(\d+(?:\.\d+)?)\s*m(?:in(?:ute)?s?)?\.?$/);                    // 90m, 45 minutes
+  if(m) return Math.round(+m[1]);
+  // A bare WHOLE number is minutes. A bare decimal is refused on purpose:
+  // "2.5" almost certainly means two and a half hours, but read as minutes it
+  // logs 3 and says nothing. Better to bounce it and name the formats than to
+  // silently record a fiftieth of the intended time.
+  m = s.match(/^(\d+)$/);
+  if(m) return +m[1];
+  return 0;
+}
 // Long enough to read the confirmation and decide, short enough that a row left
 // armed and forgotten disarms before it can catch a stray tap. Erring short is
 // the safe direction: the cost is tapping twice again.
@@ -3653,6 +3688,34 @@ function splitRange(startDt, endDt){
     cur = nextMidnight;
   }
   return segs;
+}
+// The one place this app appends to the tracker's entries. Everything that
+// produces a block — the assistant, the menu's block form, and a timer stopped
+// with a corrected length — goes through here, so the per-day split and the
+// re-read-before-write rule are written once.
+//
+// clearTimer folds "stop the timer" into the same update as the entry it
+// produces. Two updates would leave a window where the time is logged and the
+// timer is still running, and a phone frozen between them would log the block
+// again on the next stop.
+async function writeTimeBlock({startDt, endDt, categoryId, subcategory, description, source, clearTimer}){
+  const {data, error} = await sb.from('time_data').select('entries').eq('user_id', _currentUser.id).maybeSingle();
+  if(error) throw error;
+  const entries = Array.isArray(data && data.entries) ? data.entries : [];
+  const segs = splitRange(startDt, endDt);
+  segs.forEach(seg => entries.push(touch({
+    id: newId(), category_id: categoryId, subcategory: subcategory || null,
+    date: seg.date, start: seg.start, end: seg.end, minutes: seg.minutes,
+    description: (description || '').trim(), source: source || 'manual'
+  })));
+  const patch = {entries, updated_at: nowStamp()};
+  if(clearTimer){ patch.timer = null; patch.settings = await timeSettingsWithSlot(); }
+  const {error: werr} = await sb.from('time_data').update(patch).eq('user_id', _currentUser.id);
+  if(werr) throw werr;
+  TIME_ENTRIES = entries;
+  if(clearTimer){ RUNNING_TIMER = null; renderTimerButton(); }
+  if(currentView === 'day') renderDay();
+  return {segs, total: segs.reduce((n, sg) => n + sg.minutes, 0)};
 }
 async function loadTimeData(force){
   if(_timeLoaded && !force) return;
@@ -3691,6 +3754,10 @@ function renderTimerGuard(){
     + `<span class="guard-actions">`
     + `<button onclick="ackRunningTimer()">Yes, still going</button>`
     + `<button onclick="stopTracking()">Stop and log it</button>`
+    // The banner only appears once a timer has run past the point of being
+    // believable, which is exactly when the whole elapsed time is the wrong
+    // thing to log — so the correction belongs here more than anywhere.
+    + `<button onclick="openTimerMode('adjust')">Log a different length</button>`
     + `<button onclick="discardTracking()">Discard</button>`
     + `</span>`;
   el.style.display = '';
@@ -3769,6 +3836,9 @@ function toggleTimerMenu(open){
   const show = open === undefined ? !menu.classList.contains('open') : open;
   // Arming never survives the menu closing and reopening.
   _discardArmed = false; clearTimeout(_discardArmTimer); _discardArmTimer = null;
+  // Neither does a half-filled form. Only closing clears it, so openTimerMode
+  // can set the mode first and then open straight into that form.
+  if(!show) _timerMode = null;
   if(show){
     renderTimerMenu();
     loadTimeData(true).then(() => { if(menu.classList.contains('open')) renderTimerMenu(); });
@@ -3778,22 +3848,52 @@ function toggleTimerMenu(open){
 function renderTimerMenu(){
   const menu = document.getElementById('timer-menu');
   if(!menu) return;
-  // The lazy reload re-renders shortly after open; if she's already typing in
-  // the running description, leave it alone rather than replacing the node.
+  // The lazy reload re-renders shortly after open; anything she is typing into
+  // the menu — the running description, either form — must survive that, so a
+  // focused field anywhere inside it cancels the re-render outright.
   const active = document.activeElement;
-  if(active && active.id === 'timer-desc-running') return;
-  if(RUNNING_TIMER){
+  if(active && menu.contains(active)) return;
+  menu.classList.toggle('wide', _timerMode === 'block');
+  if(RUNNING_TIMER && _timerMode === 'adjust'){
+    // Prefilled with the elapsed time, which is both the honest starting point
+    // and a hint at the format. It is selected on focus so typing replaces it.
+    menu.innerHTML = `<div class="apps-menu-label">Log a different length</div>`
+      + `<p class="timer-menu-note">Ran ${esc(fmtMins(elapsedMinutes()))} since ${esc(fmtTime(hhmmOf(new Date(Date.parse(RUNNING_TIMER.started_at)))))}. How long was it really?</p>`
+      + `<input type="text" id="timer-adjust-input" class="timer-desc" value="${esc(String(elapsedMinutes()))}" placeholder="90, 1h30, 1:30" autocomplete="off" onfocus="this.select()" onkeydown="if(event.key==='Enter'){event.preventDefault();stopTrackingAdjusted();}">`
+      + `<button class="apps-menu-row" onclick="stopTrackingAdjusted()">Stop and log it<span class="amr-ico">${ico('check')}</span></button>`
+      + `<button class="apps-menu-row quiet" onclick="_timerMode=null;renderTimerMenu()">Back<span class="amr-ico">${ico('x')}</span></button>`;
+  } else if(RUNNING_TIMER){
     const cat = TIME_CATS.find(c => c.id === RUNNING_TIMER.category_id);
     menu.innerHTML = `<div class="apps-menu-label">Tracking ${esc(elapsedLabel())}</div>`
       + `<input type="text" id="timer-desc-running" class="timer-desc" value="${esc(RUNNING_TIMER.description || '')}" placeholder="What are you working on?" autocomplete="off" onkeydown="if(event.key==='Enter'){event.preventDefault();this.blur();}" onblur="saveRunningDescription()">`
       + (cat ? `<p class="timer-menu-note">${esc(cat.name)}</p>` : '')
       + `<button class="apps-menu-row" onclick="stopTracking()">Stop and log it<span class="amr-ico">${ico('check')}</span></button>`
+      + `<button class="apps-menu-row" onclick="openTimerMode('adjust')">Stop and log a different length<span class="amr-ico">${ico('pencil')}</span></button>`
       + `<button class="apps-menu-row ${_discardArmed ? 'armed' : 'quiet'}" onclick="discardTracking()">`
       + (_discardArmed ? `Tap again to discard ${esc(elapsedLabel())}` : 'Discard without logging')
       + `<span class="amr-ico">${ico('x')}</span></button>`;
   } else if(!TIME_CATS.length){
     menu.innerHTML = `<div class="apps-menu-label">Track time</div>`
       + `<p class="timer-menu-note">No categories yet — add one in Time Tracker.</p>`;
+  } else if(_timerMode === 'block'){
+    const dayNote = currentDate === todayStr() ? '' : ` Defaulting to ${esc(fmtShort(currentDate))}, the day you're looking at.`;
+    menu.innerHTML = `<div class="apps-menu-label">Log a finished block</div>`
+      + `<input type="text" id="block-desc" class="timer-desc" placeholder="What was it?" autocomplete="off">`
+      + `<div class="block-row">`
+      +   `<label>Date<input type="date" id="block-date" value="${esc(currentDate)}"></label>`
+      + `</div>`
+      + `<div class="block-row">`
+      +   `<label>From<input type="time" id="block-start"></label>`
+      +   `<label>To<input type="time" id="block-end"></label>`
+      + `</div>`
+      + `<div class="block-row">`
+      +   `<label>Category<select id="block-cat">`
+      +     TIME_CATS.map(c => `<option value="${c.id}">${esc(c.name)}</option>`).join('')
+      +   `</select></label>`
+      + `</div>`
+      + (dayNote ? `<p class="timer-menu-note">${dayNote}</p>` : '')
+      + `<button class="apps-menu-row" onclick="logManualBlock()">Log it<span class="amr-ico">${ico('check')}</span></button>`
+      + `<button class="apps-menu-row quiet" onclick="_timerMode=null;renderTimerMenu()">Back<span class="amr-ico">${ico('x')}</span></button>`;
   } else {
     // The description is captured before the category, because picking the
     // category is the action that starts the timer — asking afterwards would
@@ -3801,7 +3901,10 @@ function renderTimerMenu(){
     const draft = _timerDraft || '';
     menu.innerHTML = `<div class="apps-menu-label">Start tracking</div>`
       + `<input type="text" id="timer-desc" class="timer-desc" placeholder="What are you working on?" value="${esc(draft)}" autocomplete="off" oninput="_timerDraft = this.value">`
-      + TIME_CATS.map(c => `<button class="apps-menu-row" onclick="startTracking(${c.id})">${esc(c.name)}</button>`).join('');
+      + TIME_CATS.map(c => `<button class="apps-menu-row" onclick="startTracking(${c.id})">${esc(c.name)}</button>`).join('')
+      // Below the categories, not above: starting a timer is the common act and
+      // keeps the top of the menu. Backfilling is the deliberate one.
+      + `<button class="apps-menu-row quiet block-entry" onclick="openTimerMode('block')">Log a finished block<span class="amr-ico">${ico('plus')}</span></button>`;
   }
   paintIcons(menu);
 }
@@ -3867,7 +3970,7 @@ async function stopTracking(){
   if(_descSave) await _descSave;   // let a just-typed description land first
   if(!_currentUser || _guestMode) return;
   try{
-    const {data, error} = await sb.from('time_data').select('entries, timer').eq('user_id', _currentUser.id).maybeSingle();
+    const {data, error} = await sb.from('time_data').select('timer').eq('user_id', _currentUser.id).maybeSingle();
     if(error) throw error;
     const timer = data && data.timer;
     if(!timer || !timer.started_at){ RUNNING_TIMER = null; renderTimerButton(); return; }
@@ -3882,27 +3985,106 @@ async function stopTracking(){
       showNotice('Timer ran less than a minute — nothing logged.', 'info');
       return;
     }
-    const entries = Array.isArray(data.entries) ? data.entries : [];
-    const segs = splitRange(startDt, endDt);
-    segs.forEach(seg => entries.push(touch({
-      id: newId(), category_id: timer.category_id, subcategory: timer.subcategory || null,
-      date: seg.date, start: seg.start, end: seg.end, minutes: seg.minutes,
-      description: timer.description || '', source: 'timer'
-    })));
-    const {error: werr} = await sb.from('time_data')
-      .update({entries, timer: null, settings: await timeSettingsWithSlot(), updated_at: nowStamp()}).eq('user_id', _currentUser.id);
-    if(werr) throw werr;
-    RUNNING_TIMER = null;
-    TIME_ENTRIES = entries;   // so what was just logged shows on the day at once
-    renderTimerButton();
-    if(currentView === 'day') renderDay();
-    const total = segs.reduce((n, sg) => n + sg.minutes, 0);
+    const {segs, total} = await writeTimeBlock({
+      startDt, endDt, categoryId: timer.category_id, subcategory: timer.subcategory,
+      description: timer.description, source: 'timer', clearTimer: true
+    });
     const h = Math.floor(total / 60), m = total % 60;
     showNotice(`Logged ${h ? h + 'h ' : ''}${m}m${segs.length > 1 ? ` across ${segs.length} days` : ''}.`, 'info');
   }catch(e){
     console.error('stopTracking error:', e);
     showNotice("Couldn't stop the timer.", 'warn');
   }
+}
+// The third way out of a running timer, between logging a wrong 14 hours and
+// throwing the afternoon away entirely. She names what the block was actually
+// worth and that is what gets written.
+//
+// The corrected block runs FORWARD FROM THE ORIGINAL START, not backward from
+// now: a timer left running is one she started when the work started and forgot
+// to stop, so 90 minutes from a 9am start is 9:00–10:30. Anchoring to now would
+// put this morning's reading at 11pm.
+async function stopTrackingAdjusted(){
+  const field = document.getElementById('timer-adjust-input');
+  const mins = parseDurationMins(field ? field.value : '');
+  if(!(mins > 0)){
+    showNotice('Say how long it actually was — "90", "1h30", or "1:30".', 'warn');
+    if(field){ field.focus(); field.select(); }
+    return;
+  }
+  if(mins > 24 * 60){
+    showNotice("That's more than a day — check the number.", 'warn');
+    if(field){ field.focus(); field.select(); }
+    return;
+  }
+  _timerMode = null;
+  toggleTimerMenu(false);
+  if(_descSave) await _descSave;   // let a just-typed description land first
+  if(!_currentUser || _guestMode) return;
+  try{
+    // Re-read the timer rather than trust RUNNING_TIMER: the description or
+    // category may have changed on another device, and the start time is the
+    // anchor the whole correction is measured from.
+    const {data, error} = await sb.from('time_data').select('timer').eq('user_id', _currentUser.id).maybeSingle();
+    if(error) throw error;
+    const timer = data && data.timer;
+    if(!timer || !timer.started_at){
+      RUNNING_TIMER = null; renderTimerButton();
+      showNotice('That timer was already stopped somewhere else.', 'info');
+      return;
+    }
+    const startDt = new Date(Date.parse(timer.started_at));
+    const endDt = new Date(startDt.getTime() + mins * 60000);
+    const {total} = await writeTimeBlock({
+      startDt, endDt, categoryId: timer.category_id, subcategory: timer.subcategory,
+      description: timer.description, source: 'timer', clearTimer: true
+    });
+    showNotice(`Logged ${fmtMins(total)} from ${fmtTime(hhmmOf(startDt))}.`, 'info');
+  }catch(e){
+    console.error('stopTrackingAdjusted error:', e);
+    showNotice("Couldn't log that.", 'warn');
+  }
+}
+// A block that was never timed — the meeting she sat through without touching
+// the app. The date defaults to the day she is looking at, the same bargain the
+// skincare panel makes: navigate to yesterday and yesterday is what you log.
+async function logManualBlock(){
+  const val = id => (document.getElementById(id) || {}).value || '';
+  const date = val('block-date') || currentDate;
+  const start = val('block-start'), end = val('block-end');
+  if(!start || !end){
+    showNotice('Needs a start and an end.', 'warn');
+    return;
+  }
+  // Reuses the assistant's resolver, so the menu and the chat agree on what
+  // "10pm to 1am" means and share the more-than-a-day refusal.
+  const block = resolveLoggedBlock({date, time: start, end_time: end});
+  if(block.error){ showNotice(block.error, 'warn'); return; }
+  const categoryId = Number(val('block-cat'));
+  const cat = TIME_CATS.find(c => c.id === categoryId);
+  if(!cat){ showNotice('Pick a category.', 'warn'); return; }
+  const description = val('block-desc');
+  _timerMode = null;
+  toggleTimerMenu(false);
+  if(!_currentUser || _guestMode){ showNotice('Sign in to track time.', 'warn'); return; }
+  try{
+    const {segs, total} = await writeTimeBlock({
+      startDt: block.startDt, endDt: block.endDt, categoryId, description, source: 'manual'
+    });
+    const when = segs[0].date === todayStr() ? '' : ` on ${fmtShort(segs[0].date)}`;
+    showNotice(`Logged ${fmtMins(total)} of ${cat.name}${when}.`, 'info');
+  }catch(e){
+    console.error('logManualBlock error:', e);
+    showNotice("Couldn't log that block.", 'warn');
+  }
+}
+// Both forms are reached from the menu, so the guard's button opens the menu
+// rather than growing an input of its own.
+function openTimerMode(mode){
+  _timerMode = mode;
+  toggleTimerMenu(true);
+  const focusId = mode === 'adjust' ? 'timer-adjust-input' : 'block-desc';
+  setTimeout(() => { const f = document.getElementById(focusId); if(f) f.focus(); }, 30);
 }
 // Stopping was the only way out of a running timer, so a timer started on the
 // wrong thing — or left running overnight — could only be turned into a false
@@ -5147,23 +5329,12 @@ async function assistantLogTime(action){
   try{
     // Re-read before writing, exactly as deleting does: this list belongs to the
     // tracker, and sending back a stale copy would drop whatever it added since.
-    const {data, error} = await sb.from('time_data').select('entries').eq('user_id', _currentUser.id).maybeSingle();
-    if(error) throw error;
-    const entries = Array.isArray(data && data.entries) ? data.entries : [];
-    // Same per-day split stopping a timer uses, so a block spanning midnight
+    // The per-day split lives in writeTimeBlock, so a block spanning midnight
     // becomes one entry per date rather than a single impossible one.
-    const segs = splitRange(block.startDt, block.endDt);
-    segs.forEach(seg => entries.push(touch({
-      id: newId(), category_id: cat.id, subcategory: null,
-      date: seg.date, start: seg.start, end: seg.end, minutes: seg.minutes,
-      description: (action.description || action.title || '').trim(), source: 'manual'
-    })));
-    const {error: werr} = await sb.from('time_data')
-      .update({entries, updated_at: new Date().toISOString()}).eq('user_id', _currentUser.id);
-    if(werr) throw werr;
-    TIME_ENTRIES = entries;
-    if(currentView === 'day') renderDay();
-    const total = segs.reduce((n, sg) => n + sg.minutes, 0);
+    const {segs, total} = await writeTimeBlock({
+      startDt: block.startDt, endDt: block.endDt, categoryId: cat.id,
+      description: action.description || action.title, source: 'manual'
+    });
     const when = segs[0].date === todayStr() ? '' : ` on ${fmtShort(segs[0].date)}`;
     return [`Logged ${fmtMins(total)}${when}.`, catNote, block.note].filter(Boolean).join(' ');
   }catch(e){
