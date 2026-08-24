@@ -47,6 +47,48 @@
   --fs-lg: 1rem;          /* 16px — section heads, modal titles */
   --fs-title: 1.375rem;   /* 22px — the day/week date: one anchor per screen */
   --fs-display: 1.5rem;   /* 24px — the app title */
+  --font: system-ui, -apple-system, "Segoe UI", sans-serif;
+  --lh: 1.45;
+  --tracking-title: -0.015em;   /* the big date, tightened as a sans wants */
+  --tracking-caps: 0.04em;      /* the small uppercase labels */
+}
+/* ---------------------------------------------------------------------
+   SERIF THEME (optional, `data-font="serif"`)
+
+   Century Schoolbook is the target — the face her briefs are set in — and it
+   is named first so a machine that actually has it (Office installs it) uses
+   the real thing. After that the stack is ordered by what preserves the type
+   scale, not by what looks closest in a specimen.
+
+   `ui-serif` is second for one reason: on her devices it resolves to New York,
+   which is *variable-weight*. Every other system serif — Georgia, Charter,
+   Iowan, Cambria — ships Regular and Bold and nothing else, which would
+   collapse this app's four weight steps (450/500/600/650) into two and quietly
+   throw away half the hierarchy. New York keeps all four distinct, and is a
+   sturdy high-x-height transitional in the same family of shapes as Century.
+   The rest are there for a machine without it, accepting the collapse.
+
+   Sizes step up at the small end only. Serif detail is what gets lost first at
+   10 and 11px, while 22 and 24px read fine unchanged — and bumping those would
+   have reflowed the day toolbar, which is sized around the date.
+
+   Lining figures are stated outright rather than themed. Georgia's default
+   numerals are old-style — varying heights, some below the baseline — which in
+   an hour grid and a set of dates reads as broken rather than characterful.
+   `lining-nums` is a no-op for system-ui, which is already lining, so it costs
+   the sans theme nothing and does not need a variable that could go wrong.
+   --------------------------------------------------------------------- */
+:root[data-font="serif"] {
+  --font: "Century Schoolbook", "New Century Schoolbook", "Century Schoolbook L", C059,
+          ui-serif, "Iowan Old Style", Charter, Cambria, Georgia, serif;
+  --fs-micro: 0.6875rem;  /* 11px — was 10 */
+  --fs-xs: 0.75rem;       /* 12px — was 11 */
+  --fs-sm: 0.8125rem;     /* 13px — was 12 */
+  --fs-base: 0.84375rem;  /* 13.5px — was 13 */
+  --fs-md: 0.90625rem;    /* 14.5px — was 14 */
+  --lh: 1.5;              /* serifs want a little more air between lines */
+  --tracking-title: 0;    /* tightening a serif closes its counters */
+  --tracking-caps: 0.06em;
 }
 :root[data-theme="minimal"] {
   --page: #f9f9f7;
@@ -101,7 +143,7 @@
 * { box-sizing: border-box; margin: 0; padding: 0; }
 .icon { width: 1em; height: 1em; display: inline-block; vertical-align: -0.125em; flex: none; }
 .icon-lg { width: 1.6em; height: 1.6em; vertical-align: -0.35em; }
-body { font-family: system-ui, -apple-system, "Segoe UI", sans-serif; background: var(--page); color: var(--ink); line-height: 1.45; padding-bottom: 40px; }
+body { font-family: var(--font); background: var(--page); color: var(--ink); line-height: var(--lh); font-variant-numeric: lining-nums; padding-bottom: 40px; }
 button, input, select, textarea { font-family: inherit; }
 a { color: var(--accent); }
 
@@ -170,11 +212,11 @@ h3 { font-size: var(--fs-md); font-weight: 600; margin-bottom: 6px; }
    body text under it — a spare layout with no anchor reads as thin rather than
    composed. Negative tracking is what keeps a larger size from looking loose;
    headline sizes need it, body sizes don't. */
-.day-wx { display: inline-flex; align-items: center; gap: 5px; margin-left: 4px; color: var(--muted); font-size: var(--fs-sm); font-variant-numeric: tabular-nums; white-space: nowrap; }
+.day-wx { display: inline-flex; align-items: center; gap: 5px; margin-left: 4px; color: var(--muted); font-size: var(--fs-sm); font-variant-numeric: lining-nums tabular-nums; white-space: nowrap; }
 .day-wx .icon { width: 1.1em; height: 1.1em; opacity: 0.8; }
 .day-wx .wx-lo { opacity: 0.75; }
 .day-wx .wx-pop { color: var(--accent); opacity: 0.85; }
-.day-toolbar .day-title { font-size: var(--fs-title); font-weight: 650; letter-spacing: -0.015em; min-width: 170px; font-variant-numeric: tabular-nums; }
+.day-toolbar .day-title { font-size: var(--fs-title); font-weight: 650; letter-spacing: var(--tracking-title); min-width: 170px; font-variant-numeric: lining-nums tabular-nums; }
 
 .list-drop { min-height: 12px; }
 .task-row { display: flex; align-items: center; gap: 8px; padding: 8px 6px; border-radius: 8px; transition: transform 120ms ease, box-shadow 120ms ease, background 120ms ease; cursor: default; user-select: none; }
@@ -189,7 +231,7 @@ h3 { font-size: var(--fs-md); font-weight: 600; margin-bottom: 6px; }
 .task-row .t-title { flex: 1; font-size: var(--fs-md); cursor: pointer; min-width: 0; overflow-wrap: anywhere; }
 .task-row.done .t-title { opacity: var(--done-op); text-decoration: line-through; color: var(--muted); }
 .task-row.done { opacity: var(--done-op); }
-.t-time-chip { font-size: var(--fs-xs); font-variant-numeric: tabular-nums; color: var(--accent-strong); background: var(--accent-light); border-radius: 6px; padding: 2px 6px; flex: none; }
+.t-time-chip { font-size: var(--fs-xs); font-variant-numeric: lining-nums tabular-nums; color: var(--accent-strong); background: var(--accent-light); border-radius: 6px; padding: 2px 6px; flex: none; }
 .t-rolled-chip { font-size: var(--fs-xs); color: var(--serious); border: 1px solid var(--serious); border-radius: 6px; padding: 1px 5px; flex: none; }
 .rolled-dot { display: inline-block; width: 6px; height: 6px; border-radius: 50%; background: var(--serious); margin-left: 5px; vertical-align: middle; }
 .t-recur-ico { color: var(--muted); flex: none; }
@@ -204,7 +246,7 @@ h3 { font-size: var(--fs-md); font-weight: 600; margin-bottom: 6px; }
 .task-group-head:hover { color: var(--ink); }
 .tg-chevron { display: inline-flex; color: var(--muted); transition: transform 120ms ease; }
 .tg-chevron.open { transform: rotate(90deg); }
-.tg-count { margin-left: auto; font-size: var(--fs-sm); color: var(--muted); font-weight: 500; font-variant-numeric: tabular-nums; }
+.tg-count { margin-left: auto; font-size: var(--fs-sm); color: var(--muted); font-weight: 500; font-variant-numeric: lining-nums tabular-nums; }
 .task-group-body { padding-left: 2px; }
 .today-card-head { display: flex; align-items: center; justify-content: space-between; margin-bottom: 10px; }
 .today-card-head h2 { margin-bottom: 0; }
@@ -224,7 +266,7 @@ h3 { font-size: var(--fs-md); font-weight: 600; margin-bottom: 6px; }
 .asg-group.all-done .asg-date { border-bottom: none; margin-bottom: 0; padding-bottom: 2px; opacity: 0.75; }
 .asg-group.all-done .task-group-head { border-top: none; padding: 4px 6px; }
 .asg-group.all-done .tg-name { color: var(--good); }
-.asg-date { font-size: var(--fs-md); font-weight: 650; color: var(--ink); padding-bottom: 6px; border-bottom: 1px solid var(--hairline); margin-bottom: 4px; font-variant-numeric: tabular-nums; }
+.asg-date { font-size: var(--fs-md); font-weight: 650; color: var(--ink); padding-bottom: 6px; border-bottom: 1px solid var(--hairline); margin-bottom: 4px; font-variant-numeric: lining-nums tabular-nums; }
 .asg-group.overdue .asg-date { color: var(--serious); }
 .asg { border-radius: 8px; }
 .asg-main { display: flex; align-items: flex-start; gap: 8px; padding: 3px 4px; border-radius: 8px; }
@@ -238,7 +280,7 @@ h3 { font-size: var(--fs-md); font-weight: 600; margin-bottom: 6px; }
 .asg-course { font-size: var(--fs-sm); font-weight: 650; color: var(--accent-strong); flex: none; }
 .asg-text { font-size: var(--fs-md); cursor: text; overflow-wrap: anywhere; }
 .asg-text:hover { text-decoration: underline dotted var(--muted); }
-.asg-count { font-size: var(--fs-xs); color: var(--muted); font-variant-numeric: tabular-nums; }
+.asg-count { font-size: var(--fs-xs); color: var(--muted); font-variant-numeric: lining-nums tabular-nums; }
 .asg-detail { font-size: var(--fs-sm); color: var(--ink-2); line-height: 1.35; overflow-wrap: anywhere; }
 .asg-detail a, .asg-sub-text a { color: var(--accent); }
 .asg.done > .asg-main .asg-text, .asg.done > .asg-main .asg-detail, .asg-sub.done .asg-sub-text { text-decoration: line-through; opacity: var(--done-op); }
@@ -267,7 +309,7 @@ h3 { font-size: var(--fs-md); font-weight: 600; margin-bottom: 6px; }
    text column so it reads as belonging to its row rather than to the day. */
 .asg-editor { margin: 4px 0 8px 32px; padding: 8px 10px; border: 1px solid var(--border); border-radius: 10px; background: var(--page); display: flex; flex-direction: column; gap: 7px; }
 .ae-field { display: flex; flex-direction: column; gap: 2px; flex: 1; min-width: 0; }
-.ae-field > span { font-size: var(--fs-micro); text-transform: uppercase; letter-spacing: 0.04em; color: var(--muted); font-weight: 650; }
+.ae-field > span { font-size: var(--fs-micro); text-transform: uppercase; letter-spacing: var(--tracking-caps); color: var(--muted); font-weight: 650; }
 .ae-input { font: inherit; font-size: var(--fs-base); padding: 5px 7px; border-radius: 7px; border: 1px solid var(--border); background: var(--surface); color: var(--ink); width: 100%; }
 .ae-input:focus { border-color: var(--accent); outline: none; }
 textarea.ae-input { resize: vertical; line-height: 1.4; min-height: 2.4em; }
@@ -284,8 +326,8 @@ textarea.ae-input { resize: vertical; line-height: 1.4; min-height: 2.4em; }
 .asg-week { margin-bottom: 12px; }
 .asg-week-head { display: flex; align-items: center; gap: 8px; width: 100%; background: none; border: none; border-bottom: 1px solid var(--hairline); padding: 7px 4px; font: inherit; cursor: pointer; text-align: left; color: var(--ink); }
 .asg-week-head:hover { color: var(--accent-strong); }
-.asg-week-label { font-size: var(--fs-md); font-weight: 650; font-variant-numeric: tabular-nums; }
-.asg-week-sum { margin-left: auto; font-size: var(--fs-xs); color: var(--muted); font-variant-numeric: tabular-nums; }
+.asg-week-label { font-size: var(--fs-md); font-weight: 650; font-variant-numeric: lining-nums tabular-nums; }
+.asg-week-sum { margin-left: auto; font-size: var(--fs-xs); color: var(--muted); font-variant-numeric: lining-nums tabular-nums; }
 .asg-week.clear .asg-week-sum { color: var(--good); }
 .asg-week.open > .asg-week-head { margin-bottom: 8px; }
 .asg-week .asg-group { margin-left: 10px; }
@@ -307,14 +349,14 @@ textarea.ae-input { resize: vertical; line-height: 1.4; min-height: 2.4em; }
 .hour-row:first-child { border-top: none; }
 /* Tabular figures: this column is read down as a ruler, so "11am" and "1pm"
    have to hang off the same right edge without the digits shifting width. */
-.hour-label { width: 54px; flex: none; font-size: var(--fs-xs); color: var(--muted); padding: 2px 6px; text-align: right; font-variant-numeric: tabular-nums; }
+.hour-label { width: 54px; flex: none; font-size: var(--fs-xs); color: var(--muted); padding: 2px 6px; text-align: right; font-variant-numeric: lining-nums tabular-nums; }
 .hour-slot { flex: 1; position: relative; }
 .hour-slot.dragover { background: var(--accent-light); }
 .grid-blocks { position: absolute; left: 60px; right: 6px; top: 0; bottom: 0; pointer-events: none; }
 .grid-block { position: absolute; left: 0; right: 0; border-radius: 8px; padding: 3px 8px; font-size: var(--fs-sm); overflow: hidden; cursor: pointer; background: var(--accent-light); border: 1px solid var(--accent); color: var(--accent-strong); transition: transform 120ms ease, box-shadow 120ms ease; touch-action: none; user-select: none; pointer-events: auto; }
 .grid-block:hover { transform: translateY(-1px); box-shadow: var(--shadow); }
 .grid-block.done { opacity: var(--done-op); text-decoration: line-through; }
-.grid-block .gb-time { font-size: var(--fs-micro); font-variant-numeric: tabular-nums; opacity: 0.8; }
+.grid-block .gb-time { font-size: var(--fs-micro); font-variant-numeric: lining-nums tabular-nums; opacity: 0.8; }
 .grid-block.gcal-event { background: var(--page); border-style: dashed; color: var(--ink-2); cursor: default; border-left-width: 3px; }
 .grid-block.gcal-event.writable { cursor: grab; }
 .grid-block.resizing { transition: none; box-shadow: var(--shadow); z-index: 5; }
@@ -362,7 +404,7 @@ textarea.ae-input { resize: vertical; line-height: 1.4; min-height: 2.4em; }
 .week-col.dragover { outline: 2px solid var(--accent); outline-offset: -2px; }
 .week-col-head { display: flex; justify-content: space-between; align-items: baseline; margin-bottom: 6px; cursor: pointer; }
 .week-col-head .wc-day { font-size: var(--fs-sm); color: var(--muted); }
-.week-col-head .wc-date { font-size: var(--fs-md); font-weight: 600; font-variant-numeric: tabular-nums; }
+.week-col-head .wc-date { font-size: var(--fs-md); font-weight: 600; font-variant-numeric: lining-nums tabular-nums; }
 .week-col.today .wc-date { color: var(--accent-strong); }
 .week-chip { display: flex; align-items: center; gap: 5px; font-size: var(--fs-sm); padding: 4px 5px; border-radius: 6px; margin-bottom: 3px; cursor: grab; transition: background 120ms ease; touch-action: none; user-select: none; }
 .week-chip:hover { background: var(--hover); }
@@ -404,7 +446,7 @@ textarea.ae-input { resize: vertical; line-height: 1.4; min-height: 2.4em; }
 #meal-plan-card.dragover { outline: 2px dashed var(--accent); outline-offset: -2px; background: var(--accent-light); }
 .meal-made { width: 18px; height: 18px; border-radius: 50%; border: 1.5px solid var(--muted); flex: none; display: inline-flex; align-items: center; justify-content: center; cursor: pointer; color: #fff; transition: background 120ms ease, border-color 120ms ease; }
 .meal-made.on { background: var(--good); border-color: var(--good); }
-.meal-type { flex: none; font-size: var(--fs-micro); font-weight: 700; text-transform: uppercase; letter-spacing: 0.05em; color: var(--muted); background: var(--accent-light); border-radius: 5px; padding: 2px 5px; line-height: 1; }
+.meal-type { flex: none; font-size: var(--fs-micro); font-weight: 700; text-transform: uppercase; letter-spacing: var(--tracking-caps); color: var(--muted); background: var(--accent-light); border-radius: 5px; padding: 2px 5px; line-height: 1; }
 .meal-type-pick { display: flex; gap: 6px; }
 .meal-type-pick button { flex: 1; font: inherit; font-size: var(--fs-base); padding: 6px 8px; border: 1px solid var(--border); background: var(--surface); color: var(--muted); border-radius: 8px; cursor: pointer; transition: border-color 120ms ease, background 120ms ease, color 120ms ease; }
 .meal-type-pick button:hover { border-color: var(--accent); }
@@ -451,7 +493,7 @@ a.meal-title:hover .meal-link-ico { opacity: 1; }
 .skin-line .sk-chevron { flex: none; transition: transform 120ms ease; }
 .skin-line .sk-chevron.open { transform: rotate(90deg); }
 .sk-slot-dots { display: inline-flex; align-items: center; gap: 3px; }
-.sk-slot-dots b { font-weight: 700; font-size: var(--fs-micro); text-transform: uppercase; letter-spacing: 0.05em; margin-right: 2px; }
+.sk-slot-dots b { font-weight: 700; font-size: var(--fs-micro); text-transform: uppercase; letter-spacing: var(--tracking-caps); margin-right: 2px; }
 .sk-dot { width: 6px; height: 6px; border-radius: 50%; border: 1px solid var(--muted); flex: none; }
 .sk-dot.on { background: var(--accent); border-color: var(--accent); }
 .sk-more { font-size: var(--fs-micro); margin-left: 2px; }
@@ -486,13 +528,13 @@ a.meal-title:hover .meal-link-ico { opacity: 1; }
 .sk-manage:hover { color: var(--accent); }
 .sk-prod-row select { font: inherit; font-size: var(--fs-sm); padding: 3px 5px; border-radius: 6px; border: 1px solid var(--border); background: var(--page); color: var(--ink); flex: none; }
 .sk-prod-row.retired .r-title { opacity: var(--done-op); }
-.sk-badge { font-size: var(--fs-micro); font-weight: 700; text-transform: uppercase; letter-spacing: 0.05em; color: var(--muted); background: var(--accent-light); border-radius: 5px; padding: 2px 5px; margin-left: 5px; white-space: nowrap; }
+.sk-badge { font-size: var(--fs-micro); font-weight: 700; text-transform: uppercase; letter-spacing: var(--tracking-caps); color: var(--muted); background: var(--accent-light); border-radius: 5px; padding: 2px 5px; margin-left: 5px; white-space: nowrap; }
 /* .routine-row's generic button reset would strip the badge back to bare text. */
 .routine-row button.sk-badge { background: var(--accent-light); border: 1px solid transparent; }
 .routine-row button.sk-badge:hover { color: var(--accent); border-color: var(--accent); }
 
 .law-item { display: flex; align-items: baseline; gap: 7px; padding: 5px 9px; margin-bottom: 5px; border-radius: 8px; border: 1px solid var(--border); border-left: 3px solid var(--serious); background: var(--surface); font-size: var(--fs-base); }
-.law-item .law-kind { font-size: var(--fs-micro); text-transform: uppercase; letter-spacing: 0.05em; color: var(--muted); flex: none; }
+.law-item .law-kind { font-size: var(--fs-micro); text-transform: uppercase; letter-spacing: var(--tracking-caps); color: var(--muted); flex: none; }
 .law-item .law-title { flex: 1; min-width: 0; }
 .law-item.compact { font-size: var(--fs-xs); padding: 3px 6px; margin-bottom: 3px; gap: 5px; }
 .law-item.compact .law-kind { display: none; }
@@ -508,11 +550,11 @@ body.time-view .sidebar-col, body.assign-view .sidebar-col { display: none; }
 .ts-table { width: 100%; border-collapse: collapse; font-size: var(--fs-md); }
 .ts-table + .ts-table { margin-top: 2px; }
 .ts-table td { padding: 4px 6px; vertical-align: top; }
-.ts-date { width: 5.5rem; color: var(--muted); font-variant-numeric: tabular-nums; white-space: nowrap; }
+.ts-date { width: 5.5rem; color: var(--muted); font-variant-numeric: lining-nums tabular-nums; white-space: nowrap; }
 .ts-desc { color: var(--ink); }
 /* Tabular figures and right alignment: the column is read down as numbers, so
    the digits have to line up the way they do on the form. */
-.ts-hours { width: 4rem; text-align: right; font-variant-numeric: tabular-nums; white-space: nowrap; }
+.ts-hours { width: 4rem; text-align: right; font-variant-numeric: lining-nums tabular-nums; white-space: nowrap; }
 .ts-total td { border-top: 1px solid var(--border); padding-top: 7px; font-weight: 600; }
 .ts-grand td { border-top: 2px solid var(--ink-2); padding-top: 8px; font-weight: 700; }
 .ts-note { margin: 14px 0 0; font-size: var(--fs-sm); color: var(--muted); }
@@ -555,7 +597,7 @@ body.time-view .sidebar-col, body.assign-view .sidebar-col { display: none; }
 .grid-block.time-entry.unplaced:hover { transform: translateY(-1px); box-shadow: var(--shadow); }
 .grid-block.time-entry.arming { border-color: var(--critical); border-left-color: var(--critical); }
 
-.timer-chip { display: inline-flex; align-items: center; gap: 6px; padding: 5px 10px; border-radius: 999px; border: 1px solid var(--serious); background: var(--accent-light); color: var(--serious); font: inherit; font-size: var(--fs-base); font-variant-numeric: tabular-nums; cursor: pointer; }
+.timer-chip { display: inline-flex; align-items: center; gap: 6px; padding: 5px 10px; border-radius: 999px; border: 1px solid var(--serious); background: var(--accent-light); color: var(--serious); font: inherit; font-size: var(--fs-base); font-variant-numeric: lining-nums tabular-nums; cursor: pointer; }
 .timer-chip .tc-dot { width: 6px; height: 6px; border-radius: 50%; background: var(--serious); flex: none; animation: tcpulse 2s ease-in-out infinite; }
 @keyframes tcpulse { 0%, 100% { opacity: 1; } 50% { opacity: 0.35; } }
 .timer-chip .tc-label { max-width: 12ch; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; opacity: 0.85; }
@@ -577,7 +619,7 @@ body.time-view .sidebar-col, body.assign-view .sidebar-col { display: none; }
 .apps-menu-wrap { position: relative; display: inline-flex; }
 .apps-menu { position: absolute; top: calc(100% + 6px); right: 0; z-index: 400; min-width: 210px; background: var(--surface); border: 1px solid var(--border); border-radius: 12px; box-shadow: 0 10px 28px rgba(0,0,0,0.14); padding: 6px; display: none; }
 .apps-menu.open { display: block; }
-.apps-menu-label { font-size: var(--fs-xs); text-transform: uppercase; letter-spacing: 0.05em; color: var(--muted); padding: 6px 8px 3px; }
+.apps-menu-label { font-size: var(--fs-xs); text-transform: uppercase; letter-spacing: var(--tracking-caps); color: var(--muted); padding: 6px 8px 3px; }
 /* Used by both <a> (app links) and <button> (timer actions). The button resets
    are what keep the two identical — without them a button here renders with the
    browser's default chrome, which is a heavy border this app never uses. */
@@ -724,7 +766,7 @@ button.danger-ghost { cursor: pointer; border: 1px solid var(--critical); backgr
 footer { max-width: 1320px; margin: 24px auto 0; padding: 0 16px; font-size: var(--fs-sm); color: var(--muted); display: flex; gap: 14px; flex-wrap: wrap; }
 footer button { font: inherit; font-size: var(--fs-sm); border: none; background: none; color: var(--muted); text-decoration: underline; cursor: pointer; }
 </style>
-<script>try{const t=localStorage.getItem('agenda-theme');if(t)document.documentElement.dataset.theme=t;}catch(e){}</script>
+<script>try{const t=localStorage.getItem('agenda-theme');if(t)document.documentElement.dataset.theme=t;const f=localStorage.getItem('agenda-font');if(f)document.documentElement.dataset.font=f;}catch(e){}</script>
 </head>
 <body>
 
@@ -1013,6 +1055,13 @@ footer button { font: inherit; font-size: var(--fs-sm); border: none; background
         <select id="setting-theme" onchange="changeTheme()">
           <option value="warm">Warm</option>
           <option value="minimal">Minimal</option>
+        </select>
+      </div>
+      <div class="field">
+        <label>Typeface</label>
+        <select id="setting-font" onchange="changeFont()">
+          <option value="sans">Sans serif</option>
+          <option value="serif">Serif</option>
         </select>
       </div>
       <h3 style="margin-top:18px">Google Calendar</h3>
@@ -1800,6 +1849,7 @@ function openRoutinesModal(){
   document.getElementById('setting-display-name').value = displayName();
   document.getElementById('setting-week-start').value = weekStartSetting();
   document.getElementById('setting-theme').value = normalizedTheme();
+  document.getElementById('setting-font').value = normalizedFont();
   updateSettingsMenuCounts();
   renderGcalSettings();
   renderPushSettings();
@@ -2032,6 +2082,20 @@ function normalizedTheme(){
   const raw = (SETTINGS && SETTINGS.theme) || 'warm';
   return raw === 'default' ? 'minimal' : raw;
 }
+// Deliberately separate from the colour theme rather than a third theme value:
+// they are orthogonal, and folding them together would turn two settings into
+// four themes and forbid warm-plus-serif.
+function normalizedFont(){ return (SETTINGS && SETTINGS.font) === 'serif' ? 'serif' : 'sans'; }
+function applyFont(){
+  const font = normalizedFont();
+  document.documentElement.dataset.font = font === 'sans' ? '' : font;
+  try{ localStorage.setItem('agenda-font', font === 'sans' ? '' : font); }catch(e){}
+}
+function changeFont(){
+  SETTINGS.font = document.getElementById('setting-font').value;
+  applyFont();
+  saveToStorage();
+}
 function applyTheme(){
   const theme = normalizedTheme();
   document.documentElement.dataset.theme = theme === 'warm' ? '' : theme;
@@ -2042,6 +2106,7 @@ function changeTheme(){
   SETTINGS.theme = document.getElementById('setting-theme').value;
   saveToStorage();
   applyTheme();
+  applyFont();
 }
 
 /* =====================================================================
@@ -6247,6 +6312,7 @@ function afterLoad(){
   dedupeQuickLinkIds();
   pruneGhosts();
   applyTheme();
+  applyFont();
   runRollover();
   ensureMonthlyRecurring();
   // The day-view nudge needs the planner's calendar, which until now was only

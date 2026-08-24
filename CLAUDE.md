@@ -36,6 +36,35 @@ Sanctioned additions (this app only):
   so the app has no hardcoded user. It lives in `settings`, not a new column,
   for the `_tomb` reason: older builds round-trip that column untouched.
 - Emoji allowed in user content. Warmth via accent colors, rounded cards, micro-copy.
+- **Optional serif typeface (2026-08-24)** — *Routines & settings → Typeface*,
+  `settings.font` = `sans` (default) | `serif`. Deliberately **separate from the
+  colour theme**, not a third theme value: they are orthogonal, and folding them
+  together would turn two settings into four themes and forbid warm-plus-serif.
+  Same pre-paint `localStorage` trick as the colour theme so a serif page never
+  flashes sans.
+
+  Century Schoolbook is the target — the face her briefs are set in — and is
+  named first so a machine that actually has it uses the real thing. **After
+  that the stack is ordered by what preserves the type scale, not by what looks
+  closest in a specimen.** `ui-serif` comes second because on her devices it
+  resolves to New York, which is variable-weight; every other system serif
+  (Georgia, Charter, Iowan, Cambria) ships Regular and Bold only, which would
+  collapse this app's four weight steps — 450/500/600/650 — into two and throw
+  away half the hierarchy. Those follow as fallbacks, accepting the collapse.
+
+  The scale steps up **at the small end only** (micro 10→11, xs 11→12, sm 12→13,
+  base 13→13.5, md 14→14.5). Serif detail is what goes first at 10 and 11px,
+  while 22 and 24px read fine unchanged — and bumping those would have reflowed
+  the day toolbar, which is sized around the date. Line-height opens 1.45→1.5,
+  the big date's −0.015em tracking goes to 0 (tightening a serif closes its
+  counters), and uppercase micro-labels widen 0.04→0.06em.
+
+  **Lining figures are stated outright, not themed.** Georgia's default numerals
+  are old-style — varying heights, some below the baseline — which in an hour
+  grid reads as broken. `lining-nums` is a no-op for system-ui, so it costs the
+  sans theme nothing. Note this could *not* be a variable: `font-variant-numeric:
+  normal tabular-nums` is invalid and would have silently killed tabular figures
+  in the sans theme.
 - **Hover animations (Bri's request):** subtle and fast — cards lift slightly (translateY + shadow via CSS transition ~120ms), the checkbox circle fills on hover, drag handles fade in. Nothing bouncy or slow; animation should make the interface feel alive, not busy.
 
 ## Model escalation
