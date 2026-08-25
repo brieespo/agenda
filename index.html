@@ -568,6 +568,12 @@ a.meal-title:hover .meal-link-ico { opacity: 1; }
 .cyc-marks .icon { width: 8px; height: 8px; stroke-width: 2.5; flex: none; color: var(--muted); }
 .cyc-marks .icon.filled { fill: currentColor; }
 
+/* The same two rows on the day-view strip, where the panel is narrower and the
+   ringed chips wrap to a second line. Centring would float the icon in the
+   middle of a two-line block; it belongs against the first row of chips. */
+.skin-panel .cyc-row { align-items: flex-start; }
+.skin-panel .cyc-row > .icon { margin-top: 7px; }
+
 .cyc-editor { margin-top: 12px; padding-top: 10px; border-top: 1px solid var(--hairline); }
 .cyc-editor-head { font-size: var(--fs-sm); color: var(--muted); margin-bottom: 8px; }
 .cyc-row { display: flex; align-items: center; gap: 8px; margin-bottom: 7px; }
@@ -923,6 +929,9 @@ footer button { font: inherit; font-size: var(--fs-sm); border: none; background
         </div>
         <div class="meal-strip" id="meal-strip" data-drop="meal-day"></div>
         <div class="skin-strip" id="skin-strip"></div>
+        <!-- Same class, deliberately: "matches the skincare one" is the brief,
+             and sharing the stylesheet is the only way that stays true. -->
+        <div class="skin-strip" id="health-strip"></div>
         <div class="card" id="today-card" data-drop="today-list">
           <div class="today-card-head">
             <h2>Today</h2>
@@ -3854,7 +3863,11 @@ function renderCycle(){
     return;
   }
   if(!CYCLE){ el.innerHTML = `<p class="cyc-empty">Loading…</p>`; return; }
-  el.innerHTML = renderCycleGrid() + renderCycleEditor() + renderCycleHistory();
+  el.innerHTML = renderCycleGrid() + renderCycleEditor() + renderCycleHistory()
+    + `<div class="routine-row" style="border-bottom:none;margin-top:14px">
+         <span class="r-title">Show on the day view<div class="r-recur">A quiet Health line under your skincare. Closed it shows nothing at all — no dots, no dates — and only opens when you tap it.</div></span>
+         <button class="toggle ${healthVisible()?'on':''}" onclick="toggleHealthVisible()"></button>
+       </div>`;
   paintIcons(el);
 }
 
@@ -3986,6 +3999,109 @@ function renderCycleHistory(){
   return `<div class="cyc-hist"><h4>Recent cycles</h4>${rows}${summary}</div>`;
 }
 
+/* =====================================================================
+   HEALTH STRIP — the day-view way in to the cycle log.
+
+   Shares the skincare line's markup and stylesheet outright ("matches the
+   skincare one" was the brief, and sharing the CSS is the only way that keeps
+   being true as either changes).
+
+   One deliberate difference: **collapsed, this line shows nothing.** The
+   skincare line reports its dots at rest; this one reports only the word
+   Health. That is the whole privacy design surviving the move onto the main
+   screen — a glance at her day view, or someone else's glance, learns nothing,
+   and the marks appear only once she opens it herself. (The skincare line is
+   already fairly private at rest, which is what made this pattern the right one
+   to copy; this is that same idea taken one step further.) `_healthOpen` is not
+   persisted, so every load starts closed — it stays open while paging between
+   days, exactly as the skincare panel does.
+
+   It is also why the load is lazy: nothing is fetched until she expands it, so
+   a session that never opens this never pulls the rows at all.
+
+   Where a future tracker goes: water, symptoms, anything else day-grained.
+   Each would be another row in the panel below, and a `kind` in cycle_events
+   if it is a day mark. A count like water wants its own shape, not a chip row,
+   so don't force it through this one.
+   ===================================================================== */
+function getHealth(){
+  const s = SETTINGS.health;
+  if(!s || typeof s !== 'object') SETTINGS.health = {show: true};
+  return SETTINGS.health;
+}
+function healthVisible(){ return getHealth().show !== false; }
+function toggleHealthVisible(){
+  getHealth().show = !healthVisible();
+  touch(getHealth());
+  saveToStorage();
+  renderHealthStrip();
+  renderCycle();   // the toggle lives in that modal, so redraw its state
+}
+
+let _healthOpen = false;
+async function toggleHealthPanel(){
+  _healthOpen = !_healthOpen;
+  renderHealthStrip();
+  // Fetched on first open, never on load. A closed line needs no data, and not
+  // holding it is the point.
+  if(_healthOpen && !CYCLE && !_guestMode && _currentUser){
+    await loadCycle();
+    renderHealthStrip();
+  }
+}
+
+// Logging from the strip writes to whatever day the view is on, which is the
+// same bargain the skincare panel makes: navigate to yesterday and yesterday is
+// what you log. No Today/Yesterday switch here — this is not the tracker that
+// gets asked "did I actually do it last night?", and the full calendar in
+// settings is the better tool for backfilling anything older.
+async function setCycleFromStrip(kind, value){
+  await setCycle(currentDate, kind, value);
+  renderHealthStrip();
+}
+
+function renderHealthStrip(){
+  const el = document.getElementById('health-strip');
+  if(!el) return;
+  if(!healthVisible() || _guestMode || !_currentUser){ el.innerHTML = ''; return; }
+
+  const line = `<button class="skin-line" onclick="toggleHealthPanel()" title="Health">
+      <span data-ico="heart"></span>
+      <span class="sk-label">Health</span>
+      <span class="sk-dots"></span>
+      <span class="sk-chevron ${_healthOpen?'open':''}" data-ico="chevron-right"></span>
+    </button>`;
+
+  if(!_healthOpen){ el.innerHTML = line; paintIcons(el); return; }
+
+  let body;
+  if(!CYCLE){
+    body = `<p class="empty-note" style="padding:2px 0 6px">Loading…</p>`;
+  }else{
+    const chips = (steps, kind) => steps.map(([v, label]) => {
+      const on = cycGet(currentDate, kind) === v;
+      return `<button class="sk-chip ${on?'on':''}" onclick="setCycleFromStrip('${kind}','${v}')">`
+           + `<span class="sk-ring">${on?ico('check'):''}</span>${label}</button>`;
+    }).join('');
+    // Icons where the skincare panel puts AM/PM text. Two reasons: she asked
+    // for the marks to carry this rather than the words, and the settings
+    // modal already labels the same two rows exactly this way — a droplet and
+    // a heart — so the two places to log agree with each other.
+    body = `<div class="cyc-row">${icoCls('droplet', 'cyc-bleed')}`
+         + `<div class="cyc-chips">${chips(FLOW_STEPS, 'flow')}</div></div>`
+         + `<div class="cyc-row">${icoCls('heart')}`
+         + `<div class="cyc-chips">${chips(SEX_STEPS, 'sex')}</div></div>`;
+  }
+
+  const when = currentDate === todayStr() ? 'Logging today' : `Logging ${fmtLong(currentDate)}`;
+  el.innerHTML = line + `<div class="skin-panel">
+      <div class="skin-panel-head"><span class="sk-when">${esc(when)}</span></div>
+      ${body}
+      <div class="skin-panel-foot"><button class="sk-manage" onclick="openCycleSubmodal()">Calendar and history</button></div>
+    </div>`;
+  paintIcons(el);
+}
+
 /* The greeting reads the wall clock, not `currentDate` — navigating to next
    Tuesday shouldn't change what time of day it is here. */
 function renderGreeting(){
@@ -4008,7 +4124,7 @@ function renderAll(){
   renderSidebar();
   renderMonthSidebar();
   renderMealSidebar();
-  if(currentView==='day'){ renderMealStrip(); renderSkinStrip(); }
+  if(currentView==='day'){ renderMealStrip(); renderSkinStrip(); renderHealthStrip(); }
 }
 
 /* =====================================================================

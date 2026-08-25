@@ -308,12 +308,27 @@ first build had an `'unspecified'` value for watch-logged samples with no
 metadata; she doesn't wear the watch, and the honest-uncertainty argument for it
 lost to not wanting a third state.
 
+**The day-view Health line (added 2026-08-25).** Settings turned out to be too
+far to reach for something logged daily, so there is now a line under Skincare —
+same markup, same stylesheet, shared on purpose so "matches the skincare one"
+stays true as either changes. It opens in place to the same two chip rows and
+links out to the calendar. `settings.health.show` hides it.
+
+This is the one place the original "never renders outside its own modal" rule
+gave way, so it gives way as narrowly as possible: **collapsed, the line shows
+the word Health and nothing else** — no dots, where the skincare line reports
+its own at rest. `_healthOpen` is never persisted, so every load starts closed.
+The load is lazy for the same reason and not just for speed: a session that
+never opens the line never fetches the rows at all. Rows are labelled by the
+droplet and heart icons rather than the words *Bleeding* and *Sex*, matching the
+modal, and because she asked for the marks to carry this rather than the words.
+
 **Privacy is structural, not a setting.** Four things are true by construction
 and each is easy to break by accident:
 
-- It renders **only inside its own modal**. `renderAll()` does not call it, and
-  there is no day-view strip. This is the deliberate difference from skincare:
-  that line is a nudge and wants to be seen; this one is a record and does not.
+- Outside the day-view line above, it renders **only inside its own modal** —
+  and that line is deliberately mute until opened. The calendar, the history and
+  every date other than the one on screen live behind the modal.
 - It is **never cached** — no `localStorage`, and rows are re-read on every open
   rather than held. Costs one small query per open; buys a signed-out phone in
   someone else's hand having nothing to show.
@@ -403,6 +418,12 @@ statement, so the uuid never has to be found by hand or pasted into a chat. The
 file ends with a `count(*)` because a wrong email matches no user and inserts
 nothing **without erroring**. It streams the zip: `export.xml` runs to hundreds
 of MB.
+
+**Asked for, not built yet:** a *Tracking* tab for visualising things over time —
+skincare usage, task streaks, and whatever else earns a chart. The skincare log's
+month buckets are already the right grain for it (see above), and this feature's
+rows are too. Water is the next tracker she named; note it wants a count, not a
+chip row, so it should not be forced through the Health panel's existing shape.
 
 **Not built, and not currently wanted:** any write-back to HealthKit. It would
 need a Shortcut hitting an edge function on the `gcal` pattern (never the
