@@ -612,7 +612,16 @@ a.meal-title:hover .meal-link-ico { opacity: 1; }
 }
 .absence-col { position: sticky; top: 90px; }
 .abs-card { background: var(--surface); border: 1px solid var(--border); border-radius: 12px; padding: 10px 12px; box-shadow: var(--shadow); }
-.abs-card h3 { font-size: var(--fs-micro); text-transform: uppercase; letter-spacing: var(--tracking-caps); color: var(--muted); font-weight: 700; margin-bottom: 8px; }
+.abs-card h3 { display: flex; align-items: baseline; font-size: var(--fs-micro); text-transform: uppercase; letter-spacing: var(--tracking-caps); color: var(--muted); font-weight: 700; margin-bottom: 8px; }
+.abs-edit { margin-left: auto; border: none; background: none; font: inherit; font-size: var(--fs-xs); text-transform: none; letter-spacing: 0; font-weight: 500; color: var(--muted); cursor: pointer; padding: 0; }
+.abs-edit:hover { color: var(--accent); }
+.abs-mini { flex: none; border: none; background: none; color: var(--muted); cursor: pointer; padding: 2px; display: inline-flex; }
+.abs-mini:hover { color: var(--accent); }
+.abs-mini.danger:hover { color: var(--critical); }
+.abs-mini .icon { width: 14px; height: 14px; }
+/* An untracked class stays legible — it is a row she may want to switch back
+   on, not a disabled control. */
+.abs-row.off .abs-name, .abs-row.off .abs-count { opacity: var(--done-op); }
 .abs-row { display: flex; align-items: center; gap: 8px; padding: 6px 0; border-bottom: 1px solid var(--hairline); }
 .abs-row:last-of-type { border-bottom: none; }
 .abs-name { flex: 1; min-width: 0; font-size: var(--fs-base); color: var(--ink); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; cursor: pointer; }
@@ -5443,6 +5452,75 @@ function absenceLimits(){
   if(!SETTINGS.absenceLimits || typeof SETTINGS.absenceLimits !== 'object') SETTINGS.absenceLimits = {};
   return SETTINGS.absenceLimits;
 }
+
+/* Which classes this panel lists — its own membership, not the course list.
+   Untracking Law Review must not delete Law Review: it has assignments, and
+   they live in the law school tracker's row, which this app does not own. So
+   the panel keeps a set of ids it skips, and a list of its own extra classes
+   for anything that has attendance but no coursework.
+
+   The same skip set is what handles a course appearing twice in the tracker
+   (KY Innocence Project did): untrack the duplicate and one stays. It is a
+   membership question either way, so it did not need a second mechanism. */
+function absenceHidden(){
+  if(!SETTINGS.absenceHidden || typeof SETTINGS.absenceHidden !== 'object') SETTINGS.absenceHidden = {};
+  return SETTINGS.absenceHidden;
+}
+function absenceExtras(){
+  if(!Array.isArray(SETTINGS.absenceExtra)) SETTINGS.absenceExtra = [];
+  return SETTINGS.absenceExtra;
+}
+function isAbsenceTracked(courseId){ return !absenceHidden()[String(courseId)]; }
+
+// Every class the panel could show, tracked or not, so manage mode can list
+// the untracked ones to put back. Extras carry an "x:" id so they can never
+// collide with a law-school course id.
+function absenceAllCourses(){
+  return assignCourses().map(c => ({id: String(c.id), name: c.name || 'Course', extra: false}))
+    .concat(absenceExtras().map(e => ({id: String(e.id), name: e.name, extra: true})));
+}
+function absencePanelCourses(){ return absenceAllCourses().filter(c => isAbsenceTracked(c.id)); }
+
+function toggleAbsenceTracked(courseId){
+  const key = String(courseId);
+  if(absenceHidden()[key]) delete absenceHidden()[key];
+  else absenceHidden()[key] = true;
+  touch(SETTINGS);
+  saveToStorage();
+  renderAbsencePanel();
+}
+
+function addAbsenceClass(){
+  const input = document.getElementById('abs-new-name');
+  const name = (input && input.value || '').trim();
+  if(!name) return;
+  absenceExtras().push({id: 'x:' + newId().toString(36), name});
+  input.value = '';
+  touch(SETTINGS);
+  saveToStorage();
+  renderAbsencePanel();
+  const again = document.getElementById('abs-new-name');
+  if(again) again.focus();
+}
+
+// Only ever offered for an extra: a law-school course is untracked, never
+// deleted from here. The absences stay in the table either way — the same
+// bargain a dropped course gets, and for the same reason.
+function deleteAbsenceClass(courseId){
+  const list = absenceExtras();
+  const i = list.findIndex(e => String(e.id) === String(courseId));
+  if(i < 0) return;
+  list.splice(i, 1);
+  tombstone('absenceExtra', courseId);
+  delete absenceLimits()[String(courseId)];
+  delete absenceHidden()[String(courseId)];
+  touch(SETTINGS);
+  saveToStorage();
+  renderAbsencePanel();
+}
+
+let _absManage = false;
+function toggleAbsenceManage(){ _absManage = !_absManage; _absOpenCourse = null; renderAbsencePanel(); }
 function absenceLimit(courseId){
   const n = absenceLimits()[String(courseId)];
   return typeof n === 'number' && n > 0 ? n : null;
@@ -5497,14 +5575,26 @@ function renderAbsencePanel(){
   const el = document.getElementById('absence-panel');
   if(!el) return;
   if(_guestMode || !_currentUser){ el.innerHTML = ''; return; }
-  const courses = assignCourses();
+
+  const head = `<h3>Absences<button class="abs-edit" onclick="toggleAbsenceManage()">${_absManage ? 'Done' : 'Edit'}</button></h3>`;
+  if(_absManage){ el.innerHTML = `<div class="abs-card">${head}${renderAbsenceManage()}</div>`; paintIcons(el); return; }
+
+  const courses = absencePanelCourses();
   if(!courses.length){
-    el.innerHTML = `<div class="abs-card"><h3>Absences</h3>`
-                 + `<p class="empty-note" style="padding:2px 0">No classes in your law school tracker yet.</p></div>`;
+    const any = absenceAllCourses().length;
+    el.innerHTML = `<div class="abs-card">${head}<p class="empty-note" style="padding:2px 0">`
+      + (any ? 'No classes tracked yet — <strong>Edit</strong> to pick which ones take attendance.'
+             : 'No classes yet. <strong>Edit</strong> to add one, or import a syllabus in your law school tracker.')
+      + `</p></div>`;
+    paintIcons(el);
     return;
   }
   const today = todayStr();
-  const rows = courses.map(c => {
+  const rows = courses.map(cc => {
+    // absencePanelCourses() has already normalised {id, name} across the law
+    // school courses and this panel's own extras, so the row below doesn't
+    // care which kind it is drawing.
+    const c = cc;
     const list = absencesFor(c.id);
     const limit = absenceLimit(c.id);
     const used = list.length;
@@ -5536,8 +5626,35 @@ function renderAbsencePanel(){
     }
     return html;
   }).join('');
-  el.innerHTML = `<div class="abs-card"><h3>Absences</h3>${rows}</div>`;
+  el.innerHTML = `<div class="abs-card">${head}${rows}</div>`;
   paintIcons(el);
+}
+
+/* Manage mode. Every class the panel knows about, tracked or not, so an
+   untracked one can be put back — the reason this is a separate mode rather
+   than a delete button on the normal row, which could only ever remove. */
+function renderAbsenceManage(){
+  const all = absenceAllCourses();
+  const rows = all.map(c => {
+    const on = isAbsenceTracked(c.id);
+    const n = absencesFor(c.id).length;
+    return `<div class="abs-row${on ? '' : ' off'}">
+        <span class="abs-name" title="${esc(c.name)}">${esc(c.name)}</span>
+        ${n ? `<span class="abs-count" title="${n} logged">${n}</span>` : ''}
+        <button class="abs-mini" onclick="toggleAbsenceTracked('${esc(c.id)}')"
+                title="${on ? 'Stop tracking attendance for this' : 'Track attendance for this'}"
+                data-ico="${on ? 'eye' : 'eye-off'}"></button>
+        ${c.extra ? `<button class="abs-mini danger" onclick="deleteAbsenceClass('${esc(c.id)}')"
+                title="Delete this class">${ico('trash')}</button>` : ''}
+      </div>`;
+  }).join('');
+  return (rows || `<p class="empty-note" style="padding:2px 0">Nothing yet.</p>`)
+    + `<div class="quick-add-row" style="margin-top:10px">
+         <input type="text" id="abs-new-name" placeholder="Add a class…" autocomplete="off"
+                onkeydown="if(event.key==='Enter')addAbsenceClass()">
+         <button onclick="addAbsenceClass()">Add</button>
+       </div>
+       <p class="empty-note" style="padding:6px 2px 0;font-size:var(--fs-xs)">Untracking hides a class here and keeps its dates. Your coursework and the law school tracker are untouched.</p>`;
 }
 
 function renderAssignments(){

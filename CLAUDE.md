@@ -464,6 +464,24 @@ another app's row, so there is no table to point at. A dropped course therefore
 leaves rows behind. The panel renders only courses it can still see and keeps
 the rest rather than deleting attendance history on a shape it does not own.
 
+**The panel owns its own membership** (added 2026-08-25). `settings.absenceHidden`
+is a set of course ids it skips; `settings.absenceExtra` is its own list of
+classes, whose ids are prefixed `x:` so they can never collide with a law-school
+course id. **Untracking is not deleting** — Law Review has coursework and no
+attendance, and its assignments live in `law_school_data`, a row this app does
+not own. Untracking also keeps the class's logged dates, and manage mode shows
+the count beside an untracked row so that is visible rather than promised.
+
+The same skip set handles a course appearing **twice** in the tracker (KY
+Innocence Project did): untrack the duplicate and one remains. Duplicates and
+opt-outs are both membership questions, so they did not need separate
+mechanisms.
+
+Manage mode is a mode, not a delete button on the normal row, because the list
+it needs to show is *every* class including the untracked ones — a control on
+the visible rows could only ever remove, never put back. The trash appears only
+on an extra; a law-school course is untracked, never deleted from here.
+
 **Colour only when it means something.** Amber one short of the limit, red at or
 past it, nothing at all when no limit is set — a count with no limit is just a
 count. `used > 0` is load-bearing in that test: on a one-absence limit,
