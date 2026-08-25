@@ -431,6 +431,45 @@ service-role key in a Shortcut — those sync through iCloud to every signed-in
 device) plus a `synced_to_health` column to dedupe. Only worth it if she starts
 wanting this data in another app.
 
+## Absences (built 2026-08-25)
+
+A column beside the assignment list: one row per class, a `2/3` indicator, and
+one button that logs today. Tapping it again takes it back — the undo for the
+misfire a single-tap control invites. Tapping the name or the count opens that
+class's dates, each removable, plus the box that sets its max.
+
+It is a **column inside `#view-assign`**, not the app sidebar, which is hidden
+on this tab (`body.assign-view .sidebar-col`) because that sidebar is a task
+triage pile and these are neither tasks nor draggable. Under 900px it moves
+**above** the assignment list, not below: this is what she opens the tab to tap
+on the morning she misses a class, and the list is long.
+
+**Dates and limits live in different places, on purpose.**
+
+- Dates go in `class_absences` — its own table, same reasoning as
+  `cycle_events`: an append-only dated event, one tap makes one row, real rows
+  race with nothing. In `agenda_data.settings` they would ride the row merge
+  only the time-tracker implements, and a semester's attendance record is the
+  wrong thing to lose to two devices.
+- The **limit** goes in `settings.absenceLimits` keyed by course id. It is a
+  preference that changes once a semester. It is deliberately **not** in
+  `law_school_data.courses[]`: that is the law school tracker's schema, and a
+  field this app invented there could vanish on its next syllabus import.
+
+Losing a limit means retyping a number; losing the dates would mean losing the
+record. That asymmetry is the whole argument for the split.
+
+`course_id` is text with **no foreign key** — courses are a JSON array in
+another app's row, so there is no table to point at. A dropped course therefore
+leaves rows behind. The panel renders only courses it can still see and keeps
+the rest rather than deleting attendance history on a shape it does not own.
+
+**Colour only when it means something.** Amber one short of the limit, red at or
+past it, nothing at all when no limit is set — a count with no limit is just a
+count. `used > 0` is load-bearing in that test: on a one-absence limit,
+`used >= limit - 1` is true at zero, so a class she had never missed opened the
+semester already amber.
+
 ## Assignments tab (built 2026-08-14)
 
 Her coursework, day by day, as the checklist she kept by hand through 1L. The rows are **not** agenda tasks — they live in the law school tracker's `law_school_data.courses[].assignments`, put there by its syllabus import. This tab is the **editing surface**: the law tracker owns import, the syllabus round-trip, and calendar sync, and deliberately has no editing UI for these fields.
