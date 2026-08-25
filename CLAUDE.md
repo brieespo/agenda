@@ -268,6 +268,148 @@ logging is additive, and only an un-log is a genuine conflict. `_u` is currently
 stamped at the feature root (`skincare._u`), which is too coarse for that — the
 log is a nested map, not a list of items carrying their own stamps.
 
+## Cycle log (built 2026-08-25)
+
+Bleeding days and sexual activity, logged in one place instead of Apple Health.
+No predictions — hers aren't regular enough for one to be worth anything, and
+HealthKit doesn't expose Apple's forecast anyway, only the samples. What she
+actually wanted from the Health UI was the **history**: recent periods, their
+dates, and the days between them.
+
+**Its own table, `cycle_events` — not a key in `settings`.** Two reasons, and
+the second is the one that mattered:
+
+1. Every writer of `agenda_data` has to participate in the row merge (`_sync.v`,
+   tombstones, the pagehide compare-and-swap). Real rows race with nothing: one
+   upsert touches one `(day, kind)`. This feature is the first in the suite that
+   needed none of that machinery, and it got none.
+2. It is the most sensitive data here. A separate table can be granted, revoked,
+   and audited on its own.
+
+```sql
+cycle_events(id, user_id, date, kind, value, created_at, updated_at)
+  kind  'flow' | 'sex'
+  value flow: 'spotting'|'light'|'medium'|'heavy'
+        sex:  'protected'|'unprotected'
+  unique (user_id, date, kind)   -- the grain, enforced by the DB not the UI
+```
+
+One row per day per kind. Health allows several sexual-activity samples in a
+day; this collapses to yes/no deliberately, and the importer collapses on the
+way in (strongest value wins, so a heavy morning isn't erased by a light entry
+made that night).
+
+**Unprotected is the default, and there is no third "not recorded" value** (her
+call, 2026-08-25). Protection is the exception worth a tap, so an entry that
+doesn't claim it is unprotected — including on import, where a Health sample
+carrying no protection metadata comes in as unprotected rather than as a
+separate unknown state. `Unprotected` is also the first chip in the row. The
+first build had an `'unspecified'` value for watch-logged samples with no
+metadata; she doesn't wear the watch, and the honest-uncertainty argument for it
+lost to not wanting a third state.
+
+**Privacy is structural, not a setting.** Four things are true by construction
+and each is easy to break by accident:
+
+- It renders **only inside its own modal**. `renderAll()` does not call it, and
+  there is no day-view strip. This is the deliberate difference from skincare:
+  that line is a nudge and wants to be seen; this one is a record and does not.
+- It is **never cached** — no `localStorage`, and rows are re-read on every open
+  rather than held. Costs one small query per open; buys a signed-out phone in
+  someone else's hand having nothing to show.
+- It is **not in the JSON export** (`exportJson()` sends tasks, templates,
+  completions, settings — this isn't among them).
+- It is **not in the assistant's prompt**. `assistant/index.ts` takes named
+  context arguments rather than sweeping state, so it stays out by
+  construction — *but only as long as nobody adds it to that call.*
+
+The settings row's sub-label is the fixed string "Only ever shown here", not a
+count. Every other row there summarises its data; the summary is the private
+part.
+
+**Marks, not words.** A red dot for a bleeding day (a ring for spotting), a
+heart for sex — outline protected, filled unprotected. The words live in the
+editor next to the icons, which is the legend; a separate one would have put
+them back on screen. `--bleed` is a themed variable like every other colour,
+deliberately not `--critical`, which in this app means *wrong*. Note dark mode
+here is driven purely by `prefers-color-scheme`; a `[data-theme="dark"]`
+selector matches nothing.
+
+**Period runs bridge up to two blank days.** A day she forgot — or genuinely
+didn't bleed — doesn't end a period. Splitting there would halve a period's
+length *and* invent an impossibly short cycle right after it, which is what
+makes a history like this untrustworthy. Three blank days do end it. Spotting is
+not a period day (matching how Health counts it) and never opens a cycle.
+
+The window was **1 day until the backfill argued it to 2** (her call,
+2026-08-25). The seven-year log produced three "cycles" of 3, 4 and 5 days, each
+one period a 2-day blank had cut in half — `2d+2+1d → 5d`, `1d+2+6d → 9d`,
+`3d+2+1d → 6d`. 43 periods became 40, every cycle under 15 days disappeared, and
+the longest run did not move (15d before and after), so the wider window
+absorbed the artifacts without a chain reaction. Bridging measures from the
+run's *current end*, so it does chain: a bleeding day every third day is one
+long period. The middle merge is the honest caveat — one logged day, two blank,
+then a full six-day period is not unambiguously a single event, and this reads
+it as one.
+
+**The summary is a median and a range, never a mean** — the seven-year backfill
+is what settled it. Twelve real cycles came in at 3, 98, 5, 36, 31, 20, 31, 26,
+27, 54, 82, 49: mean 39, a number she has never once had. Quoting it would have
+asserted a regularity the data flatly denies, in the one panel built for someone
+whose whole starting premise was "my period is not very predictable". The median
+(31) survives the outliers and the range is printed beside it so one number never
+stands in for a spread that wide. Windowed to the last 12, since a cycle from
+2019 doesn't describe this year, and suppressed under three cycles. Completed
+cycles only — an open period has no length yet.
+
+**Over 90 days it is a gap, not a cycle** (`CYCLE_GAP_DAYS`) — rendered
+"156-day gap" and left out of the median. Nothing that long is a cycle in any
+useful sense, and her history has every flavour of it: a **356-day "cycle"
+spanning her 2020 pregnancy**, seven more inside lactation, and several since
+that are just months of not logging. Pregnancy (2020-05-03 → 2021-01-07) and
+lactation (2021-01-07 → 2024-02-17) are recorded in Apple Health but **are not
+imported** — the script reads flow, spotting and sexual activity only — so 21 of
+her 40 periods start inside a window the app knows nothing about. 90 days is the
+clinical amenorrhea line and needs no extra data to apply. The last-12 window
+already sat entirely after lactation ended, so the median never saw any of it.
+
+**`cycle_spans` names those gaps** (her call, 2026-08-25) — a second, tiny table
+of intervals rather than more rows in `cycle_events`, whose grain is one row per
+*day*: the lactation span alone would have been ~1,100 daily rows to record one
+fact with two dates in it. Purely cosmetic. A span renames a gap the history had
+already found and takes no part in period detection, so a load failure is
+swallowed and an account that never ran the second migration just sees unnamed
+gaps.
+
+**A span must cover more than half a gap to claim it.** Without that, three
+years of lactation would put its name on any gap that merely clipped its final
+week. On her data the rule lands exactly right: the 356-day gap reads
+*pregnancy*, three inside the lactation years read *lactating*, and the 158-day
+gap before the pregnancy plus the 157- and 159-day ones after lactation ended
+stay bare day counts — because those really are just months of not logging.
+
+Note the summary numbers moved with the wider window: the last twelve cycles
+read 3, 98, 5, 36, 31, 20, 31, 26, 27, 54, 82, 49 (median 31) under the 1-day
+rule and 26, 156, 101, 41, 31, 20, 31, 26, 27, 54, 82, 49 (median 36) under the
+2-day one — merging a split period folds its short cycle into the next.
+
+**Backfill** is `scripts/import_health_cycle.py` — Health export zip in, one
+paste-able `INSERT … ON CONFLICT` out (`--format csv` still writes a CSV for the
+table editor). Offline on purpose, and no credentials: a service-role key or a
+database password on the command line to load a few hundred rows once is the
+worse trade, and neither the CLI nor `db push` can run without the database
+password anyway. `--email` resolves `user_id` from `auth.users` inside the
+statement, so the uuid never has to be found by hand or pasted into a chat. The
+file ends with a `count(*)` because a wrong email matches no user and inserts
+nothing **without erroring**. It streams the zip: `export.xml` runs to hundreds
+of MB.
+
+**Not built, and not currently wanted:** any write-back to HealthKit. It would
+need a Shortcut hitting an edge function on the `gcal` pattern (never the
+service-role key in a Shortcut — those sync through iCloud to every signed-in
+device) plus a `synced_to_health` column to dedupe. Only worth it if she starts
+wanting this data in another app.
+
 ## Assignments tab (built 2026-08-14)
 
 Her coursework, day by day, as the checklist she kept by hand through 1L. The rows are **not** agenda tasks — they live in the law school tracker's `law_school_data.courses[].assignments`, put there by its syllabus import. This tab is the **editing surface**: the law tracker owns import, the syllabus round-trip, and calendar sync, and deliberately has no editing UI for these fields.
