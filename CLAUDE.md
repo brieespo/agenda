@@ -268,6 +268,57 @@ logging is additive, and only an un-log is a genuine conflict. `_u` is currently
 stamped at the feature root (`skincare._u`), which is too coarse for that — the
 log is a nested map, not a list of items carrying their own stamps.
 
+## Leave by (built 2026-08-27)
+
+A departure time beside the weather, sized and coloured to match it exactly —
+same 12px, same muted grey, same tabular figures. It is the same kind of fact
+about the day, and anything heavier would turn a quiet reminder into a demand.
+Only the time is bolded; the label is dimmer again. The icon is a door with an
+arrow through it, not a bare arrow, which in a toolbar reads as a direction
+control.
+
+One list in `settings.departures`, no table:
+
+```js
+{id, time:"07:40", label:"Civ Pro",
+ recurrence:{freq:'weekly', days:['mon','wed','fri']} | {freq:'daily'} | null,
+ date:"2026-08-27" | null,     // set instead, for a one-off
+ skips:["2026-09-01"]}         // days a recurring one was dismissed
+```
+
+`date` set means one-off, `recurrence` set means it repeats — the same split the
+app already makes between `TASKS` and `TEMPLATES`, but in **one** array, because
+a departure has no completion state and there is nothing for a second list to
+carry. Recurrence goes through `templateOccursOn()` rather than a second copy of
+the same weekday arithmetic.
+
+**Hiding a passed departure only applies to today.** "Passed" is meaningless on
+next Tuesday, so every other date shows its earliest departure and never hides —
+paging forward always shows the full picture. That asymmetry is why
+`leaveChipState()` returns a state rather than a departure.
+
+**The ghost doorway exists so the panel stays reachable.** Once the day's last
+departure has gone the chip would otherwise vanish, and with it the only way to
+add a one-off later that afternoon. It drops to 35% opacity and brightens on
+hover. A day with *no* departures at all still renders nothing, so the toolbar
+is byte-for-byte what it was.
+
+**Amber in the last 20 minutes**, consistent with the absence counter. It needs
+a once-a-minute `setInterval` — the only clock-driven render in the app. It
+touches one element and only when the day view is showing today, so it cannot
+land in the middle of anything she is typing.
+
+**The × in the day panel skips, it does not delete.** On a one-off it deletes; on
+a recurring one it adds today to `skips`. Removing every future Monday from a
+panel opened to check this morning would be a nasty surprise with no undo, so
+permanent edits live in the submodal where they are labelled as such. Past rows
+in the panel dim rather than vanish — it was opened deliberately, and a row
+disappearing out of a list being looked at is worse than a faded one.
+
+A new recurring departure starts with **no days ticked**, so it appears nowhere
+until she says where. Defaulting to weekdays would have put a departure on days
+she never chose.
+
 ## Cycle log (built 2026-08-25)
 
 Bleeding days and sexual activity, logged in one place instead of Apple Health.

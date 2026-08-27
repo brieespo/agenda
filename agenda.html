@@ -218,6 +218,45 @@ h3 { font-size: var(--fs-md); font-weight: 600; margin-bottom: 6px; }
 .day-wx .icon { width: 1.1em; height: 1.1em; opacity: 0.8; }
 .day-wx .wx-lo { opacity: 0.75; }
 .day-wx .wx-pop { color: var(--accent); opacity: 0.85; }
+
+/* ---- leave by ----
+   Sits at the weather's weight on purpose: it is the same kind of fact about
+   the day, and anything heavier would make a quiet reminder into a demand. */
+.leave-wrap { position: relative; display: inline-flex; }
+.day-leave { display: inline-flex; align-items: center; gap: 5px; padding: 2px 8px 2px 6px; border: 1px solid transparent; border-radius: 20px; background: none; font: inherit; font-size: var(--fs-sm); color: var(--muted); cursor: pointer; white-space: nowrap; font-variant-numeric: lining-nums tabular-nums; transition: background 120ms ease, border-color 120ms ease, color 120ms ease, opacity 120ms ease; }
+.day-leave:hover { background: var(--hover); color: var(--ink-2); }
+.day-leave .icon { width: 1.05em; height: 1.05em; opacity: 0.8; flex: none; }
+.day-leave .dl-time { font-weight: 600; }
+.day-leave .dl-label { opacity: 0.8; overflow: hidden; text-overflow: ellipsis; max-width: 12ch; }
+.day-leave.soon { color: var(--warning); }
+/* Nothing left today, but the panel still has to be reachable to add a one-off. */
+.day-leave.ghosted { opacity: 0.35; padding: 2px 6px; }
+.day-leave.ghosted:hover { opacity: 1; }
+.day-leave.open { background: var(--hover); border-color: var(--border); color: var(--ink-2); }
+
+.leave-panel { position: absolute; top: calc(100% + 6px); left: 0; z-index: 60; width: 290px; border: 1px solid var(--border); border-radius: 10px; background: var(--surface); padding: 8px 10px; box-shadow: var(--shadow); }
+/* On a phone the chip can sit near the right edge; pinning the panel to the
+   left of the toolbar instead keeps it on screen. */
+@media (max-width: 560px) { .leave-panel { left: auto; right: 0; width: min(290px, 92vw); } }
+.lv-row { display: flex; align-items: baseline; gap: 8px; padding: 5px 2px; border-bottom: 1px solid var(--hairline); font-size: var(--fs-base); }
+.lv-row.past { opacity: var(--done-op); }
+.lv-time { font-weight: 600; font-variant-numeric: tabular-nums; flex: none; }
+.lv-label { flex: 1; min-width: 0; color: var(--ink-2); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.lv-when { font-size: var(--fs-micro); text-transform: uppercase; letter-spacing: var(--tracking-caps); color: var(--muted); flex: none; }
+.lv-x { border: none; background: none; color: var(--muted); cursor: pointer; padding: 0 1px; display: inline-flex; flex: none; }
+.lv-x:hover { color: var(--critical); }
+.lv-x .icon { width: 12px; height: 12px; }
+.lv-add { display: flex; gap: 5px; margin-top: 8px; }
+.lv-add input { font: inherit; font-size: var(--fs-sm); padding: 5px 7px; border-radius: 7px; border: 1px solid var(--border); background: var(--page); color: var(--ink); min-width: 0; }
+.lv-add input[type=time] { flex: none; width: 104px; }
+.lv-add input[type=text] { flex: 1; }
+.lv-add button { font: inherit; font-size: var(--fs-sm); padding: 5px 11px; border-radius: 7px; border: 1px solid var(--border); background: var(--surface); color: var(--ink); cursor: pointer; flex: none; }
+.lv-add button:hover { border-color: var(--accent); color: var(--accent); }
+.lv-foot { margin-top: 8px; padding-top: 7px; border-top: 1px solid var(--hairline); }
+.lv-days { display: flex; gap: 3px; flex-wrap: wrap; }
+.lv-day { width: 26px; height: 26px; border-radius: 50%; border: 1px solid var(--border); background: var(--page); color: var(--muted); font: inherit; font-size: var(--fs-xs); cursor: pointer; padding: 0; }
+.lv-day:hover { border-color: var(--accent); }
+.lv-day.on { background: var(--accent); border-color: var(--accent); color: #fff; font-weight: 600; }
 .day-toolbar .day-title { font-size: var(--fs-title); font-weight: 650; letter-spacing: var(--tracking-title); min-width: 170px; font-variant-numeric: lining-nums tabular-nums; }
 
 .list-drop { min-height: 12px; }
@@ -967,6 +1006,7 @@ footer button { font: inherit; font-size: var(--fs-sm); border: none; background
           <button class="icon-btn" onclick="navDay(1)" data-ico="chevron-right"></button>
           <button class="ghost" onclick="goToday()">Today</button>
           <span class="day-wx" id="day-wx"></span>
+          <span class="leave-wrap" id="leave-wrap"></span>
         </div>
         <div class="quick-add-bar" id="quick-add-bar" style="display:none">
           <input type="text" id="quick-parse-input" placeholder="Message the assistant…" onkeydown="if(event.key==='Enter')quickParseAdd()">
@@ -1154,6 +1194,10 @@ footer button { font: inherit; font-size: var(--fs-sm); border: none; background
         <span class="sm-title"><strong>Weekly progress</strong><span class="sm-sub" id="progress-summary-label"></span></span>
         <span class="sm-chevron" data-ico="chevron-right"></span>
       </button>
+      <button class="settings-menu-row" onclick="openLeaveSubmodal()">
+        <span class="sm-title"><strong>Leave by</strong><span class="sm-sub" id="leave-count-label"></span></span>
+        <span class="sm-chevron" data-ico="chevron-right"></span>
+      </button>
       <button class="settings-menu-row" onclick="openSkincareSubmodal()">
         <span class="sm-title"><strong>Skincare</strong><span class="sm-sub" id="skincare-count-label"></span></span>
         <span class="sm-chevron" data-ico="chevron-right"></span>
@@ -1249,6 +1293,16 @@ footer button { font: inherit; font-size: var(--fs-sm); border: none; background
         <span class="r-title">Show on the day view<div class="r-recur">The one quiet line under your meals. Turning this off hides it completely — your products and history stay put.</div></span>
         <button class="toggle" id="skin-show-toggle" onclick="toggleSkinVisible()"></button>
       </div>
+    </div>
+  </div>
+</div>
+
+<div class="modal-bg" id="leave-submodal">
+  <div class="modal" style="max-width:460px">
+    <div class="modal-head"><strong>Leave by</strong><button class="modal-x" data-ico="x" onclick="closeModal('leave-submodal')"></button></div>
+    <div class="modal-body">
+      <p style="font-size: var(--fs-sm);color:var(--muted);margin-bottom:8px">Departures that repeat. Pick the days each one applies to — with no days ticked it stays out of the way. One-offs are quicker to add from the day view.</p>
+      <div id="leave-list"></div>
     </div>
   </div>
 </div>
@@ -1379,6 +1433,9 @@ const ICONS = {
   "eye-off": '<path d="M17.9 17.9A10.4 10.4 0 0 1 12 19c-6.5 0-10-7-10-7a18.6 18.6 0 0 1 5.1-5.9"/><path d="M9.9 4.2A10.6 10.6 0 0 1 12 4c6.5 0 10 7 10 7a18.7 18.7 0 0 1-2.2 3.2"/><path d="M9.9 9.9a3 3 0 0 0 4.2 4.2"/><line x1="2" y1="2" x2="22" y2="22"/>',
   "droplet": '<path d="M12 22a7 7 0 0 0 7-7c0-2-1-3.9-3-5.5s-3.5-4-4-6.5c-.5 2.5-2 4.9-4 6.5C6 11.1 5 13 5 15a7 7 0 0 0 7 7z"/>',
   "heart": '<path d="M20.4 5.6a5 5 0 0 0-7.1 0L12 6.9l-1.3-1.3a5 5 0 1 0-7.1 7.1l8.4 8.4 8.4-8.4a5 5 0 0 0 0-7.1z"/>',
+  // A door with an arrow through it, not a bare arrow: this means "leaving",
+  // and a plain arrow in a toolbar reads as a direction control.
+  "leave": '<path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4"/><polyline points="16 17 21 12 16 7"/><line x1="21" y1="12" x2="9" y2="12"/>',
   // Weather, drawn to the same line-icon language as the rest — no emoji in
   // chrome, no icon CDN.
   "wx-sun": '<circle cx="12" cy="12" r="4.2"/><path d="M12 2.6v2M12 19.4v2M2.6 12h2M19.4 12h2M5.4 5.4l1.4 1.4M17.2 17.2l1.4 1.4M18.6 5.4l-1.4 1.4M6.8 17.2l-1.4 1.4"/>',
@@ -2079,6 +2136,8 @@ function updateSettingsMenuCounts(){
   document.getElementById('categories-count-label').textContent = catCount ? `${catCount} categor${catCount===1?'y':'ies'}` : 'None yet';
   const wp = weeklyProgress();
   document.getElementById('progress-summary-label').textContent = wp.totalAll ? `${wp.pct}% done this week` : 'Nothing scheduled yet';
+  const recurring = getDepartures().filter(d => !d.date && (d.recurrence && (d.recurrence.days || []).length || (d.recurrence||{}).freq === 'daily')).length;
+  document.getElementById('leave-count-label').textContent = recurring ? `${recurring} recurring` : 'None yet';
   const skinCount = skinProducts().filter(p => p.active !== false && !p.sample).length;
   document.getElementById('skincare-count-label').textContent = !skinVisible() ? 'Hidden'
     : skinCount ? `${skinCount} step${skinCount===1?'':'s'}` : 'Not set up';
@@ -2500,6 +2559,13 @@ function closeCtxMenu(){
 document.addEventListener('pointerdown', e => { if(!e.target.closest('#ctx-menu')) closeCtxMenu(); }, true);
 document.addEventListener('keydown', e => { if(e.key === 'Escape') closeCtxMenu(); });
 window.addEventListener('scroll', closeCtxMenu, true);
+// The leave panel dismisses the same way, but on `click` rather than capture
+// pointerdown: it holds a time field and a text input, and closing on
+// pointerdown would tear the panel down before either could take focus.
+document.addEventListener('click', e => {
+  if(_leaveOpen && !e.target.closest('#leave-wrap')) toggleLeavePanel(false);
+});
+document.addEventListener('keydown', e => { if(e.key === 'Escape' && _leaveOpen) toggleLeavePanel(false); });
 
 // Right-click menu for an imported Google event, wherever it renders.
 function bindGcalContextMenu(el, item){
@@ -4157,6 +4223,237 @@ function renderHealthStrip(){
   paintIcons(el);
 }
 
+/* =====================================================================
+   LEAVE BY — a departure time beside the weather.
+
+   One list, where `date` set means a one-off and `recurrence` set means it
+   repeats: the same split the app already makes between TASKS and TEMPLATES,
+   kept in one array because a departure has no completion state and there is
+   nothing else to hang a second list off.
+
+     {id, time:"07:40", label:"Civ Pro",
+      recurrence:{freq:'weekly', days:['mon','wed','fri']} | {freq:'daily'} | null,
+      date:"2026-08-27" | null,
+      skips:["2026-09-01"]}     // days a recurring one was dismissed
+
+   Lives in settings, so nothing here needs a table.
+   ===================================================================== */
+const LEAVE_SOON_MIN = 20;    // how long before the time the chip turns amber
+
+function getDepartures(){
+  if(!Array.isArray(SETTINGS.departures)) SETTINGS.departures = [];
+  return SETTINGS.departures;
+}
+function departureOccursOn(d, dateStr){
+  if(!d || d.active === false) return false;
+  if((d.skips || []).includes(dateStr)) return false;
+  if(d.date) return d.date === dateStr;
+  // Recurrence is the template shape, so it goes through the template matcher
+  // rather than a second copy of the same weekday arithmetic.
+  return d.recurrence ? templateOccursOn({active: true, recurrence: d.recurrence}, dateStr) : false;
+}
+function departuresOn(dateStr){
+  return getDepartures().filter(d => departureOccursOn(d, dateStr))
+                        .sort((a, b) => String(a.time).localeCompare(String(b.time)));
+}
+function minutesNow(){ const n = new Date(); return n.getHours() * 60 + n.getMinutes(); }
+function timeToMin(t){ const [h, m] = String(t || '0:0').split(':').map(Number); return (h || 0) * 60 + (m || 0); }
+
+/* What the chip shows for the day on screen.
+
+   Hiding a departure once it has passed only makes sense on today — "passed"
+   has no meaning on next Tuesday, so any other date shows its earliest one and
+   never hides. That asymmetry is the whole reason this returns a state rather
+   than just a departure. */
+function leaveChipState(dateStr){
+  const list = departuresOn(dateStr);
+  if(!list.length) return {kind: 'none'};
+  if(dateStr !== todayStr()) return {kind: 'show', dep: list[0], soon: false};
+  const now = minutesNow();
+  const next = list.find(d => timeToMin(d.time) > now);
+  if(!next) return {kind: 'ghost'};
+  return {kind: 'show', dep: next, soon: timeToMin(next.time) - now <= LEAVE_SOON_MIN};
+}
+
+let _leaveOpen = false;
+function toggleLeavePanel(force){
+  _leaveOpen = typeof force === 'boolean' ? force : !_leaveOpen;
+  renderLeave();
+}
+
+function renderLeave(){
+  const el = document.getElementById('leave-wrap');
+  if(!el) return;
+  if(_guestMode || !_currentUser){ el.innerHTML = ''; return; }
+  const st = leaveChipState(currentDate);
+  if(st.kind === 'none' && !_leaveOpen){ el.innerHTML = ''; return; }
+
+  let chip;
+  if(st.kind === 'show'){
+    chip = `<button class="day-leave${st.soon ? ' soon' : ''}${_leaveOpen ? ' open' : ''}" onclick="toggleLeavePanel()"
+              title="Leave by ${esc(fmtTime(st.dep.time))}${st.dep.label ? ' — ' + esc(st.dep.label) : ''}">
+        ${ico('leave')}<span class="dl-time">${esc(fmtTime(st.dep.time))}</span>`
+      + (st.dep.label ? `<span class="dl-label">${esc(st.dep.label)}</span>` : '')
+      + `</button>`;
+  }else{
+    chip = `<button class="day-leave ghosted${_leaveOpen ? ' open' : ''}" onclick="toggleLeavePanel()" title="Leave by…">${ico('leave')}</button>`;
+  }
+  el.innerHTML = chip + (_leaveOpen ? renderLeavePanel() : '');
+  paintIcons(el);
+}
+
+function renderLeavePanel(){
+  const list = departuresOn(currentDate);
+  const isToday = currentDate === todayStr();
+  const now = minutesNow();
+  // Past ones dim here rather than vanish: the panel was opened deliberately,
+  // and a row disappearing out of a list you are looking at is worse than a
+  // faded one.
+  const rows = list.map(d => {
+    const past = isToday && timeToMin(d.time) <= now;
+    const when = d.date ? (d.date === todayStr() ? 'today' : fmtShort(d.date)) : recurShort(d.recurrence);
+    return `<div class="lv-row${past ? ' past' : ''}">
+        <span class="lv-time">${esc(fmtTime(d.time))}</span>
+        <span class="lv-label" title="${esc(d.label || '')}">${esc(d.label || '')}</span>
+        <span class="lv-when">${esc(when)}</span>
+        <button class="lv-x" onclick="dismissDeparture('${esc(String(d.id))}')"
+          title="${d.date ? 'Delete this one-off' : 'Skip it just today — edit the recurring one in settings'}">${ico('x')}</button>
+      </div>`;
+  }).join('') || `<p class="empty-note" style="padding:2px 0 4px">Nothing set for ${isToday ? 'today' : fmtShort(currentDate)}.</p>`;
+
+  return `<div class="leave-panel" onclick="event.stopPropagation()">
+      ${rows}
+      <div class="lv-add">
+        <input type="time" id="lv-new-time">
+        <input type="text" id="lv-new-label" placeholder="Where (optional)" autocomplete="off"
+               onkeydown="if(event.key==='Enter')addOneOffDeparture()">
+        <button onclick="addOneOffDeparture()">Add</button>
+      </div>
+      <div class="lv-foot"><button class="sk-manage" onclick="openLeaveSubmodal()">Recurring departures</button></div>
+    </div>`;
+}
+// Compact day list for the panel: "M W F", or "Daily".
+function recurShort(r){
+  if(!r) return '';
+  if(r.freq === 'daily') return 'daily';
+  return (r.days || []).map(d => DOW_SHORT[DOW_LONG.indexOf(d)][0]).join(' ');
+}
+
+function addOneOffDeparture(){
+  const t = document.getElementById('lv-new-time');
+  const l = document.getElementById('lv-new-label');
+  const time = t && t.value;
+  if(!time){ showNotice('Pick a time first.', 'warn'); return; }
+  getDepartures().push({id: newId(), time, label: (l && l.value || '').trim(), recurrence: null, date: currentDate, skips: []});
+  touch(SETTINGS);
+  saveToStorage();
+  renderLeave();
+}
+
+/* The × in the day panel. A one-off is deleted; a recurring one is skipped for
+   this day only. Removing every future Monday from a panel she opened to check
+   this morning would be a nasty surprise, and there is no undo here — the
+   permanent edit lives in the submodal, where it is labelled as one. */
+function dismissDeparture(id){
+  const list = getDepartures();
+  const i = list.findIndex(d => String(d.id) === String(id));
+  if(i < 0) return;
+  const d = list[i];
+  if(d.date){
+    list.splice(i, 1);
+    tombstone('departures', d.id);
+  }else{
+    if(!Array.isArray(d.skips)) d.skips = [];
+    if(!d.skips.includes(currentDate)) d.skips.push(currentDate);
+  }
+  touch(SETTINGS);
+  saveToStorage();
+  renderLeave();
+}
+
+/* The amber window is 20 minutes wide, so the chip has to notice the clock
+   moving without anything being clicked. One interval for the whole app,
+   touching only this element — it can't land in the middle of anything she is
+   typing, and it re-renders only when the day view is actually showing today. */
+let _leaveTick = null;
+function startLeaveTicker(){
+  if(_leaveTick) return;
+  _leaveTick = setInterval(() => {
+    if(currentView === 'day' && currentDate === todayStr()) renderLeave();
+  }, 60000);
+}
+
+/* ---- recurring departures, in settings ---- */
+function openLeaveSubmodal(){ _leaveOpen = false; renderLeaveList(); openModal('leave-submodal'); renderLeave(); }
+function renderLeaveList(){
+  const el = document.getElementById('leave-list');
+  if(!el) return;
+  const recurring = getDepartures().filter(d => !d.date);
+  el.innerHTML = recurring.map(d => `
+    <div class="routine-row" style="flex-wrap:wrap">
+      <span class="r-title" style="flex:1;min-width:120px">
+        <input type="text" value="${esc(d.label || '')}" placeholder="Where (optional)"
+               style="font:inherit;font-size:var(--fs-md);padding:4px 7px;border-radius:7px;border:1px solid var(--border);background:var(--page);color:var(--ink);width:100%"
+               onchange="editDeparture('${esc(String(d.id))}','label',this.value)">
+      </span>
+      <input type="time" value="${esc(d.time || '')}" style="font:inherit;font-size:var(--fs-sm);padding:4px 6px;border-radius:7px;border:1px solid var(--border);background:var(--page);color:var(--ink)"
+             onchange="editDeparture('${esc(String(d.id))}','time',this.value)">
+      <button class="danger" onclick="deleteDeparture('${esc(String(d.id))}')" title="Delete" data-ico="trash"></button>
+      <div class="lv-days" style="flex-basis:100%;margin-top:6px">
+        ${DOW_LONG.map((dw, i) => `<button class="lv-day${(d.recurrence && (d.recurrence.days||[]).includes(dw)) ? ' on' : ''}"
+            onclick="toggleDepartureDay('${esc(String(d.id))}','${dw}')">${DOW_SHORT[i][0]}</button>`).join('')}
+      </div>
+    </div>`).join('')
+    || `<p class="empty-note">None yet. Add the ones you leave for every week — a one-off is quicker from the day view.</p>`;
+  el.innerHTML += `<div class="quick-add-row" style="margin-top:10px">
+      <input type="time" id="lv-rec-time">
+      <input type="text" id="lv-rec-label" placeholder="Where (optional)" onkeydown="if(event.key==='Enter')addRecurringDeparture()">
+      <button onclick="addRecurringDeparture()">Add</button>
+    </div>`;
+  paintIcons(el);
+}
+function addRecurringDeparture(){
+  const t = document.getElementById('lv-rec-time');
+  const l = document.getElementById('lv-rec-label');
+  if(!t || !t.value){ showNotice('Pick a time first.', 'warn'); return; }
+  // Starts with no days ticked, so it shows nowhere until she says which ones.
+  // Defaulting to every weekday would put a departure on days she never picked.
+  getDepartures().push({id: newId(), time: t.value, label: (l && l.value || '').trim(),
+                        recurrence: {freq: 'weekly', days: []}, date: null, skips: []});
+  t.value = ''; if(l) l.value = '';
+  afterDepartureEdit();
+}
+function editDeparture(id, field, value){
+  const d = getDepartures().find(x => String(x.id) === String(id));
+  if(!d) return;
+  d[field] = field === 'label' ? String(value).trim() : value;
+  afterDepartureEdit();
+}
+function toggleDepartureDay(id, dow){
+  const d = getDepartures().find(x => String(x.id) === String(id));
+  if(!d) return;
+  if(!d.recurrence) d.recurrence = {freq: 'weekly', days: []};
+  const days = d.recurrence.days || (d.recurrence.days = []);
+  const i = days.indexOf(dow);
+  if(i >= 0) days.splice(i, 1); else days.push(dow);
+  afterDepartureEdit();
+}
+function deleteDeparture(id){
+  const list = getDepartures();
+  const i = list.findIndex(d => String(d.id) === String(id));
+  if(i < 0) return;
+  list.splice(i, 1);
+  tombstone('departures', id);
+  afterDepartureEdit();
+}
+function afterDepartureEdit(){
+  touch(SETTINGS);
+  saveToStorage();
+  renderLeaveList();
+  renderLeave();
+  if(document.getElementById('leave-count-label')) updateSettingsMenuCounts();
+}
+
 /* The greeting reads the wall clock, not `currentDate` — navigating to next
    Tuesday shouldn't change what time of day it is here. */
 function renderGreeting(){
@@ -4179,7 +4476,7 @@ function renderAll(){
   renderSidebar();
   renderMonthSidebar();
   renderMealSidebar();
-  if(currentView==='day'){ renderMealStrip(); renderSkinStrip(); renderHealthStrip(); }
+  if(currentView==='day'){ renderMealStrip(); renderSkinStrip(); renderHealthStrip(); renderLeave(); }
 }
 
 /* =====================================================================
@@ -7105,6 +7402,7 @@ function afterLoad(){
   // fails when two devices are both offline.
   dedupeQuickLinkIds();
   pruneGhosts();
+  startLeaveTicker();
   applyTheme();
   applyFont();
   runRollover();
