@@ -310,6 +310,20 @@ is no way to open the panel", and the fix went in for the *passed* case only.
 There is now no state that renders no chip: `leaveChipState()` returns `show` or
 `ghost`, never nothing.
 
+**The chip and the panel both `stopPropagation`, and they must.** The
+outside-click listener shipped broken on 2026-08-27: opening the panel
+re-renders the wrapper, which detaches the button that was clicked, so by the
+time the click bubbled to `document`, `e.target.closest('#leave-wrap')` was null
+— not because the click was outside, but because the target no longer had a
+parent — and the panel closed in the same tick it opened. It affected *every*
+chip state, so the panel had never opened at all. The listener now bails on
+`!e.target.isConnected` as well, which says the real condition outright.
+
+Worth noting how it survived review: the unit tests exercise `leaveChipState()`
+and the data, never a DOM event, and the preview set `_leaveOpen = true`
+directly rather than clicking. Both were green on a feature whose main control
+did nothing. **Click it in a browser before shipping an interactive control.**
+
 **Amber in the last 20 minutes**, consistent with the absence counter. It needs
 a once-a-minute `setInterval` — the only clock-driven render in the app. It
 touches one element and only when the day view is showing today, so it cannot

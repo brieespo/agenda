@@ -2562,8 +2562,19 @@ window.addEventListener('scroll', closeCtxMenu, true);
 // The leave panel dismisses the same way, but on `click` rather than capture
 // pointerdown: it holds a time field and a text input, and closing on
 // pointerdown would tear the panel down before either could take focus.
+//
+// The chip and the panel both stopPropagation, and they have to. Opening the
+// panel re-renders the wrapper, which detaches the very button that was
+// clicked; by the time the event reached here `e.target.closest('#leave-wrap')`
+// was null — not because the click landed outside, but because the target no
+// longer had a parent — so this handler closed the panel in the same tick that
+// opened it. The `isConnected` guard says that outright, so a future re-render
+// during a click cannot resurrect the bug.
 document.addEventListener('click', e => {
-  if(_leaveOpen && !e.target.closest('#leave-wrap')) toggleLeavePanel(false);
+  if(!_leaveOpen) return;
+  if(!e.target.isConnected) return;               // our own re-render removed it
+  if(e.target.closest('#leave-wrap')) return;     // a click inside
+  toggleLeavePanel(false);
 });
 document.addEventListener('keydown', e => { if(e.key === 'Escape' && _leaveOpen) toggleLeavePanel(false); });
 
@@ -4296,13 +4307,13 @@ function renderLeave(){
   const st = leaveChipState(currentDate);
   let chip;
   if(st.kind === 'show'){
-    chip = `<button class="day-leave${st.soon ? ' soon' : ''}${_leaveOpen ? ' open' : ''}" onclick="toggleLeavePanel()"
+    chip = `<button class="day-leave${st.soon ? ' soon' : ''}${_leaveOpen ? ' open' : ''}" onclick="event.stopPropagation();toggleLeavePanel()"
               title="Leave by ${esc(fmtTime(st.dep.time))}${st.dep.label ? ' — ' + esc(st.dep.label) : ''}">
         ${ico('leave')}<span class="dl-time">${esc(fmtTime(st.dep.time))}</span>`
       + (st.dep.label ? `<span class="dl-label">${esc(st.dep.label)}</span>` : '')
       + `</button>`;
   }else{
-    chip = `<button class="day-leave ghosted${_leaveOpen ? ' open' : ''}" onclick="toggleLeavePanel()" title="Leave by…">${ico('leave')}</button>`;
+    chip = `<button class="day-leave ghosted${_leaveOpen ? ' open' : ''}" onclick="event.stopPropagation();toggleLeavePanel()" title="Leave by…">${ico('leave')}</button>`;
   }
   el.innerHTML = chip + (_leaveOpen ? renderLeavePanel() : '');
   paintIcons(el);
