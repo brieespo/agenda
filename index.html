@@ -397,7 +397,17 @@ textarea.ae-input { resize: vertical; line-height: 1.4; min-height: 2.4em; }
 .grid-block { position: absolute; left: 0; right: 0; border-radius: 8px; padding: 3px 8px; font-size: var(--fs-sm); overflow: hidden; cursor: pointer; background: var(--accent-light); border: 1px solid var(--accent); color: var(--accent-strong); transition: transform 120ms ease, box-shadow 120ms ease; touch-action: none; user-select: none; pointer-events: auto; }
 .grid-block:hover { transform: translateY(-1px); box-shadow: var(--shadow); }
 .grid-block.done { opacity: var(--done-op); text-decoration: line-through; }
-.grid-block .gb-time { font-size: var(--fs-micro); font-variant-numeric: lining-nums tabular-nums; opacity: 0.8; }
+/* The time leads the title on the same line rather than sitting on its own
+   above it. A 30-minute block is 30px tall at HOUR_PX 60 — ~24px inside the
+   padding — and a 10px time line stacked over a 12px title needs about 32px,
+   so the title was clipped out of the most common block on the grid.
+   `display:inline` rather than flex on purpose: the title stays ordinary
+   inline text, so in a taller block it still wraps and uses the height it has,
+   which a nowrap flex row would have thrown away. */
+.grid-block .gb-time { display: inline; margin-right: 5px; font-size: var(--fs-micro); font-variant-numeric: lining-nums tabular-nums; opacity: 0.8; }
+/* 1.45 put two lines at 35px in a block that has 24. Tightening it here only —
+   these are one- or two-line labels, not body copy. */
+.grid-block { line-height: 1.35; }
 .grid-block.gcal-event { background: var(--page); border-style: dashed; color: var(--ink-2); cursor: default; border-left-width: 3px; }
 .grid-block.gcal-event.writable { cursor: grab; }
 .grid-block.resizing { transition: none; box-shadow: var(--shadow); z-index: 5; }
