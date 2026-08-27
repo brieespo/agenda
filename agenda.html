@@ -4267,12 +4267,20 @@ function timeToMin(t){ const [h, m] = String(t || '0:0').split(':').map(Number);
    than just a departure. */
 function leaveChipState(dateStr){
   const list = departuresOn(dateStr);
-  if(!list.length) return {kind: 'none'};
-  if(dateStr !== todayStr()) return {kind: 'show', dep: list[0], soon: false};
-  const now = minutesNow();
-  const next = list.find(d => timeToMin(d.time) > now);
-  if(!next) return {kind: 'ghost'};
-  return {kind: 'show', dep: next, soon: timeToMin(next.time) - now <= LEAVE_SOON_MIN};
+  if(list.length){
+    if(dateStr !== todayStr()) return {kind: 'show', dep: list[0], soon: false};
+    const now = minutesNow();
+    const next = list.find(d => timeToMin(d.time) > now);
+    if(next) return {kind: 'show', dep: next, soon: timeToMin(next.time) - now <= LEAVE_SOON_MIN};
+  }
+  // Nothing to show — but never nothing to *tap*. There was a separate 'none'
+  // state that rendered no chip at all on a day with no departures, which read
+  // as clean and meant a one-off could not be added to such a day from
+  // anywhere: the chip was the only way into the panel, and the submodal
+  // manages recurring departures only. The doorway is the entry point, so it
+  // has to survive every empty case, not just the one where a departure has
+  // already passed.
+  return {kind: 'ghost'};
 }
 
 let _leaveOpen = false;
@@ -4286,8 +4294,6 @@ function renderLeave(){
   if(!el) return;
   if(_guestMode || !_currentUser){ el.innerHTML = ''; return; }
   const st = leaveChipState(currentDate);
-  if(st.kind === 'none' && !_leaveOpen){ el.innerHTML = ''; return; }
-
   let chip;
   if(st.kind === 'show'){
     chip = `<button class="day-leave${st.soon ? ' soon' : ''}${_leaveOpen ? ' open' : ''}" onclick="toggleLeavePanel()"

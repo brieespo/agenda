@@ -297,11 +297,18 @@ next Tuesday, so every other date shows its earliest departure and never hides �
 paging forward always shows the full picture. That asymmetry is why
 `leaveChipState()` returns a state rather than a departure.
 
-**The ghost doorway exists so the panel stays reachable.** Once the day's last
-departure has gone the chip would otherwise vanish, and with it the only way to
-add a one-off later that afternoon. It drops to 35% opacity and brightens on
-hover. A day with *no* departures at all still renders nothing, so the toolbar
-is byte-for-byte what it was.
+**The ghost doorway exists so the panel stays reachable, and it renders in
+every empty case** — 35% opacity, brightening on hover. The chip is the only way
+into the panel (the submodal manages recurring departures only), so any state
+that draws nothing also makes a one-off unaddable.
+
+This shipped wrong on 2026-08-27 and was fixed the same day. The first build had
+a third state, `none`, that drew nothing at all on a day with no departures —
+which looked clean in the mockup and meant that on a blank day there was
+nowhere to click. The planning notes had even flagged "if the chip hides there
+is no way to open the panel", and the fix went in for the *passed* case only.
+There is now no state that renders no chip: `leaveChipState()` returns `show` or
+`ghost`, never nothing.
 
 **Amber in the last 20 minutes**, consistent with the absence counter. It needs
 a once-a-minute `setInterval` — the only clock-driven render in the app. It
