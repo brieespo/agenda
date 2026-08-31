@@ -268,6 +268,45 @@ logging is additive, and only an un-log is a genuine conflict. `_u` is currently
 stamped at the feature root (`skincare._u`), which is too coarse for that — the
 log is a nested map, not a list of items carrying their own stamps.
 
+## Calendar: day / week / month (reworked 2026-08-31)
+
+The tab bar is **Calendar · Assignments · Time**. A period is not a sibling of
+Assignments and Time, and four tabs made it look like one. Which period Calendar
+shows is chosen from **the date itself** — it is already the largest thing in
+the toolbar and reads as the subject of the page, so it carries the choice and
+no permanent segmented control has to sit there all day saying nothing. The tab
+returns to the last period used (`settings.calendarPeriod`), so a trip to
+Assignments and back does not silently reset her to Day.
+
+`pickPeriod()` carries the date across, because week keeps its own `weekAnchor`:
+without it, Day→Week from some date in October lands on whatever week was last
+looked at. The period changes; the day being looked at should not.
+
+**The week view was rebuilt, not relocated.** Her two complaints were that it
+had no sense of time within a day and that everything looked alike — both the
+same fault. It was seven stacks of same-sized chips sorted untimed-first, which
+said how *many* things a day held and nothing about when. It is now a time grid
+on one hour range shared across all seven columns, so a column's height means
+the same thing in every column, which is the entire point of putting them side
+by side. A packed Tuesday and an empty Wednesday now look different from across
+the room.
+
+Week blocks **deliberately drop the time text** the day view's blocks carry: in
+a time grid the position *is* the time, and a 90px-wide column spends that width
+far better on the title. Untimed work gets an all-day strip above the axis
+rather than being dropped at an arbitrary hour — the one thing that would make
+the grid lie. Hour cells carry `data-date` + `data-time` and reuse
+`onSlotClick`, so tapping empty space opens the new-task modal already dated and
+timed.
+
+**Month is shape, not contents** (her choice): a dot per item, no titles, six
+per day before it becomes a `+n` — past six a row of dots stops reading as a
+quantity and starts reading as texture. It answers "which weeks are heavy" and
+hands off to the day view for anything more.
+
+The old `weekChipHtml` / `weekGcalChipHtml` and the `.week-grid` / `.week-col` /
+`.week-chip` CSS are gone with the old view.
+
 ## Leave by (built 2026-08-27)
 
 A departure time beside the weather, sized and coloured to match it exactly —
