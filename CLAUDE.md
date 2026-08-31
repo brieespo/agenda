@@ -268,6 +268,62 @@ logging is additive, and only an un-log is a genuine conflict. `_u` is currently
 stamped at the feature root (`skincare._u`), which is too coarse for that — the
 log is a nested map, not a list of items carrying their own stamps.
 
+## Routines (built 2026-08-31)
+
+Step-by-step walkthroughs for makeup, self-care and cleaning — the things she
+wants to do without deciding anything. Its own tab.
+
+**The word was taken.** What settings called "recurring routines" are TEMPLATES;
+they are now labelled **"Recurring tasks"** throughout the UI (the modal is just
+"Settings" now) so this feature can have the word she actually uses. Labels only
+— no data moved and the code still says TEMPLATES.
+
+`routines(id, user_id, name, steps jsonb, position, archived)` plus
+`routine_progress(user_id, routine_id, date, done_steps jsonb)`. Its own tables,
+not settings JSON: skincare lives in settings and that has been fine, but a
+routine library is content she will edit for years, and settings still rides a
+row merge only the time-tracker implements. **Steps are JSONB rather than rows**
+because they are always read, written and reordered as one ordered list —
+separate rows would buy nothing and cost a sort key plus a multi-row write on
+every drag.
+
+**"Resets at midnight" without a midnight.** Progress is keyed by date; no row
+for today means the routine is fresh. Nothing runs on a timer, so nothing breaks
+when the phone is asleep, the tab is closed, or the clocks change.
+`loadRoutineProgress()` re-reads when `_rtProgressDate` is no longer today,
+which is what makes it true for a tab left open overnight.
+
+**Reading it and running it are the same surface.** The card lists steps with
+checkboxes; **Start** enters focus mode — one step, large, with Done / skip /
+close, and a dot per step. Focus mode **resumes at the first unticked step**
+rather than restarting a half-finished routine. Edit is a mode on top (the
+absence panel's pattern), so the resting state stays a clean list rather than a
+form, and the drag handles only exist in edit mode: a drag target on a row whose
+job is to be tapped would make ticking feel unreliable.
+
+**Times are labels that add up**, never a countdown. The total carries a `+`
+when some steps are untimed (`7m+`) — the sum is a floor, and printing a bare
+number would overstate how well it is known.
+
+**`@` attaches, it does not just mention.** Picking from the menu writes the
+routine's *name* into the title as ordinary words and stores `routine_id` on the
+task, so the title stays readable everywhere else and the link survives a
+rename. The task row grows a chip that opens the routine.
+
+**Completing every step ticks the attached task**, because finishing the routine
+is what finishing that task means. Unticking a step deliberately does **not**
+untick the task: she may have said "done" and moved on, and pulling a completed
+task back open under her is worse than a stale tick.
+
+Deleting a routine **archives** it. Its progress rows reference it, and a year
+of "did I actually do this" is worth more than a tidy table. `routineChipHtml()`
+renders nothing for a routine it cannot find, so an archived one goes quiet
+rather than lying.
+
+**Not built:** per-step countdown timers. Would need answers for a locked phone,
+a backgrounded tab, and collision with the time-tracker's running timer. Worth
+revisiting only if the labels turn out not to be enough.
+
 ## Calendar: day / week / month (reworked 2026-08-31)
 
 The tab bar is **Calendar · Assignments · Time**. A period is not a sibling of

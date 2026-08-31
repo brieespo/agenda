@@ -505,6 +505,73 @@ textarea.ae-input { resize: vertical; line-height: 1.4; min-height: 2.4em; }
 .wk-block.gcal { background: var(--page); border-style: dashed; color: var(--ink-2); border-left-width: 3px; }
 .wk-now { position: absolute; left: 0; right: 0; height: 0; border-top: 2px solid var(--critical); z-index: 2; pointer-events: none; }
 
+/* ---- routines ----
+   A card per routine. Reading it and running it are the same surface; Edit is
+   a mode on top, the way the absence panel does it, so the resting state stays
+   a clean list rather than a form. */
+.rt-cards { display: grid; grid-template-columns: repeat(auto-fill, minmax(280px, 1fr)); gap: 14px; align-items: start; }
+.rt-card { background: var(--surface); border: 1px solid var(--border); border-radius: 12px; padding: 12px 14px; box-shadow: var(--shadow); }
+.rt-head { display: flex; align-items: baseline; gap: 8px; margin-bottom: 2px; }
+.rt-name { flex: 1; min-width: 0; font-size: var(--fs-md); font-weight: 600; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.rt-name input { font: inherit; font-size: var(--fs-md); font-weight: 600; width: 100%; padding: 3px 6px; border-radius: 7px; border: 1px solid var(--border); background: var(--page); color: var(--ink); }
+.rt-total { flex: none; font-size: var(--fs-sm); color: var(--muted); font-variant-numeric: tabular-nums; }
+.rt-edit { flex: none; border: none; background: none; font: inherit; font-size: var(--fs-xs); color: var(--muted); cursor: pointer; padding: 0; }
+.rt-edit:hover { color: var(--accent); }
+.rt-steps { margin: 8px 0 0; }
+.rt-step { display: flex; align-items: center; gap: 8px; padding: 5px 2px; border-bottom: 1px solid var(--hairline); font-size: var(--fs-base); }
+.rt-step:last-child { border-bottom: none; }
+.rt-step .rt-chk { width: 16px; height: 16px; border-radius: 50%; border: 1.5px solid var(--muted); flex: none; cursor: pointer; display: inline-flex; align-items: center; justify-content: center; color: #fff; transition: background 120ms ease, border-color 120ms ease; }
+.rt-step .rt-chk .icon { width: 10px; height: 10px; stroke-width: 3.5; opacity: 0; }
+.rt-step.done .rt-chk { background: var(--good); border-color: var(--good); }
+.rt-step.done .rt-chk .icon { opacity: 1; }
+.rt-step.done .rt-text { opacity: var(--done-op); text-decoration: line-through; }
+.rt-text { flex: 1; min-width: 0; overflow-wrap: anywhere; }
+.rt-text input { font: inherit; font-size: var(--fs-base); width: 100%; padding: 3px 6px; border-radius: 6px; border: 1px solid var(--border); background: var(--page); color: var(--ink); }
+.rt-min { flex: none; font-size: var(--fs-xs); color: var(--muted); font-variant-numeric: tabular-nums; }
+.rt-min input { width: 52px; font: inherit; font-size: var(--fs-xs); padding: 3px 5px; border-radius: 6px; border: 1px solid var(--border); background: var(--page); color: var(--ink); }
+/* Grab handle only exists in edit mode — a drag target on a row whose job is to
+   be tapped would make ticking a step feel unreliable. */
+.rt-grip { flex: none; color: var(--muted); cursor: grab; touch-action: none; display: inline-flex; }
+.rt-grip .icon { width: 14px; height: 14px; }
+.rt-step.rt-dragging { opacity: 0.4; }
+.rt-step.rt-over { box-shadow: inset 0 2px 0 var(--accent); }
+.rt-del { flex: none; border: none; background: none; color: var(--muted); cursor: pointer; padding: 2px; display: inline-flex; }
+.rt-del:hover { color: var(--critical); }
+.rt-del .icon { width: 13px; height: 13px; }
+.rt-foot { display: flex; align-items: center; gap: 8px; margin-top: 10px; padding-top: 9px; border-top: 1px solid var(--hairline); }
+.rt-start { font: inherit; font-size: var(--fs-base); padding: 6px 14px; border-radius: 8px; border: 1px solid var(--accent); background: var(--accent-light); color: var(--accent-strong); cursor: pointer; font-weight: 600; }
+.rt-start:hover { background: var(--accent); color: #fff; }
+.rt-progress { flex: 1; font-size: var(--fs-sm); color: var(--muted); }
+.rt-card.complete .rt-progress { color: var(--good-text); }
+
+/* ---- focus mode ---- */
+.focus-bg { display: none; position: fixed; inset: 0; z-index: 300; background: var(--page); align-items: center; justify-content: center; padding: 20px; }
+.focus-bg.open { display: flex; }
+.focus-card { width: min(460px, 100%); text-align: center; }
+.fc-count { font-size: var(--fs-micro); text-transform: uppercase; letter-spacing: var(--tracking-caps); color: var(--muted); }
+.fc-step { font-size: 1.75rem; font-weight: 600; line-height: 1.25; margin: 18px 0 6px; overflow-wrap: anywhere; }
+.fc-min { font-size: var(--fs-md); color: var(--muted); }
+.fc-actions { display: flex; flex-direction: column; gap: 10px; align-items: center; margin-top: 30px; }
+.fc-done { font: inherit; font-size: var(--fs-lg); font-weight: 600; padding: 13px 42px; border-radius: 12px; border: none; background: var(--accent); color: #fff; cursor: pointer; }
+.fc-done:hover { background: var(--accent-strong); }
+.fc-link { border: none; background: none; font: inherit; font-size: var(--fs-base); color: var(--muted); cursor: pointer; text-decoration: underline; }
+.fc-link:hover { color: var(--accent); }
+.fc-dots { display: flex; gap: 5px; justify-content: center; margin-top: 26px; }
+.fc-dots span { width: 7px; height: 7px; border-radius: 50%; background: var(--hairline); }
+.fc-dots span.done { background: var(--good); }
+.fc-dots span.now { background: var(--accent); transform: scale(1.35); }
+
+/* ---- routine chip on a task ---- */
+.rt-chip { display: inline-flex; align-items: center; gap: 4px; font-size: var(--fs-xs); padding: 1px 7px 1px 5px; border-radius: 20px; border: 1px solid var(--border); background: var(--page); color: var(--muted); cursor: pointer; margin-left: 6px; white-space: nowrap; vertical-align: baseline; }
+.rt-chip:hover { border-color: var(--accent); color: var(--accent); }
+.rt-chip .icon { width: 11px; height: 11px; }
+
+/* ---- @mention autocomplete ---- */
+.at-menu { position: absolute; z-index: 400; left: 0; right: 0; margin-top: 3px; border: 1px solid var(--border); border-radius: 9px; background: var(--surface); box-shadow: var(--shadow); overflow: hidden; }
+.at-menu button { display: flex; align-items: baseline; gap: 8px; width: 100%; border: none; background: none; font: inherit; font-size: var(--fs-base); color: var(--ink); text-align: left; padding: 7px 10px; cursor: pointer; }
+.at-menu button:hover, .at-menu button.sel { background: var(--hover); }
+.at-menu .at-min { margin-left: auto; font-size: var(--fs-xs); color: var(--muted); }
+
 /* ---- month: shape, not contents ---- */
 .mo-grid { border: 1px solid var(--border); border-radius: 12px; background: var(--surface); overflow: hidden; }
 .mo-head, .mo-week { display: grid; grid-template-columns: repeat(7, 1fr); }
@@ -760,7 +827,7 @@ a.meal-title:hover .meal-link-ico { opacity: 1; }
 /* ---- time report ---- */
 /* The sidebar is for planning; this view is for transcribing. Hiding it gives
    the rows the full width and takes the week/month/meal cards out of the way. */
-body.time-view .sidebar-col, body.assign-view .sidebar-col { display: none; }
+body.time-view .sidebar-col, body.assign-view .sidebar-col, body.routines-view .sidebar-col { display: none; }
 .time-toolbar { flex-wrap: wrap; gap: 10px; }
 .time-toolbar label { display: flex; align-items: center; gap: 6px; font-size: var(--fs-base); color: var(--muted); }
 .time-toolbar input[type=date], .time-toolbar select { font: inherit; font-size: var(--fs-base); padding: 5px 8px; border: 1px solid var(--border); border-radius: 8px; background: var(--surface); color: var(--ink); }
@@ -1027,7 +1094,7 @@ footer button { font: inherit; font-size: var(--fs-sm); border: none; background
       <div class="apps-menu" id="apps-menu"></div>
     </div>
     <button class="icon-btn" title="Assistant" id="chat-toggle-btn" onclick="toggleChat(true)" data-ico="chat" style="display:none"></button>
-    <button class="icon-btn" title="Routines & settings" onclick="openRoutinesModal()" data-ico="settings"></button>
+    <button class="icon-btn" title="Settings" onclick="openRoutinesModal()" data-ico="settings"></button>
     <button class="icon-btn drawer-toggle" title="This week" onclick="toggleSidebar(true)" data-ico="menu"></button>
     <div class="user-info" id="user-info" style="display:none">
       <span id="user-email"></span> · <a onclick="doSignOut()">sign out</a>
@@ -1038,6 +1105,7 @@ footer button { font: inherit; font-size: var(--fs-sm); border: none; background
          chosen from the date itself, not from here — a period is not a sibling
          of Assignments and Time, and four tabs made it look like one. -->
     <button data-view="calendar" class="active" onclick="switchCalendarTab()">Calendar</button>
+    <button data-view="routines" onclick="switchView('routines')">Routines</button>
     <button data-view="assign" onclick="switchView('assign')">Assignments</button>
     <button data-view="time" onclick="switchView('time')">Time</button>
   </nav>
@@ -1142,6 +1210,17 @@ footer button { font: inherit; font-size: var(--fs-sm); border: none; background
         <div id="month-grid"></div>
       </section>
 
+      <!-- ============ ROUTINES VIEW ============
+           Step-by-step walkthroughs. Distinct from "recurring tasks", which are
+           TEMPLATES and live in settings. -->
+      <section class="view" id="view-routines">
+        <div class="day-toolbar">
+          <span class="day-title">Routines</span>
+          <button class="ghost" onclick="addRoutine()">+ New routine</button>
+        </div>
+        <div id="routines-list"></div>
+      </section>
+
       <!-- ============ ASSIGNMENTS VIEW ============
            Her coursework, day by day, as the checklist she kept by hand through
            1L: every class's work for a date in one list, each item tickable,
@@ -1237,7 +1316,7 @@ footer button { font: inherit; font-size: var(--fs-sm); border: none; background
   <div class="modal">
     <div class="modal-head"><strong id="tm-title">Edit task</strong><button class="modal-x" data-ico="x" onclick="closeModal('task-modal')"></button></div>
     <div class="modal-body">
-      <div class="field"><label>Title</label><input type="text" id="tm-name"></div>
+      <div class="field" style="position:relative"><label>Title</label><input type="text" id="tm-name" autocomplete="off" oninput="onTitleInput(event)" onkeydown="onTitleKey(event)"><div id="at-menu"></div><div id="tm-routine-row" style="margin-top:5px"></div></div>
       <div class="field-row">
         <div class="field"><label>Date (blank = this week, no day)</label><input type="date" id="tm-date"></div>
         <div class="field"><label>Time (blank = untimed)</label><input type="time" id="tm-time"></div>
@@ -1257,13 +1336,13 @@ footer button { font: inherit; font-size: var(--fs-sm); border: none; background
   </div>
 </div>
 
-<!-- Routines & settings modal -->
+<!-- Settings modal -->
 <div class="modal-bg" id="routines-modal">
   <div class="modal" style="max-width:560px">
-    <div class="modal-head"><strong>Routines & settings</strong><button class="modal-x" data-ico="x" onclick="closeModal('routines-modal')"></button></div>
+    <div class="modal-head"><strong>Settings</strong><button class="modal-x" data-ico="x" onclick="closeModal('routines-modal')"></button></div>
     <div class="modal-body">
       <button class="settings-menu-row" onclick="openRoutinesSubmodal()">
-        <span class="sm-title"><strong>Recurring routines</strong><span class="sm-sub" id="routines-count-label"></span></span>
+        <span class="sm-title"><strong>Recurring tasks</strong><span class="sm-sub" id="routines-count-label"></span></span>
         <span class="sm-chevron" data-ico="chevron-right"></span>
       </button>
       <button class="settings-menu-row" onclick="openCategoriesSubmodal()">
@@ -1331,10 +1410,10 @@ footer button { font: inherit; font-size: var(--fs-sm); border: none; background
   </div>
 </div>
 
-<!-- Recurring routines submenu -->
+<!-- Recurring tasks submenu -->
 <div class="modal-bg" id="routines-submodal">
   <div class="modal" style="max-width:480px">
-    <div class="modal-head"><strong>Recurring routines</strong><button class="modal-x" data-ico="x" onclick="closeModal('routines-submodal')"></button></div>
+    <div class="modal-head"><strong>Recurring tasks</strong><button class="modal-x" data-ico="x" onclick="closeModal('routines-submodal')"></button></div>
     <div class="modal-body">
       <div id="routines-list"></div>
       <div style="margin:12px 0 6px"><button class="ghost" onclick="openTemplateModal()">+ Add routine</button></div>
@@ -1380,6 +1459,11 @@ footer button { font: inherit; font-size: var(--fs-sm); border: none; background
     </div>
   </div>
 </div>
+
+<!-- Focus mode: one step at a time, for running a routine without deciding
+     anything. Its own overlay rather than a modal because it is a place you
+     stay in for twenty minutes, not a dialog you answer. -->
+<div class="focus-bg" id="focus-overlay"><div class="focus-card" id="focus-card"></div></div>
 
 <div class="modal-bg" id="leave-submodal">
   <div class="modal" style="max-width:460px">
@@ -1519,6 +1603,7 @@ const ICONS = {
   "heart": '<path d="M20.4 5.6a5 5 0 0 0-7.1 0L12 6.9l-1.3-1.3a5 5 0 1 0-7.1 7.1l8.4 8.4 8.4-8.4a5 5 0 0 0 0-7.1z"/>',
   // A door with an arrow through it, not a bare arrow: this means "leaving",
   // and a plain arrow in a toolbar reads as a direction control.
+  "list": '<line x1="8" y1="6" x2="21" y2="6"/><line x1="8" y1="12" x2="21" y2="12"/><line x1="8" y1="18" x2="21" y2="18"/><line x1="3" y1="6" x2="3.01" y2="6"/><line x1="3" y1="12" x2="3.01" y2="12"/><line x1="3" y1="18" x2="3.01" y2="18"/>',
   "leave": '<path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4"/><polyline points="16 17 21 12 16 7"/><line x1="21" y1="12" x2="9" y2="12"/>',
   // Weather, drawn to the same line-icon language as the rest — no emoji in
   // chrome, no icon CDN.
@@ -1928,6 +2013,8 @@ function openTaskModal(item){
   document.getElementById('tm-notes').value = item.notes || '';
   document.getElementById('tm-recur-monthly').checked = !!item.recurMonthly;
   document.getElementById('tm-delete').style.display = '';
+  _pendingRoutineId = item.routine_id || null;
+  _atMatches = []; renderAtMenu(); renderRoutineRow();
   openModal('task-modal');
 }
 function openNewTaskModal({date=null, time=null}={}){
@@ -1941,6 +2028,8 @@ function openNewTaskModal({date=null, time=null}={}){
   document.getElementById('tm-notes').value = '';
   document.getElementById('tm-recur-monthly').checked = false;
   document.getElementById('tm-delete').style.display = 'none';
+  _pendingRoutineId = null;
+  _atMatches = []; renderAtMenu(); renderRoutineRow();
   openModal('task-modal');
 }
 function saveTaskFromModal(){
@@ -1963,6 +2052,7 @@ function saveTaskFromModal(){
       const wasRecurring = !!task.recurMonthly;
       task.title = title; task.date = date; task.time = time;
       task.duration_min = time ? duration : null; task.notes = notes; task.category = category;
+      task.routine_id = _pendingRoutineId || null;
       if(recurMonthly){
         task.week = null; task.month = task.month || curMonth; task.rolled_from = null;
         task.recurMonthly = true; if(!task.seriesId) task.seriesId = task.id;
@@ -1973,10 +2063,10 @@ function saveTaskFromModal(){
       }
     }
   } else if(recurMonthly){
-    task = addTask({title, month: curMonth, category});
+    task = addTask({title, month: curMonth, category, routine_id: _pendingRoutineId || null});
     task.notes = notes; task.recurMonthly = true; task.seriesId = task.id;
   } else {
-    addTask({title, date, time, category, week: date ? null : weekKeyForDate(currentView==='week'?weekAnchor:currentDate)});
+    addTask({title, date, time, category, routine_id: _pendingRoutineId || null, week: date ? null : weekKeyForDate(currentView==='week'?weekAnchor:currentDate)});
     task = TASKS[TASKS.length-1];
     if(time) task.duration_min = duration;
     task.notes = notes;
@@ -2213,7 +2303,7 @@ function deleteQuickLink(id){
 }
 function updateSettingsMenuCounts(){
   const routineCount = TEMPLATES.length;
-  document.getElementById('routines-count-label').textContent = routineCount ? `${routineCount} routine${routineCount===1?'':'s'}` : 'None yet';
+  document.getElementById('routines-count-label').textContent = routineCount ? `${routineCount} recurring task${routineCount===1?'':'s'}` : 'None yet';
   const linkCount = getQuickLinks().length;
   document.getElementById('links-count-label').textContent = linkCount ? `${linkCount} link${linkCount===1?'':'s'}` : 'None yet';
   const catCount = (SETTINGS.taskCategories || []).length;
@@ -2849,7 +2939,7 @@ function taskRowHtml(item){
     <span class="drag-handle" data-ico="grip"></span>
     <span class="chk ${item.done?'done':''}" onclick='${doneCall}'>${item.done?ico('check'):''}</span>
     <span class="t-title" onclick='${openCall}'>${esc(item.title)}</span>
-    ${recurIco}${rolledChip}
+    ${routineChipHtml(item)}${recurIco}${rolledChip}
   </div>`;
 }
 function attachRowDrag(container, items){
@@ -3021,6 +3111,406 @@ function onSlotClick(e){
 /* =====================================================================
    RENDER: WEEK VIEW
    ===================================================================== */
+
+/* =====================================================================
+   ROUTINES — step-by-step walkthroughs.
+
+   Distinct from what settings used to call "recurring routines"; those are
+   TEMPLATES and are now labelled "Recurring tasks" so this word is free.
+
+   Progress is keyed by date, never cleared. If there is no row for today the
+   routine is fresh — so nothing has to run at midnight, and nothing breaks
+   when the phone is asleep, the tab is closed, or the clocks change.
+   ===================================================================== */
+let ROUTINES = [];
+let ROUTINE_PROGRESS = {};      // routine id -> [step ids done today]
+let _routinesLoaded = false, _rtProgressDate = null;
+let _rtEditing = null;          // routine id whose card is in edit mode
+
+async function loadRoutines(force){
+  if(_routinesLoaded && !force) return;
+  if(_guestMode || !_currentUser){ ROUTINES = []; _routinesLoaded = true; return; }
+  const {data, error} = await sb.from('routines')
+    .select('id, name, steps, position, archived').eq('user_id', _currentUser.id)
+    .eq('archived', false).order('position');
+  if(error){ console.error('loadRoutines error:', error); return; }
+  ROUTINES = (data || []).map(r => ({...r, steps: Array.isArray(r.steps) ? r.steps : []}));
+  _routinesLoaded = true;
+}
+// Re-read whenever the day has turned over, which is what makes "resets at
+// midnight" true for a tab that was left open overnight.
+async function loadRoutineProgress(force){
+  const today = todayStr();
+  if(!force && _rtProgressDate === today) return;
+  ROUTINE_PROGRESS = {};
+  _rtProgressDate = today;
+  if(_guestMode || !_currentUser) return;
+  const {data, error} = await sb.from('routine_progress')
+    .select('routine_id, done_steps').eq('user_id', _currentUser.id).eq('date', today);
+  if(error){ console.error('loadRoutineProgress error:', error); return; }
+  (data || []).forEach(r => { ROUTINE_PROGRESS[r.routine_id] = Array.isArray(r.done_steps) ? r.done_steps : []; });
+}
+function routineById(id){ return ROUTINES.find(r => String(r.id) === String(id)) || null; }
+function doneSteps(routineId){ return ROUTINE_PROGRESS[routineId] || []; }
+function routineMinutes(r){
+  const nums = (r.steps || []).map(s => Number(s.minutes)).filter(n => n > 0);
+  const total = nums.reduce((a, b) => a + b, 0);
+  // "+" rather than a bare number when some steps are untimed: the total is a
+  // floor, and rounding that off would quietly overstate how well it is known.
+  return {total, partial: nums.length < (r.steps || []).length && nums.length > 0, none: !nums.length};
+}
+function routineTotalLabel(r){
+  const {total, partial, none} = routineMinutes(r);
+  if(none) return '';
+  return fmtMins(total) + (partial ? '+' : '');
+}
+function routineComplete(r){
+  const done = doneSteps(r.id);
+  return (r.steps || []).length > 0 && r.steps.every(s => done.includes(s.id));
+}
+
+async function saveRoutine(r){
+  if(_guestMode || !_currentUser) return;
+  const {error} = await sb.from('routines')
+    .update({name: r.name, steps: r.steps, position: r.position}).eq('id', r.id);
+  if(error){ console.error('saveRoutine error:', error); showNotice("Couldn't save that routine.", 'warn'); }
+}
+async function persistProgress(routineId){
+  if(_guestMode || !_currentUser) return;
+  const {error} = await sb.from('routine_progress')
+    .upsert({user_id: _currentUser.id, routine_id: routineId, date: todayStr(),
+             done_steps: doneSteps(routineId), updated_at: new Date().toISOString()},
+            {onConflict: 'user_id,routine_id,date'});
+  if(error){ console.error('persistProgress error:', error); showNotice("Couldn't save your progress.", 'warn'); }
+}
+
+function newStepId(){ return 's' + Math.random().toString(36).slice(2, 8); }
+
+async function addRoutine(){
+  if(_guestMode || !_currentUser){ showNotice('Sign in to build routines.', 'warn'); return; }
+  const pos = ROUTINES.length ? Math.max(...ROUTINES.map(r => r.position || 0)) + 1 : 0;
+  const {data, error} = await sb.from('routines')
+    .insert({user_id: _currentUser.id, name: 'New routine', steps: [], position: pos})
+    .select('id, name, steps, position, archived').single();
+  if(error){ console.error(error); showNotice("Couldn't create that.", 'warn'); return; }
+  ROUTINES.push({...data, steps: []});
+  _rtEditing = data.id;          // a brand-new routine opens ready to be typed into
+  renderRoutines();
+}
+// Archived, not deleted: a routine's progress rows reference it, and a year of
+// "did I actually do this" is worth more than a tidy table.
+async function deleteRoutine(id){
+  const r = routineById(id);
+  if(!r) return;
+  ROUTINES = ROUTINES.filter(x => x !== r);
+  renderRoutines();
+  const {error} = await sb.from('routines').update({archived: true}).eq('id', id);
+  if(error){ console.error(error); showNotice("Couldn't delete that.", 'warn'); await loadRoutines(true); renderRoutines(); }
+}
+function renameRoutine(id, name){
+  const r = routineById(id);
+  if(!r) return;
+  r.name = String(name).trim() || 'Untitled';
+  saveRoutine(r);
+}
+function addStep(id){
+  const r = routineById(id);
+  if(!r) return;
+  r.steps.push({id: newStepId(), text: '', minutes: null});
+  saveRoutine(r);
+  renderRoutines();
+  const inputs = document.querySelectorAll(`[data-routine="${id}"] .rt-text input`);
+  if(inputs.length) inputs[inputs.length - 1].focus();
+}
+function editStep(id, stepId, field, value){
+  const r = routineById(id);
+  const st = r && r.steps.find(s => s.id === stepId);
+  if(!st) return;
+  if(field === 'minutes'){
+    const n = parseInt(value, 10);
+    st.minutes = n > 0 ? n : null;
+  }else{
+    st.text = String(value);
+  }
+  saveRoutine(r);
+  renderRoutines();
+}
+function deleteStep(id, stepId){
+  const r = routineById(id);
+  if(!r) return;
+  r.steps = r.steps.filter(s => s.id !== stepId);
+  saveRoutine(r);
+  renderRoutines();
+}
+function toggleRoutineEdit(id){
+  _rtEditing = String(_rtEditing) === String(id) ? null : String(id);
+  renderRoutines();
+}
+
+/* Ticking a step. Completing every step ticks any task for today that this
+   routine is attached to, because finishing the routine is what finishing that
+   task means. Unticking a step deliberately does *not* untick the task: she
+   may have said "done" and moved on, and pulling a completed task back open
+   under her is worse than a stale tick. */
+async function toggleStep(routineId, stepId){
+  if(_guestMode || !_currentUser){ showNotice('Sign in to track routines.', 'warn'); return; }
+  const done = doneSteps(routineId).slice();
+  const i = done.indexOf(stepId);
+  const wasComplete = routineComplete(routineById(routineId));
+  if(i >= 0) done.splice(i, 1); else done.push(stepId);
+  ROUTINE_PROGRESS[routineId] = done;
+  const nowComplete = routineComplete(routineById(routineId));
+  renderRoutines();
+  renderFocus();
+  await persistProgress(routineId);
+  if(!wasComplete && nowComplete) completeTasksForRoutine(routineId);
+}
+function completeTasksForRoutine(routineId){
+  const today = todayStr();
+  let changed = false;
+  TASKS.forEach(t => {
+    if(String(t.routine_id) === String(routineId) && t.date === today && !t.done){
+      t.done = true; touch(t); changed = true;
+    }
+  });
+  if(changed){ saveToStorage(); renderAll(); showNotice('Routine finished — its task is ticked off.', 'info'); setTimeout(hideNotice, 3500); }
+}
+
+function renderRoutines(){
+  const box = document.getElementById('routines-list');
+  if(!box) return;
+  if(_guestMode || !_currentUser){
+    box.innerHTML = '<p class="empty-note">Sign in to build routines.</p>';
+    return;
+  }
+  if(!ROUTINES.length){
+    box.innerHTML = `<p class="empty-note">No routines yet. <strong>+ New routine</strong> starts one — a name, then the steps in order.</p>`;
+    return;
+  }
+  box.innerHTML = `<div class="rt-cards">` + ROUTINES.map(r => {
+    const editing = String(_rtEditing) === String(r.id);
+    const done = doneSteps(r.id);
+    const complete = routineComplete(r);
+    const total = routineTotalLabel(r);
+    const steps = (r.steps || []).map(s => {
+      if(editing){
+        return `<div class="rt-step" data-step="${esc(s.id)}">
+          <span class="rt-grip" data-ico="grip" title="Drag to reorder"></span>
+          <span class="rt-text"><input type="text" value="${esc(s.text)}" placeholder="Step…"
+            onchange="editStep('${esc(r.id)}','${esc(s.id)}','text',this.value)"></span>
+          <span class="rt-min"><input type="number" min="0" max="999" placeholder="min" value="${s.minutes || ''}"
+            onchange="editStep('${esc(r.id)}','${esc(s.id)}','minutes',this.value)"></span>
+          <button class="rt-del" onclick="deleteStep('${esc(r.id)}','${esc(s.id)}')" data-ico="trash" title="Delete step"></button>
+        </div>`;
+      }
+      const on = done.includes(s.id);
+      return `<div class="rt-step ${on?'done':''}">
+        <span class="rt-chk" onclick="toggleStep('${esc(r.id)}','${esc(s.id)}')">${ico('check')}</span>
+        <span class="rt-text" onclick="toggleStep('${esc(r.id)}','${esc(s.id)}')">${esc(s.text || '—')}</span>
+        ${s.minutes ? `<span class="rt-min">${s.minutes}m</span>` : ''}
+      </div>`;
+    }).join('');
+
+    const foot = editing
+      ? `<div class="rt-foot">
+           <button class="rt-start" onclick="addStep('${esc(r.id)}')">+ Step</button>
+           <span class="rt-progress"></span>
+           <button class="rt-del" onclick="deleteRoutine('${esc(r.id)}')" data-ico="trash" title="Delete this routine"></button>
+         </div>`
+      : `<div class="rt-foot">
+           <button class="rt-start" onclick="startFocus('${esc(r.id)}')" ${!(r.steps||[]).length?'disabled':''}>Start</button>
+           <span class="rt-progress">${(r.steps||[]).length ? (complete ? 'All done today' : `${done.length} of ${r.steps.length} today`) : 'No steps yet'}</span>
+         </div>`;
+
+    return `<div class="rt-card ${complete?'complete':''}" data-routine="${esc(r.id)}">
+      <div class="rt-head">
+        ${editing
+          ? `<span class="rt-name"><input type="text" value="${esc(r.name)}" onchange="renameRoutine('${esc(r.id)}',this.value)"></span>`
+          : `<span class="rt-name">${esc(r.name)}</span>`}
+        ${total && !editing ? `<span class="rt-total">${esc(total)}</span>` : ''}
+        <button class="rt-edit" onclick="toggleRoutineEdit('${esc(r.id)}')">${editing?'Done':'Edit'}</button>
+      </div>
+      <div class="rt-steps">${steps || '<p class="empty-note" style="padding:4px 0">No steps yet.</p>'}</div>
+      ${foot}
+    </div>`;
+  }).join('') + `</div>`;
+  paintIcons(box);
+  if(_rtEditing) bindStepReorder(box);
+}
+
+/* Drag to reorder, pointer-based like the rest of the app. It reorders on the
+   fly rather than computing a drop index at the end, so the list under the
+   finger always shows what releasing would produce. */
+function bindStepReorder(box){
+  box.querySelectorAll('.rt-grip').forEach(grip => {
+    grip.addEventListener('pointerdown', e => {
+      e.preventDefault();
+      const row = grip.closest('.rt-step');
+      const card = grip.closest('.rt-card');
+      const id = card.dataset.routine;
+      const r = routineById(id);
+      if(!r) return;
+      row.classList.add('rt-dragging');
+      const onMove = ev => {
+        const rows = [...card.querySelectorAll('.rt-step')];
+        const under = rows.find(el => {
+          if(el === row) return false;
+          const b = el.getBoundingClientRect();
+          return ev.clientY >= b.top && ev.clientY <= b.bottom;
+        });
+        if(!under) return;
+        const b = under.getBoundingClientRect();
+        const after = ev.clientY > b.top + b.height / 2;
+        under.parentNode.insertBefore(row, after ? under.nextSibling : under);
+      };
+      const onUp = () => {
+        document.removeEventListener('pointermove', onMove);
+        row.classList.remove('rt-dragging');
+        const order = [...card.querySelectorAll('.rt-step')].map(el => el.dataset.step);
+        r.steps.sort((a, b2) => order.indexOf(a.id) - order.indexOf(b2.id));
+        saveRoutine(r);
+        renderRoutines();
+      };
+      document.addEventListener('pointermove', onMove);
+      document.addEventListener('pointerup', onUp, {once: true});
+    });
+  });
+}
+
+/* ---- @mention: attach a routine to a task ----
+   The @ is a way in, not the record. Picking from the menu drops the routine's
+   name into the title as ordinary words and stores `routine_id` on the task, so
+   the title stays readable everywhere else in the app and the link survives her
+   renaming the routine later. */
+let _atMatches = [], _atSel = 0, _pendingRoutineId = null;
+function atQueryFrom(input){
+  const upto = input.value.slice(0, input.selectionStart);
+  const m = /@([^@]*)$/.exec(upto);
+  return m ? m[1] : null;
+}
+function onTitleInput(e){
+  const q = atQueryFrom(e.target);
+  const menu = document.getElementById('at-menu');
+  if(q === null){ menu.innerHTML = ''; _atMatches = []; return; }
+  const needle = q.trim().toLowerCase();
+  _atMatches = ROUTINES.filter(r => !needle || r.name.toLowerCase().includes(needle)).slice(0, 6);
+  _atSel = 0;
+  renderAtMenu();
+}
+function renderAtMenu(){
+  const menu = document.getElementById('at-menu');
+  if(!menu) return;
+  if(!_atMatches.length){ menu.innerHTML = ''; return; }
+  menu.innerHTML = `<div class="at-menu">` + _atMatches.map((r, i) => {
+    const t = routineTotalLabel(r);
+    return `<button class="${i===_atSel?'sel':''}" onmousedown="event.preventDefault();pickRoutineMention('${esc(r.id)}')">`
+      + `${esc(r.name)}${t ? `<span class="at-min">${esc(t)}</span>` : ''}</button>`;
+  }).join('') + `</div>`;
+}
+function onTitleKey(e){
+  if(!_atMatches.length) return;
+  if(e.key === 'ArrowDown'){ e.preventDefault(); _atSel = (_atSel+1) % _atMatches.length; renderAtMenu(); }
+  else if(e.key === 'ArrowUp'){ e.preventDefault(); _atSel = (_atSel-1+_atMatches.length) % _atMatches.length; renderAtMenu(); }
+  else if(e.key === 'Enter' || e.key === 'Tab'){ e.preventDefault(); pickRoutineMention(_atMatches[_atSel].id); }
+  else if(e.key === 'Escape'){ _atMatches = []; renderAtMenu(); }
+}
+function pickRoutineMention(id){
+  const r = routineById(id);
+  const input = document.getElementById('tm-name');
+  if(!r || !input) return;
+  const upto = input.value.slice(0, input.selectionStart);
+  const rest = input.value.slice(input.selectionStart);
+  input.value = upto.replace(/@[^@]*$/, r.name) + rest;
+  _pendingRoutineId = r.id;
+  _atMatches = [];
+  renderAtMenu();
+  renderRoutineRow();
+  input.focus();
+}
+function renderRoutineRow(){
+  const row = document.getElementById('tm-routine-row');
+  if(!row) return;
+  const r = _pendingRoutineId ? routineById(_pendingRoutineId) : null;
+  row.innerHTML = r
+    ? `<span class="rt-chip">${ico('list')}${esc(r.name)}`
+      + `<button class="rt-del" style="padding:0 0 0 3px" onclick="clearRoutineMention()" data-ico="x" title="Detach"></button></span>`
+    : '';
+  paintIcons(row);
+}
+function clearRoutineMention(){ _pendingRoutineId = null; renderRoutineRow(); }
+
+// Opens the routine a task is attached to, from the task row's chip.
+function openRoutineFromTask(id){
+  switchView('routines');
+  Promise.all([loadRoutines(), loadRoutineProgress()]).then(() => {
+    renderRoutines();
+    const card = document.querySelector(`[data-routine="${id}"]`);
+    if(card) card.scrollIntoView({block: 'center', behavior: 'smooth'});
+  });
+}
+function routineChipHtml(task){
+  if(!task || !task.routine_id) return '';
+  const r = routineById(task.routine_id);
+  if(!r) return '';      // archived or not loaded yet — say nothing rather than lie
+  const t = routineTotalLabel(r);
+  return `<span class="rt-chip" onclick="event.stopPropagation();openRoutineFromTask('${esc(r.id)}')" title="Open ${esc(r.name)}">`
+    + `${ico('list')}${t ? esc(t) : esc(r.name)}</span>`;
+}
+
+/* ---- focus mode ---- */
+let _focusRoutine = null, _focusIndex = 0;
+function startFocus(id){
+  const r = routineById(id);
+  if(!r || !(r.steps || []).length) return;
+  _focusRoutine = String(id);
+  // Resume where she left off rather than restarting a half-finished routine.
+  const done = doneSteps(id);
+  const next = r.steps.findIndex(s => !done.includes(s.id));
+  _focusIndex = next < 0 ? 0 : next;
+  document.getElementById('focus-overlay').classList.add('open');
+  renderFocus();
+}
+function endFocus(){
+  _focusRoutine = null;
+  document.getElementById('focus-overlay').classList.remove('open');
+}
+function focusAdvance(markDone){
+  const r = routineById(_focusRoutine);
+  if(!r) return endFocus();
+  const step = r.steps[_focusIndex];
+  const goNext = () => {
+    if(_focusIndex + 1 >= r.steps.length) endFocus();
+    else { _focusIndex++; renderFocus(); }
+  };
+  if(markDone && step && !doneSteps(r.id).includes(step.id)){
+    toggleStep(r.id, step.id).then(goNext);
+  }else goNext();
+}
+function renderFocus(){
+  const el = document.getElementById('focus-card');
+  if(!el || !_focusRoutine) return;
+  const r = routineById(_focusRoutine);
+  if(!r) return endFocus();
+  const step = r.steps[_focusIndex];
+  if(!step) return endFocus();
+  const done = doneSteps(r.id);
+  el.innerHTML = `
+    <div class="fc-count">${esc(r.name)} · step ${_focusIndex+1} of ${r.steps.length}</div>
+    <div class="fc-step">${esc(step.text || '—')}</div>
+    ${step.minutes ? `<div class="fc-min">${step.minutes} min</div>` : ''}
+    <div class="fc-dots">${r.steps.map((s, i) =>
+      `<span class="${i===_focusIndex ? 'now' : (done.includes(s.id) ? 'done' : '')}"></span>`).join('')}</div>
+    <div class="fc-actions">
+      <button class="fc-done" onclick="focusAdvance(true)">${_focusIndex+1 >= r.steps.length ? 'Finish' : 'Done'}</button>
+      <button class="fc-link" onclick="focusAdvance(false)">skip this step</button>
+      <button class="fc-link" onclick="endFocus()">close</button>
+    </div>`;
+}
+document.addEventListener('keydown', e => {
+  if(!_focusRoutine) return;
+  if(e.key === 'Escape') endFocus();
+  if(e.key === 'Enter' || e.key === ' '){ e.preventDefault(); focusAdvance(true); }
+});
 
 /* =====================================================================
    PERIOD CONTROL — day / week / month, chosen from the date itself.
@@ -3320,6 +3810,7 @@ function switchView(v){
   document.getElementById('view-day').classList.toggle('active', v==='day');
   document.getElementById('view-week').classList.toggle('active', v==='week');
   document.getElementById('view-month').classList.toggle('active', v==='month');
+  document.getElementById('view-routines').classList.toggle('active', v==='routines');
   // Remembered so the tab returns to the period she was last using rather than
   // silently resetting to Day every time she comes back from Assignments.
   if(isCal && SETTINGS && SETTINGS.calendarPeriod !== v){ SETTINGS.calendarPeriod = v; touch(SETTINGS); saveToStorage(); }
@@ -3330,6 +3821,13 @@ function switchView(v){
   // The sidebar is this-week/this-month agenda tasks and the meal plan; on the
   // coursework list it is someone else's column of unrelated things.
   document.body.classList.toggle('assign-view', v==='assign');
+  // The sidebar is agenda tasks and meals; the routine library is neither.
+  document.body.classList.toggle('routines-view', v==='routines');
+  if(v === 'routines'){
+    // Re-read on open, same as the other tabs: she may have ticked a step on
+    // her phone, and progress has to be right for *today* specifically.
+    Promise.all([loadRoutines(true), loadRoutineProgress(true)]).then(renderRoutines);
+  }
   if(v === 'assign'){
     // Same reasoning as the time sheet: re-read on open. She may have imported
     // a syllabus in the law school app since this tab last looked, and an
@@ -4707,6 +5205,7 @@ function renderAll(){
   renderTimerGuard();
   if(currentView==='time') renderTimeView();
   else if(currentView==='assign'){ renderAssignments(); renderAbsencePanel(); }
+  else if(currentView==='routines') renderRoutines();
   else if(currentView==='day') renderDay();
   else if(currentView==='month') renderMonth();
   else renderWeek();
@@ -7641,6 +8140,12 @@ function afterLoad(){
   dedupeQuickLinkIds();
   pruneGhosts();
   startLeaveTicker();
+  // Warm the routine library: a task's chip cannot resolve its name without it,
+  // and the @ menu has nothing to offer until it arrives. Failure is silent —
+  // a missing library just means no chips, never a broken task list.
+  if(_currentUser && !_guestMode && !_routinesLoaded){
+    Promise.all([loadRoutines(), loadRoutineProgress()]).then(() => renderAll());
+  }
   applyTheme();
   applyFont();
   runRollover();
