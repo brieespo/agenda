@@ -1065,6 +1065,10 @@ button.danger-ghost { cursor: pointer; border: 1px solid var(--critical); backgr
 .routine-row { display: flex; align-items: center; gap: 8px; padding: 8px 4px; border-bottom: 1px solid var(--hairline); font-size: var(--fs-md); }
 .routine-row .r-title { flex: 1; }
 .routine-row .r-recur { font-size: var(--fs-sm); color: var(--muted); }
+/* The same note, used as a hint under a form field. Scoping it to .routine-row
+   alone left these rendering at full body weight, which read as instructions
+   rather than as the aside they are. */
+.field .r-recur { font-size: var(--fs-sm); color: var(--muted); }
 .routine-row button { border: none; background: none; color: var(--muted); cursor: pointer; }
 .r-cat-select { flex: none; max-width: 110px; font: inherit; font-size: var(--fs-sm); padding: 3px 5px; border-radius: 6px; border: 1px solid var(--border); background: var(--page); color: var(--ink-2); }
 .routine-row button:hover { color: var(--accent); }
@@ -1654,7 +1658,7 @@ footer button { font: inherit; font-size: var(--fs-sm); border: none; background
 <!-- Template edit modal -->
 <div class="modal-bg" id="template-modal">
   <div class="modal">
-    <div class="modal-head"><strong id="tpm-title">Add routine</strong><button class="modal-x" data-ico="x" onclick="closeModal('template-modal')"></button></div>
+    <div class="modal-head"><strong id="tpm-title">Add recurring task</strong><button class="modal-x" data-ico="x" onclick="closeModal('template-modal')"></button></div>
     <div class="modal-body">
       <div class="field"><label>Title</label><input type="text" id="tpm-name" placeholder="Take medication"></div>
       <div class="field">
@@ -1852,7 +1856,20 @@ function templateOccursOn(tpl, dateStr){
   if(!tpl.active) return false;
   const r = tpl.recurrence || {};
   if(r.freq === 'daily') return true;
-  if(r.freq === 'weekly') return (r.days||[]).includes(DOW_LONG[parseLocalDate(dateStr).getDay()]);
+  if(r.freq === 'weekly'){
+    if(!(r.days||[]).includes(DOW_LONG[parseLocalDate(dateStr).getDay()])) return false;
+    // "Every N weeks" is an interval on top of the weekly days, not a fourth
+    // frequency: the question it answers is still "which weekdays", and every
+    // existing weekly template is simply interval 1.
+    const every = Math.max(1, r.interval || 1);
+    if(every === 1 || !r.since) return true;
+    // Counted in whole weeks from the anchor week, so it cannot drift the way
+    // counting in days would across a DST boundary. Weeks before the anchor
+    // never match — a fortnightly task does not backfill into the weeks before
+    // she set it up.
+    const weeks = Math.floor(daysBetween(startOfWeek(r.since), startOfWeek(dateStr)) / 7);
+    return weeks >= 0 && weeks % every === 0;
+  }
   if(r.freq === 'monthly'){
     // Two ways to say "monthly": a date ("the 5th") or a weekday position
     // ("the 2nd Friday"). Older templates carry only `day`, so that stays the
@@ -2238,7 +2255,11 @@ function deleteTaskFromModal(){
 function recurLabel(tpl){
   const r = tpl.recurrence||{};
   if(r.freq==='daily') return 'Every day' + (tpl.time?` at ${fmtTime(tpl.time)}`:'');
-  if(r.freq==='weekly') return 'Weekly: ' + (r.days||[]).map(d=>DOW_SHORT[DOW_LONG.indexOf(d)]).join(', ') + (tpl.time?` at ${fmtTime(tpl.time)}`:'');
+  if(r.freq==='weekly'){
+    const every = Math.max(1, r.interval || 1);
+    const lead = every === 1 ? 'Weekly' : every === 2 ? 'Every other week' : `Every ${every} weeks`;
+    return lead + ': ' + (r.days||[]).map(d=>DOW_SHORT[DOW_LONG.indexOf(d)]).join(', ') + (tpl.time?` at ${fmtTime(tpl.time)}`:'');
+  }
   if(r.freq==='monthly'){
     const when = r.dow
       ? `${r.nth === -1 ? 'Last' : ['','1st','2nd','3rd','4th'][r.nth]} ${DOW_FULL[DOW_LONG.indexOf(r.dow)]} of the month`
@@ -2252,8 +2273,16 @@ function renderTemplateFreqFields(){
   const freq = document.getElementById('tpm-freq').value;
   const el = document.getElementById('tpm-freq-fields');
   if(freq==='weekly'){
-    const sel = (editingTemplate && editingTemplate.recurrence.days) || [];
-    el.innerHTML = `<div class="field"><label>Days</label><div class="dow-picker">${DOW_LONG.map((d,i)=>`<label><input type="checkbox" value="${d}" ${sel.includes(d)?'checked':''}><span>${DOW_SHORT[i]}</span></label>`).join('')}</div></div>`;
+    const r = (editingTemplate && editingTemplate.recurrence) || {};
+    const sel = r.days || [];
+    const every = Math.max(1, r.interval || 1);
+    const EVERY = [[1,'Every week'],[2,'Every other week'],[3,'Every 3 weeks'],[4,'Every 4 weeks'],[6,'Every 6 weeks'],[8,'Every 8 weeks']];
+    el.innerHTML = `<div class="field"><label>How often</label>
+        <select id="tpm-weeks" onchange="renderTemplateWeekHint()">${EVERY.map(([v,l])=>`<option value="${v}" ${v===every?'selected':''}>${l}</option>`).join('')}</select>
+        <div class="r-recur" id="tpm-week-hint" style="margin-top:4px"></div>
+      </div>
+      <div class="field"><label>Days</label><div class="dow-picker">${DOW_LONG.map((d,i)=>`<label><input type="checkbox" value="${d}" ${sel.includes(d)?'checked':''}><span>${DOW_SHORT[i]}</span></label>`).join('')}</div></div>`;
+    renderTemplateWeekHint();
   } else if(freq==='monthly'){
     const r = (editingTemplate && editingTemplate.recurrence) || {};
     const byDow = !!r.dow;
@@ -2278,6 +2307,25 @@ function renderTemplateFreqFields(){
     el.innerHTML = '';
   }
 }
+/* The week an "every N weeks" template counts from. Held steady while the
+   rhythm is unchanged: re-anchoring on every save would mean renaming a
+   fortnightly task, or fixing a typo in it, silently shunted it onto the other
+   week. A changed interval is a new rhythm, so that does re-anchor. */
+function weekAnchorFor(prev, every){
+  return (prev && prev.since && Math.max(1, prev.interval || 1) === every)
+    ? prev.since : startOfWeek(todayStr());
+}
+// Which week it counts from, said out loud. "Every other week" is otherwise a
+// setting with no visible answer to "so, is this week one of them?"
+function renderTemplateWeekHint(){
+  const sel = document.getElementById('tpm-weeks');
+  const hint = document.getElementById('tpm-week-hint');
+  if(!sel || !hint) return;
+  const every = parseInt(sel.value, 10) || 1;
+  if(every === 1){ hint.textContent = ''; return; }
+  const anchor = weekAnchorFor(editingTemplate && editingTemplate.recurrence, every);
+  hint.textContent = `Counting from the week of ${fmtShort(anchor)} — the weeks in between are skipped.`;
+}
 function renderTemplateMonthMode(){
   const dow = document.getElementById('tpm-monthmode').value === 'dow';
   document.getElementById('tpm-month-date').style.display = dow ? 'none' : '';
@@ -2285,7 +2333,8 @@ function renderTemplateMonthMode(){
 }
 function openTemplateModal(tpl){
   editingTemplate = tpl || null;
-  document.getElementById('tpm-title').textContent = tpl ? 'Edit routine' : 'Add routine';
+  // "Routine" is the walkthrough feature's word now; these are recurring tasks.
+  document.getElementById('tpm-title').textContent = tpl ? 'Edit recurring task' : 'Add recurring task';
   document.getElementById('tpm-name').value = tpl ? tpl.title : '';
   document.getElementById('tpm-freq').value = tpl ? tpl.recurrence.freq : 'weekly';
   document.getElementById('tpm-time').value = tpl && tpl.time ? tpl.time : '';
@@ -2323,6 +2372,14 @@ function saveTemplateFromModal(){
   if(freq==='weekly'){
     recurrence.days = Array.from(document.querySelectorAll('#tpm-freq-fields input[type=checkbox]:checked')).map(el=>el.value);
     if(!recurrence.days.length) return;
+    const every = parseInt((document.getElementById('tpm-weeks')||{}).value, 10) || 1;
+    // Only an every-other-week-or-longer template carries these. A plain weekly
+    // one stays exactly the shape it has always been, so nothing already saved
+    // has to be migrated and an older build still reads it correctly.
+    if(every > 1){
+      recurrence.interval = every;
+      recurrence.since = weekAnchorFor(editingTemplate && editingTemplate.recurrence, every);
+    }
   } else if(freq==='monthly'){
     if(document.getElementById('tpm-monthmode').value === 'dow'){
       recurrence.nth = parseInt(document.getElementById('tpm-nth').value, 10);
