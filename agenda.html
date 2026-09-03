@@ -581,6 +581,8 @@ textarea.ae-input { resize: vertical; line-height: 1.4; min-height: 2.4em; }
 .rt-prod.set { color: var(--ink-2); }
 .rt-step.done .rt-prod { text-decoration-line: underline; }
 .rt-picker { display: flex; flex-wrap: wrap; gap: 5px; align-items: center; padding: 6px 0 8px 26px; }
+.rt-act-form { align-items: flex-end; gap: 6px; }
+.rt-step .rt-min .icon { width: 1em; height: 1em; }
 .rt-prod-edit { padding: 0 0 6px 26px; }
 .rt-prod-edit.open { padding-bottom: 10px; }
 
@@ -3589,6 +3591,84 @@ function productName(key){
   const p = skinProducts().find(x => x.k === key);
   return p ? p.name : '';
 }
+
+/* ---- a step that is an exercise ----
+   A step points at one exercise rather than offering several, because unlike
+   moisturizers, a squat and a bench press are not interchangeable options for
+   the same move — they are different steps with different numbers.
+
+   Ticking one writes a real activity_events row, so a workout run from a
+   routine and one logged straight into the Activity tile are the same record in
+   the same place. `choices[stepId]` holds that row's id, which is why the
+   column never needed a shape that knows the difference: the step says how to
+   read its own value. */
+function stepExercise(step){
+  return (step && step.exercise) ? actExerciseByKey(step.exercise) : null;
+}
+function isExerciseStep(step){ return !!stepExercise(step); }
+// The entry a step wrote, if it is still there. Deleting it from the Activity
+// panel is a legitimate way to undo, so this resolves live rather than trusting
+// the stored id.
+function stepActivityRow(routineId, stepId, date){
+  const id = stepChoices(routineId, date)[stepId];
+  if(!id || !ACTIVITY) return null;
+  return ACTIVITY.find(r => String(r.id) === String(id)) || null;
+}
+let _rtActStep = null;   // "routineId|stepId" whose numbers form is open
+function toggleStepActForm(routineId, stepId){
+  const key = `${routineId}|${stepId}`;
+  _rtActStep = _rtActStep === key ? null : key;
+  renderRoutines(); renderRoutineCard();
+  const first = document.querySelector('.rt-act-form input');
+  if(first) first.focus();
+}
+async function saveStepActivity(routineId, stepId, date){
+  const r = routineById(routineId);
+  const step = r && (r.steps || []).find(s => s.id === stepId);
+  const ex = stepExercise(step);
+  if(!ex) return;
+  const num = (id, int) => {
+    const el = document.getElementById(id);
+    if(!el) return null;
+    const raw = el.value.trim();
+    if(!raw) return null;
+    const n = int ? parseInt(raw, 10) : parseFloat(raw);
+    return Number.isFinite(n) && n > 0 ? n : null;
+  };
+  const fields = ex.kind === 'lift'
+    ? {weight: num('rt-act-weight'), reps: num('rt-act-reps', true), sets: num('rt-act-sets', true)}
+    : {minutes: num('rt-act-minutes'), distance: num('rt-act-distance')};
+  const d = date || todayStr();
+  const row = await addActivityEntry(ex.kind, fields, ex.k, d);
+  if(!row) return;     // the write failed and already said so
+  const cell = mutableCell(routineId, d);
+  const wasComplete = routineComplete(r, d);
+  cell.choices[stepId] = String(row.id);
+  if(!cell.done.includes(stepId)) cell.done.push(stepId);
+  const nowComplete = routineComplete(r, d);
+  _rtActStep = null;
+  renderRoutines(); renderFocus(); renderRoutineCard(); renderAll();
+  await persistProgress(routineId, d);
+  if(!wasComplete && nowComplete) completeTasksForRoutine(routineId, d);
+}
+// Ticking an exercise step is a two-parter: the tick asks for the numbers, and
+// saving them is what marks it done. Un-ticking takes the entry back out —
+// she is saying she did not do it, and leaving a set logged against a step she
+// just cleared would be the tracker disagreeing with itself.
+async function toggleExerciseStep(routineId, stepId, date){
+  const d = date || todayStr();
+  const cell = mutableCell(routineId, d);
+  if(cell.done.includes(stepId)){
+    const id = cell.choices[stepId];
+    cell.done.splice(cell.done.indexOf(stepId), 1);
+    delete cell.choices[stepId];
+    renderRoutines(); renderRoutineCard(); renderAll();
+    if(id) await deleteActivityEntry(id);
+    await persistProgress(routineId, d);
+    return;
+  }
+  toggleStepActForm(routineId, stepId);
+}
 // Picking a product also ticks the step, because choosing what she moisturized
 // with is a stronger statement than the checkbox is.
 async function chooseStepProduct(routineId, stepId, key, date){
@@ -3617,19 +3697,45 @@ async function chooseStepProduct(routineId, stepId, key, date){
 function stepProductEditorHtml(r, s){
   const all = skinProducts().filter(p => p.active !== false);
   const on = Array.isArray(s.products) ? s.products : [];
+  const ex = stepExercise(s);
   const open = _rtProdEdit === `${r.id}|${s.id}`;
-  const summary = on.length ? `${on.length} product${on.length===1?'':'s'}` : 'add products';
+  const summary = ex ? `exercise: ${ex.name}`
+                : on.length ? `${on.length} product${on.length===1?'':'s'}` : 'add products or an exercise';
   if(!open){
-    return `<div class="rt-prod-edit"><button class="rt-prod ${on.length?'set':''}" onclick="toggleStepProdEditor('${esc(r.id)}','${esc(s.id)}')">${esc(summary)}</button></div>`;
+    return `<div class="rt-prod-edit"><button class="rt-prod ${(ex||on.length)?'set':''}" onclick="toggleStepProdEditor('${esc(r.id)}','${esc(s.id)}')">${esc(summary)}</button></div>`;
   }
   const chips = all.length ? all.map(p =>
     `<button class="sk-chip ${on.includes(p.k)?'on':''} ${p.sample?'sample':''}" onclick="toggleStepProduct('${esc(r.id)}','${esc(s.id)}','${esc(p.k)}')">
       <span class="sk-ring">${on.includes(p.k)?ico('check'):''}</span>${esc(p.name)}</button>`).join('')
     : `<span class="empty-note">No products yet — <button class="sk-manage" onclick="openSkincareSubmodal()">add some</button>.</span>`;
+  // Products or an exercise, never both: one asks which of several things she
+  // used, the other asks for numbers, and a step that tried to do both would
+  // have no coherent answer to what ticking it means.
+  const exOpts = [`<option value="">Not an exercise</option>`].concat(
+    actExercises().filter(e => e.active !== false)
+      .map(e => `<option value="${esc(e.k)}" ${ex && ex.k === e.k ? 'selected' : ''}>${esc(e.name)}</option>`)).join('');
   return `<div class="rt-prod-edit open">
-      <div class="sk-chips">${chips}</div>
+      ${ex ? '' : `<div class="sk-chips">${chips}</div>`}
+      <div class="act-field" style="margin-top:${ex?'0':'8px'}">
+        <label>Or log this step to Activity</label>
+        <select onchange="setStepExercise('${esc(r.id)}','${esc(s.id)}', this.value)">${exOpts}</select>
+      </div>
       <button class="sk-manage" style="margin-top:6px" onclick="toggleStepProdEditor('${esc(r.id)}','${esc(s.id)}')">Done</button>
     </div>`;
+}
+function setStepExercise(routineId, stepId, key){
+  const r = routineById(routineId);
+  const s = r && (r.steps || []).find(x => x.id === stepId);
+  if(!s) return;
+  if(key){
+    s.exercise = key;
+    // The two are exclusive, so taking one clears the other rather than leaving
+    // a step carrying settings that no longer do anything.
+    delete s.products; delete s.last;
+  }else{
+    delete s.exercise;
+  }
+  touch(s); saveRoutine(r); renderRoutines();
 }
 let _rtProdEdit = null;
 function toggleStepProdEditor(routineId, stepId){
@@ -3652,12 +3758,45 @@ function toggleStepProduct(routineId, stepId, key){
   touch(s); saveRoutine(r); renderRoutines();
 }
 
+/* An exercise step. Same row, but the sublabel is the set it logged rather than
+   the product it used, and ticking opens the numbers instead of just marking it.
+   The fields are the Activity panel's, because they are logging the same thing
+   to the same table and having two different forms for one record would be the
+   quickest way to make them disagree. */
+function exerciseStepRowHtml(r, s, date, on){
+  const ex = stepExercise(s);
+  const row = stepActivityRow(r.id, s.id, date);
+  const open = _rtActStep === `${r.id}|${s.id}`;
+  const args = `'${esc(r.id)}','${esc(s.id)}','${esc(date)}'`;
+
+  // What it logged, or an invitation to log it. A ticked step whose entry has
+  // since been deleted from the Activity panel says so rather than pretending.
+  const label = row ? (actEntryText(row) || 'logged') : (on ? 'entry removed' : 'add your numbers');
+  const sub = `<button class="rt-prod ${row?'set':''}" onclick="event.stopPropagation();toggleStepActForm('${esc(r.id)}','${esc(s.id)}')">${esc(label)}</button>`;
+
+  const form = open ? `<div class="rt-picker rt-act-form">${ex.kind === 'lift'
+    ? `<div class="act-field"><label>Weight (${actUnit()})</label><input type="number" inputmode="decimal" id="rt-act-weight" step="0.5" min="0" onkeydown="if(event.key==='Enter')saveStepActivity(${args})"></div>
+       <div class="act-field"><label>Reps</label><input type="number" inputmode="numeric" id="rt-act-reps" step="1" min="1" onkeydown="if(event.key==='Enter')saveStepActivity(${args})"></div>
+       <div class="act-field"><label>Sets</label><input type="number" inputmode="numeric" id="rt-act-sets" step="1" min="1" onkeydown="if(event.key==='Enter')saveStepActivity(${args})"></div>`
+    : `<div class="act-field"><label>Minutes</label><input type="number" inputmode="decimal" id="rt-act-minutes" step="1" min="1" onkeydown="if(event.key==='Enter')saveStepActivity(${args})"></div>
+       <div class="act-field"><label>Distance (${actDistUnit()})</label><input type="number" inputmode="decimal" id="rt-act-distance" step="0.01" min="0" onkeydown="if(event.key==='Enter')saveStepActivity(${args})"></div>`}
+      <button class="act-save" onclick="saveStepActivity(${args})">Log</button>
+    </div>` : '';
+
+  return `<div class="rt-step ${on?'done':''}">
+      <span class="rt-chk" onclick="toggleExerciseStep(${args})">${ico('check')}</span>
+      <span class="rt-text" onclick="toggleExerciseStep(${args})"><span class="rt-label">${esc(s.text || ex.name)}</span>${sub}</span>
+      <span class="rt-min">${icoCls(ex.kind === 'lift' ? 'dumbbell' : 'pulse')}</span>
+    </div>${form}`;
+}
+
 /* One step row, shared by the Routines tab and the card the day view opens —
    they showed the same thing before products existed and there is no reason for
    them to drift now that the row has more in it. */
 function stepRowHtml(r, s, date){
   const done = doneSteps(r.id, date);
   const on = done.includes(s.id);
+  if(isExerciseStep(s)) return exerciseStepRowHtml(r, s, date, on);
   const list = stepProducts(s);
   const chosen = stepChoices(r.id, date)[s.id];
   const picking = _rtPicking === `${r.id}|${s.id}`;
@@ -5659,12 +5798,16 @@ function actEntryText(r){
 // the network answers reads as a tracker that ignored you. The row goes in with
 // a temporary id, and the insert swaps in the real one so a later delete has
 // something to aim at.
-async function addActivityEntry(kind, fields){
-  if(!ACTIVITY || _guestMode || !_currentUser) return;
-  const ex = actExerciseByKey(_actPick);
-  if(!ex) return;
+// exKey/date default to what the Activity tile is doing, so its own callers are
+// unchanged; a routine step passes its own exercise and the day its card is on.
+// Returns the row it created — a routine step keeps that id so un-ticking the
+// step can take the entry back out again.
+async function addActivityEntry(kind, fields, exKey, date){
+  if(!ACTIVITY || _guestMode || !_currentUser) return null;
+  const ex = actExerciseByKey(exKey || _actPick);
+  if(!ex) return null;
   const row = {
-    date: currentDate, exercise_key: ex.k, name: ex.name, kind,
+    date: date || currentDate, exercise_key: ex.k, name: ex.name, kind,
     weight: null, reps: null, sets: null, unit: null,
     minutes: null, distance: null, dist_unit: null,
     note: fields.note || null
@@ -5692,7 +5835,9 @@ async function addActivityEntry(kind, fields){
     if(i >= 0) ACTIVITY.splice(i, 1);
     renderStripGrid();
     showNotice("Couldn't save that — it's not written down.", 'warn');
+    return null;
   }
+  return temp;
 }
 
 async function deleteActivityEntry(id){
