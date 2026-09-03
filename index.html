@@ -5476,10 +5476,12 @@ function renderStripGrid(){
   // Yesterday only means anything relative to today; navigating away drops it.
   if(currentDate !== todayStr()) _skinYesterday = false;
 
+  // Health sits last on purpose: it is the one tile that says nothing at rest,
+  // so it reads as the quiet end of the row rather than a gap in the middle.
   const tiles = [
     ['skin', skinTileHtml()],
-    ['health', healthTileHtml()],
-    ['activity', actTileHtml()]
+    ['activity', actTileHtml()],
+    ['health', healthTileHtml()]
   ].filter(([, html]) => html);
 
   // Every tracker hidden means no row at all, rather than an empty bordered box.
