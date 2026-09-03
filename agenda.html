@@ -3372,7 +3372,14 @@ let ROUTINES = [];
 // "did I do it last night?" is a question this has to be able to answer, so the
 // day being logged is now an argument everywhere rather than an assumption.
 let ROUTINE_PROGRESS = {};
-let _rtLoadedDates = new Set();
+// Three sets, because "fetched" and "fetched successfully" have to be different
+// questions. Asking only the second one turned a failing fetch into an infinite
+// loop: the failure handler re-rendered, the render asked for the day again,
+// and the day was still not loaded. Whether to *retry* is answered by `_rtTried`;
+// whether the data is trustworthy is answered by the other two.
+let _rtLoadedDates = new Set();   // came back clean
+let _rtTriedDates = new Set();    // asked for at all — a failure is not asked again
+let _rtFailedDates = new Set();   // came back broken: safe to read as empty, never safe to write over
 let _routinesLoaded = false;
 let _rtEditing = null;          // routine id whose card is in edit mode
 
@@ -3391,17 +3398,22 @@ async function loadRoutines(force){
 // a new day is simply a date this has never fetched.
 async function loadRoutineProgress(force, date){
   const d = date || todayStr();
-  if(!force && _rtLoadedDates.has(d)) return;
+  if(!force && _rtTriedDates.has(d)) return;
   ROUTINE_PROGRESS[d] = {};
+  _rtTriedDates.add(d);
   _rtLoadedDates.add(d);
+  _rtFailedDates.delete(d);
   if(_guestMode || !_currentUser) return;
   const {data, error} = await sb.from('routine_progress')
     .select('routine_id, done_steps, choices').eq('user_id', _currentUser.id).eq('date', d);
   if(error){
     console.error('loadRoutineProgress error:', error);
     // A failed fetch must not look like a day with nothing done, or the next
-    // tick would overwrite the real row with a near-empty one.
+    // tick would overwrite the real row with a near-empty one. `_rtTriedDates`
+    // deliberately keeps the date, so this is not asked again until something
+    // forces it: re-asking from the failure path is a loop, not a retry.
     _rtLoadedDates.delete(d);
+    _rtFailedDates.add(d);
     return;
   }
   (data || []).forEach(r => {
@@ -3414,8 +3426,13 @@ async function loadRoutineProgress(force, date){
 // Paging the day view to a day this has never seen. Silent and lazy: a day with
 // no routine on it never asks, and a failure just leaves the marks blank.
 function ensureProgressFor(date){
-  if(_guestMode || !_currentUser || _rtLoadedDates.has(date)) return;
-  loadRoutineProgress(false, date).then(() => { renderRoutineCard(); renderAll(); });
+  if(_guestMode || !_currentUser || _rtTriedDates.has(date)) return;
+  loadRoutineProgress(false, date).then(() => {
+    // Nothing arrived, so there is nothing new to draw — and drawing anyway is
+    // what closed the loop, since the render asks for this day again.
+    if(_rtFailedDates.has(date)) return;
+    renderRoutineCard(); renderAll();
+  });
 }
 function routineById(id){ return ROUTINES.find(r => String(r.id) === String(id)) || null; }
 function progressCell(routineId, date){
@@ -3449,6 +3466,13 @@ async function saveRoutine(r){
 async function persistProgress(routineId, date){
   if(_guestMode || !_currentUser) return;
   const d = date || todayStr();
+  // The load for this day failed, so what is in memory is "nothing", not "she
+  // did nothing". Writing it would replace a real row with an empty one — the
+  // exact loss the failed load was careful not to pretend away.
+  if(_rtFailedDates.has(d)){
+    showNotice("Couldn't read that day's progress, so it wasn't saved over.", 'warn');
+    return;
+  }
   const {error} = await sb.from('routine_progress')
     .upsert({user_id: _currentUser.id, routine_id: routineId, date: d,
              done_steps: doneSteps(routineId, d), choices: stepChoices(routineId, d),
