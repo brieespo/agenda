@@ -565,6 +565,9 @@ textarea.ae-input { resize: vertical; line-height: 1.4; min-height: 2.4em; }
 .rt-chip { display: inline-flex; align-items: center; gap: 4px; font-size: var(--fs-xs); padding: 1px 7px 1px 5px; border-radius: 20px; border: 1px solid var(--border); background: var(--page); color: var(--muted); cursor: pointer; margin-left: 6px; white-space: nowrap; vertical-align: baseline; }
 .rt-chip:hover { border-color: var(--accent); color: var(--accent); }
 .rt-chip .icon { width: 11px; height: 11px; }
+/* Finished reads as finished without shouting — the task's own tick is the
+   headline, and this is the footnote agreeing with it. */
+.rt-chip.complete { border-color: var(--good); color: var(--good-text); }
 
 /* ---- @mention autocomplete ---- */
 .at-menu { position: absolute; z-index: 400; left: 0; right: 0; margin-top: 3px; border: 1px solid var(--border); border-radius: 9px; background: var(--surface); box-shadow: var(--shadow); overflow: hidden; }
@@ -1481,8 +1484,10 @@ footer button { font: inherit; font-size: var(--fs-sm); border: none; background
   <div class="modal" style="max-width:480px">
     <div class="modal-head"><strong>Recurring tasks</strong><button class="modal-x" data-ico="x" onclick="closeModal('routines-submodal')"></button></div>
     <div class="modal-body">
-      <div id="routines-list"></div>
-      <div style="margin:12px 0 6px"><button class="ghost" onclick="openTemplateModal()">+ Add routine</button></div>
+      <!-- Not "routines-list": the Routines tab already owns that id, so this
+           modal was rendering into that tab instead of into itself. -->
+      <div id="recurring-list"></div>
+      <div style="margin:12px 0 6px"><button class="ghost" onclick="openTemplateModal()">+ Add recurring task</button></div>
     </div>
   </div>
 </div>
@@ -1556,6 +1561,17 @@ footer button { font: inherit; font-size: var(--fs-sm); border: none; background
         <button class="toggle" id="act-show-toggle" onclick="toggleActVisible()"></button>
       </div>
     </div>
+  </div>
+</div>
+
+<!-- The routine behind a task, opened from its chip. A modal rather than a jump
+     to the Routines tab: ticking three steps off a morning routine should not
+     cost her the day she was looking at, and coming back to it by hand was the
+     whole friction. The tab is still one tap away at the foot. -->
+<div class="modal-bg" id="routine-card-modal">
+  <div class="modal" style="max-width:440px">
+    <div class="modal-head"><strong id="rcm-title">Routine</strong><button class="modal-x" data-ico="x" onclick="closeModal('routine-card-modal')"></button></div>
+    <div class="modal-body" id="rcm-body"></div>
   </div>
 </div>
 
@@ -1652,6 +1668,14 @@ footer button { font: inherit; font-size: var(--fs-sm); border: none; background
       <div id="tpm-freq-fields"></div>
       <div class="field"><label>Time (optional — blank = untimed)</label><input type="time" id="tpm-time"></div>
       <div class="field"><label>Category</label><select id="tpm-category"></select></div>
+      <!-- A select, not the title bar's @ menu. That one exists because a task
+           title is free text she is already typing; this is a settings form,
+           and a form asks with a field. -->
+      <div class="field">
+        <label>Walk through a routine</label>
+        <select id="tpm-routine"></select>
+        <div class="r-recur" style="margin-top:4px">Adds a tappable chip to the task each day. Opening it shows the steps with checkboxes; ticking them all ticks the task.</div>
+      </div>
       <div class="field">
         <label>If it's not done that day</label>
         <select id="tpm-miss">
@@ -1958,7 +1982,8 @@ function materializeInstances(dateStr){
     out.push({
       id: `tpl-${tpl.id}-${dateStr}`, title: tpl.title, date: dateStr, week: null,
       time: tpl.time || null, duration_min: 30, done: instanceDone(tpl.id, dateStr),
-      rolled_from: null, source: 'template', template_id: tpl.id, virtual: true, notes: '', category: tpl.category || null
+      rolled_from: null, source: 'template', template_id: tpl.id, virtual: true, notes: '', category: tpl.category || null,
+      routine_id: tpl.routine_id || null
     });
   });
   return out.concat(carriedInstances(dateStr));
@@ -2030,7 +2055,9 @@ function createExceptionFromInstance(item){
   const task = {
     id, title: item.title, date: item.date, week: null, time: item.time, duration_min: item.duration_min||30,
     done: item.done, rolled_from: null, source: 'template_exception', notes: '', category: item.category || null,
-    template_id: item.template_id, exception_date: item.date
+    template_id: item.template_id, exception_date: item.date,
+    // Editing one day of a recurring task must not quietly drop its routine.
+    routine_id: item.routine_id || null
   };
   TASKS.push(touch(task));
   const cIdx = COMPLETIONS.findIndex(c => c.template_id===item.template_id && c.date===item.date);
@@ -2062,7 +2089,8 @@ function itemByVirtual(templateId, date){
   return {
     id: `tpl-${templateId}-${date}`, title: tpl.title, date, week: null,
     time: tpl.time || null, duration_min: 30, done: instanceDone(templateId, date),
-    rolled_from: null, source: 'template', template_id: templateId, virtual: true, notes: '', category: tpl.category || null
+    rolled_from: null, source: 'template', template_id: templateId, virtual: true, notes: '', category: tpl.category || null,
+    routine_id: tpl.routine_id || null
   };
 }
 function toggleDoneReal(id){ const t = itemByRealId(id); if(t) toggleItemDone(t); }
@@ -2265,8 +2293,22 @@ function openTemplateModal(tpl){
   document.getElementById('tpm-include-brief').checked = !!(tpl && tpl.include_in_brief);
   document.getElementById('tpm-miss').value = tpl ? missRule(tpl) : 'drop';
   document.getElementById('tpm-delete').style.display = tpl ? '' : 'none';
+  populateRoutineSelect(document.getElementById('tpm-routine'), (tpl && tpl.routine_id) || '');
   renderTemplateFreqFields();
   openModal('template-modal');
+}
+// A routine she has since deleted is archived, not gone, so routineById finds
+// nothing for it. The stored id is kept as an option anyway rather than
+// silently resetting the field to None — saving an unrelated edit should not
+// quietly detach the routine.
+function populateRoutineSelect(sel, current){
+  if(!sel) return;
+  const opts = [`<option value="">None</option>`]
+    .concat(ROUTINES.map(r => `<option value="${esc(r.id)}">${esc(r.name)}</option>`));
+  if(current && !ROUTINES.some(r => String(r.id) === String(current)))
+    opts.push(`<option value="${esc(current)}">(unavailable routine)</option>`);
+  sel.innerHTML = opts.join('');
+  sel.value = current ? String(current) : '';
 }
 function saveTemplateFromModal(){
   const title = document.getElementById('tpm-name').value.trim();
@@ -2276,6 +2318,7 @@ function saveTemplateFromModal(){
   const category = document.getElementById('tpm-category').value || null;
   const includeInBrief = document.getElementById('tpm-include-brief').checked;
   const miss = document.getElementById('tpm-miss').value;
+  const routineId = document.getElementById('tpm-routine').value || null;
   let recurrence = {freq};
   if(freq==='weekly'){
     recurrence.days = Array.from(document.querySelectorAll('#tpm-freq-fields input[type=checkbox]:checked')).map(el=>el.value);
@@ -2295,10 +2338,10 @@ function saveTemplateFromModal(){
   const missFloor = tpl => (miss === 'drop' || tpl.miss_since) ? tpl.miss_since : startOfWeek(todayStr());
   if(editingTemplate){
     editingTemplate.miss_since = missFloor(editingTemplate);
-    editingTemplate.title = title; editingTemplate.recurrence = recurrence; editingTemplate.time = time; editingTemplate.category = category; editingTemplate.include_in_brief = includeInBrief; editingTemplate.miss = miss;
+    editingTemplate.title = title; editingTemplate.recurrence = recurrence; editingTemplate.time = time; editingTemplate.category = category; editingTemplate.include_in_brief = includeInBrief; editingTemplate.miss = miss; editingTemplate.routine_id = routineId;
     touch(editingTemplate);
   } else {
-    const tpl = {id: newId(), title, recurrence, time, active:true, category, include_in_brief: includeInBrief, miss};
+    const tpl = {id: newId(), title, recurrence, time, active:true, category, include_in_brief: includeInBrief, miss, routine_id: routineId};
     tpl.miss_since = missFloor(tpl);
     TEMPLATES.push(touch(tpl));
   }
@@ -2519,17 +2562,20 @@ function toggleCategoryCollapse(cat){
   renderAll();
 }
 function renderRoutinesList(){
-  const el = document.getElementById('routines-list');
+  const el = document.getElementById('recurring-list');
+  if(!el) return;
   updateSettingsMenuCounts();
-  if(!TEMPLATES.length){ el.innerHTML = '<p class="empty-note">No routines yet — add one below.</p>'; return; }
-  el.innerHTML = TEMPLATES.map(tpl => `
+  if(!TEMPLATES.length){ el.innerHTML = '<p class="empty-note">No recurring tasks yet — add one below.</p>'; return; }
+  el.innerHTML = TEMPLATES.map(tpl => {
+    const r = tpl.routine_id ? routineById(tpl.routine_id) : null;
+    return `
     <div class="routine-row">
       <button class="toggle ${tpl.active?'on':''}" onclick="toggleTemplateActive(${tpl.id})"></button>
-      <span class="r-title">${esc(tpl.title)}<div class="r-recur">${esc(recurLabel(tpl))}${tpl.include_in_brief?' · in morning brief':''}${missLabel(tpl)}</div></span>
+      <span class="r-title">${esc(tpl.title)}<div class="r-recur">${esc(recurLabel(tpl))}${tpl.include_in_brief?' · in morning brief':''}${missLabel(tpl)}${r?` · ${esc(r.name)}`:''}</div></span>
       <select class="r-cat-select" data-tpl-id="${tpl.id}" onchange="setTemplateCategory(${tpl.id}, this.value)"></select>
       <button onclick='openTemplateModal(TEMPLATES.find(t=>t.id===${tpl.id}))' title="Edit">${ico('settings')}</button>
     </div>
-  `).join('');
+  `;}).join('');
   // Category values are read live from the select (this.value) rather than
   // embedded in the onchange string, so user-typed category names with
   // quotes/special characters can never break the attribute.
@@ -3372,6 +3418,11 @@ async function toggleStep(routineId, stepId){
   const nowComplete = routineComplete(routineById(routineId));
   renderRoutines();
   renderFocus();
+  renderRoutineCard();
+  // The task row's chip counts progress, so it goes stale on every tick unless
+  // the day redraws too — it only looked right before because finishing the
+  // routine happened to call renderAll on its way through.
+  renderAll();
   await persistProgress(routineId);
   if(!wasComplete && nowComplete) completeTasksForRoutine(routineId);
 }
@@ -3382,6 +3433,20 @@ function completeTasksForRoutine(routineId){
     if(String(t.routine_id) === String(routineId) && t.date === today && !t.done){
       t.done = true; touch(t); changed = true;
     }
+  });
+  // A recurring task owns no row — its instance is generated from the template
+  // each morning, and "done" is a completion record rather than a flag. Writing
+  // one here is what makes tick-through mean the same thing for the daily
+  // version of a routine as it already did for a one-off.
+  TEMPLATES.forEach(tpl => {
+    if(!tpl.routine_id || String(tpl.routine_id) !== String(routineId)) return;
+    if(!templateOccursOn(tpl, today)) return;
+    // A day she has edited is a real task now, and the loop above already had
+    // its chance at it — ticking here too would double-count the same day.
+    if(hasException(tpl.id, today)) return;
+    if(instanceDone(tpl.id, today)) return;
+    COMPLETIONS.push({template_id: tpl.id, date: today});
+    changed = true;
   });
   if(changed){ saveToStorage(); renderAll(); showNotice('Routine finished — its task is ticked off.', 'info'); setTimeout(hideNotice, 3500); }
 }
@@ -3562,9 +3627,61 @@ function routineChipHtml(task){
   if(!task || !task.routine_id) return '';
   const r = routineById(task.routine_id);
   if(!r) return '';      // archived or not loaded yet — say nothing rather than lie
-  const t = routineTotalLabel(r);
-  return `<span class="rt-chip" onclick="event.stopPropagation();openRoutineFromTask('${esc(r.id)}')" title="Open ${esc(r.name)}">`
-    + `${ico('list')}${t ? esc(t) : esc(r.name)}</span>`;
+  const steps = (r.steps || []).length;
+  const done = doneSteps(r.id).length;
+  // Once she has started, the chip counts rather than showing the estimate: how
+  // far in she is is the live fact, and the total stops being the question. On
+  // a day not yet begun it falls back to the time, then to the name.
+  const label = (steps && done) ? `${done}/${steps}` : (routineTotalLabel(r) || r.name);
+  return `<span class="rt-chip${steps && done >= steps ? ' complete' : ''}" onclick="event.stopPropagation();openRoutineCard('${esc(r.id)}')" title="Open ${esc(r.name)}">`
+    + `${ico('list')}${esc(label)}</span>`;
+}
+
+/* The card behind the chip: the same steps and checkboxes as the Routines tab,
+   in a modal, so ticking one does not cost her the day she was looking at.
+   Deliberately no edit mode — this is the running surface, and editing lives
+   where the library lives. */
+let _rcmRoutine = null;
+function openRoutineCard(id){
+  _rcmRoutine = String(id);
+  // Open first: renderRoutineCard refuses to paint a modal that isn't up, so
+  // rendering before this left the card blank on its first open.
+  openModal('routine-card-modal');
+  renderRoutineCard();
+}
+function renderRoutineCard(){
+  const el = document.getElementById('rcm-body');
+  if(!el || !_rcmRoutine) return;
+  // Only paint while it is actually up, so a step ticked from the tab or focus
+  // mode does not quietly rebuild a closed modal.
+  if(!document.getElementById('routine-card-modal').classList.contains('open')) return;
+  const r = routineById(_rcmRoutine);
+  if(!r){
+    document.getElementById('rcm-title').textContent = 'Routine';
+    el.innerHTML = `<p class="empty-note">This routine isn't available any more.</p>`;
+    return;
+  }
+  const total = routineTotalLabel(r);
+  document.getElementById('rcm-title').textContent = r.name;
+  const done = doneSteps(r.id);
+  const steps = (r.steps || []).map(s => {
+    const on = done.includes(s.id);
+    return `<div class="rt-step ${on?'done':''}">
+      <span class="rt-chk" onclick="toggleStep('${esc(r.id)}','${esc(s.id)}')">${ico('check')}</span>
+      <span class="rt-text" onclick="toggleStep('${esc(r.id)}','${esc(s.id)}')">${esc(s.text || '—')}</span>
+      ${s.minutes ? `<span class="rt-min">${s.minutes}m</span>` : ''}
+    </div>`;
+  }).join('');
+  el.innerHTML = `<div class="rt-card ${routineComplete(r)?'complete':''}" style="border:none;padding:0;background:none">
+      ${total ? `<div class="rt-total" style="margin-bottom:6px">${esc(total)}</div>` : ''}
+      <div class="rt-steps">${steps || '<p class="empty-note" style="padding:4px 0">No steps yet.</p>'}</div>
+      <div class="rt-foot">
+        <button class="rt-start" onclick="closeModal('routine-card-modal');startFocus('${esc(r.id)}')" ${!(r.steps||[]).length?'disabled':''}>Start</button>
+        <span class="rt-progress">${(r.steps||[]).length ? (routineComplete(r) ? 'All done today' : `${done.length} of ${r.steps.length} today`) : 'No steps yet'}</span>
+        <button class="sk-manage" onclick="closeModal('routine-card-modal');openRoutineFromTask('${esc(r.id)}')">Edit</button>
+      </div>
+    </div>`;
+  paintIcons(el);
 }
 
 /* ---- focus mode ---- */
