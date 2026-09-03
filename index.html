@@ -524,7 +524,11 @@ textarea.ae-input { resize: vertical; line-height: 1.4; min-height: 2.4em; }
 .rt-step .rt-chk .icon { width: 10px; height: 10px; stroke-width: 3.5; opacity: 0; }
 .rt-step.done .rt-chk { background: var(--good); border-color: var(--good); }
 .rt-step.done .rt-chk .icon { opacity: 1; }
-.rt-step.done .rt-text { opacity: var(--done-op); text-decoration: line-through; }
+/* The strike belongs to the step's words, not to everything under them: a
+   text-decoration on the row propagates into the product sublabel and no
+   descendant can cancel it, so a finished step read as a crossed-out product. */
+.rt-step.done .rt-text { opacity: var(--done-op); }
+.rt-step.done .rt-label { text-decoration: line-through; }
 .rt-text { flex: 1; min-width: 0; overflow-wrap: anywhere; }
 .rt-text input { font: inherit; font-size: var(--fs-base); width: 100%; padding: 3px 6px; border-radius: 6px; border: 1px solid var(--border); background: var(--page); color: var(--ink); }
 .rt-min { flex: none; font-size: var(--fs-xs); color: var(--muted); font-variant-numeric: tabular-nums; }
@@ -568,6 +572,17 @@ textarea.ae-input { resize: vertical; line-height: 1.4; min-height: 2.4em; }
 /* Finished reads as finished without shouting — the task's own tick is the
    headline, and this is the footnote agreeing with it. */
 .rt-chip.complete { border-color: var(--good); color: var(--good-text); }
+
+/* The product a step was done with. A sublabel under the step text, not a
+   second control beside it: the step is still the thing being ticked, and this
+   only answers "with what". Quiet until it has an answer. */
+.rt-prod { display: block; margin-top: 2px; border: none; background: none; padding: 0; font: inherit; font-size: var(--fs-xs); color: var(--muted); cursor: pointer; text-align: left; text-decoration: underline; text-decoration-style: dotted; text-underline-offset: 2px; }
+.rt-prod:hover { color: var(--accent); }
+.rt-prod.set { color: var(--ink-2); }
+.rt-step.done .rt-prod { text-decoration-line: underline; }
+.rt-picker { display: flex; flex-wrap: wrap; gap: 5px; align-items: center; padding: 6px 0 8px 26px; }
+.rt-prod-edit { padding: 0 0 6px 26px; }
+.rt-prod-edit.open { padding-bottom: 10px; }
 
 /* ---- @mention autocomplete ---- */
 .at-menu { position: absolute; z-index: 400; left: 0; right: 0; margin-top: 3px; border: 1px solid var(--border); border-radius: 9px; background: var(--surface); box-shadow: var(--shadow); overflow: hidden; }
@@ -3166,6 +3181,10 @@ function attachRowDrag(container, items){
 function renderDay(){
   document.getElementById('day-title').innerHTML = esc(fmtLong(currentDate)) + '<span class="pb-caret">▾</span>';
   const items = itemsForDate(currentDate);
+  // Paging to a day whose routine progress has never been fetched. Fires at most
+  // once per day and repaints when it lands, so a chip that would have read 0/6
+  // corrects itself rather than misreporting a day she has already done.
+  if(items.some(it => it.routine_id)) ensureProgressFor(currentDate);
   const untimed = items.filter(it => !it.time).sort((a,b) => (a.done===b.done)?0:(a.done?1:-1));
   const timed = items.filter(it => it.time);
   const gcalToday = gcalEventsForDate(currentDate);
@@ -3336,8 +3355,16 @@ function onSlotClick(e){
    when the phone is asleep, the tab is closed, or the clocks change.
    ===================================================================== */
 let ROUTINES = [];
-let ROUTINE_PROGRESS = {};      // routine id -> [step ids done today]
-let _routinesLoaded = false, _rtProgressDate = null;
+// date -> routine id -> {done: [step ids], choices: {step id: product key}}
+//
+// Keyed by date, not "today". It used to hold one day and reload whenever the
+// clock rolled over, which was enough while the only way in was a tab with no
+// date on it. A routine attached to a recurring task is reached from a day, and
+// "did I do it last night?" is a question this has to be able to answer, so the
+// day being logged is now an argument everywhere rather than an assumption.
+let ROUTINE_PROGRESS = {};
+let _rtLoadedDates = new Set();
+let _routinesLoaded = false;
 let _rtEditing = null;          // routine id whose card is in edit mode
 
 async function loadRoutines(force){
@@ -3350,21 +3377,43 @@ async function loadRoutines(force){
   ROUTINES = (data || []).map(r => ({...r, steps: Array.isArray(r.steps) ? r.steps : []}));
   _routinesLoaded = true;
 }
-// Re-read whenever the day has turned over, which is what makes "resets at
-// midnight" true for a tab that was left open overnight.
-async function loadRoutineProgress(force){
-  const today = todayStr();
-  if(!force && _rtProgressDate === today) return;
-  ROUTINE_PROGRESS = {};
-  _rtProgressDate = today;
+// One day at a time, cached by date. Today is always re-read on a forced load,
+// which is what keeps "resets at midnight" true for a tab left open overnight:
+// a new day is simply a date this has never fetched.
+async function loadRoutineProgress(force, date){
+  const d = date || todayStr();
+  if(!force && _rtLoadedDates.has(d)) return;
+  ROUTINE_PROGRESS[d] = {};
+  _rtLoadedDates.add(d);
   if(_guestMode || !_currentUser) return;
   const {data, error} = await sb.from('routine_progress')
-    .select('routine_id, done_steps').eq('user_id', _currentUser.id).eq('date', today);
-  if(error){ console.error('loadRoutineProgress error:', error); return; }
-  (data || []).forEach(r => { ROUTINE_PROGRESS[r.routine_id] = Array.isArray(r.done_steps) ? r.done_steps : []; });
+    .select('routine_id, done_steps, choices').eq('user_id', _currentUser.id).eq('date', d);
+  if(error){
+    console.error('loadRoutineProgress error:', error);
+    // A failed fetch must not look like a day with nothing done, or the next
+    // tick would overwrite the real row with a near-empty one.
+    _rtLoadedDates.delete(d);
+    return;
+  }
+  (data || []).forEach(r => {
+    ROUTINE_PROGRESS[d][r.routine_id] = {
+      done: Array.isArray(r.done_steps) ? r.done_steps : [],
+      choices: (r.choices && typeof r.choices === 'object') ? r.choices : {}
+    };
+  });
+}
+// Paging the day view to a day this has never seen. Silent and lazy: a day with
+// no routine on it never asks, and a failure just leaves the marks blank.
+function ensureProgressFor(date){
+  if(_guestMode || !_currentUser || _rtLoadedDates.has(date)) return;
+  loadRoutineProgress(false, date).then(() => { renderRoutineCard(); renderAll(); });
 }
 function routineById(id){ return ROUTINES.find(r => String(r.id) === String(id)) || null; }
-function doneSteps(routineId){ return ROUTINE_PROGRESS[routineId] || []; }
+function progressCell(routineId, date){
+  return (ROUTINE_PROGRESS[date || todayStr()] || {})[routineId] || {done: [], choices: {}};
+}
+function doneSteps(routineId, date){ return progressCell(routineId, date).done; }
+function stepChoices(routineId, date){ return progressCell(routineId, date).choices; }
 function routineMinutes(r){
   const nums = (r.steps || []).map(s => Number(s.minutes)).filter(n => n > 0);
   const total = nums.reduce((a, b) => a + b, 0);
@@ -3377,8 +3426,8 @@ function routineTotalLabel(r){
   if(none) return '';
   return fmtMins(total) + (partial ? '+' : '');
 }
-function routineComplete(r){
-  const done = doneSteps(r.id);
+function routineComplete(r, date){
+  const done = doneSteps(r.id, date);
   return (r.steps || []).length > 0 && r.steps.every(s => done.includes(s.id));
 }
 
@@ -3388,11 +3437,13 @@ async function saveRoutine(r){
     .update({name: r.name, steps: r.steps, position: r.position}).eq('id', r.id);
   if(error){ console.error('saveRoutine error:', error); showNotice("Couldn't save that routine.", 'warn'); }
 }
-async function persistProgress(routineId){
+async function persistProgress(routineId, date){
   if(_guestMode || !_currentUser) return;
+  const d = date || todayStr();
   const {error} = await sb.from('routine_progress')
-    .upsert({user_id: _currentUser.id, routine_id: routineId, date: todayStr(),
-             done_steps: doneSteps(routineId), updated_at: new Date().toISOString()},
+    .upsert({user_id: _currentUser.id, routine_id: routineId, date: d,
+             done_steps: doneSteps(routineId, d), choices: stepChoices(routineId, d),
+             updated_at: new Date().toISOString()},
             {onConflict: 'user_id,routine_id,date'});
   if(error){ console.error('persistProgress error:', error); showNotice("Couldn't save your progress.", 'warn'); }
 }
@@ -3465,14 +3516,28 @@ function toggleRoutineEdit(id){
    task means. Unticking a step deliberately does *not* untick the task: she
    may have said "done" and moved on, and pulling a completed task back open
    under her is worse than a stale tick. */
-async function toggleStep(routineId, stepId){
+async function toggleStep(routineId, stepId, date){
   if(_guestMode || !_currentUser){ showNotice('Sign in to track routines.', 'warn'); return; }
-  const done = doneSteps(routineId).slice();
-  const i = done.indexOf(stepId);
-  const wasComplete = routineComplete(routineById(routineId));
-  if(i >= 0) done.splice(i, 1); else done.push(stepId);
-  ROUTINE_PROGRESS[routineId] = done;
-  const nowComplete = routineComplete(routineById(routineId));
+  const d = date || todayStr();
+  const r = routineById(routineId);
+  const cell = mutableCell(routineId, d);
+  const i = cell.done.indexOf(stepId);
+  const wasComplete = routineComplete(r, d);
+  if(i >= 0){
+    cell.done.splice(i, 1);
+    // Un-ticking drops the product too. Leaving it would claim she used
+    // something on a step she is saying she did not do.
+    delete cell.choices[stepId];
+  }else{
+    cell.done.push(stepId);
+    // Tick and go: the step's remembered product is recorded without asking.
+    // Routines exist so she does not have to decide anything, and stopping to
+    // pick the same moisturizer every morning is exactly a decision.
+    const step = (r && (r.steps || []).find(s => s.id === stepId)) || null;
+    const last = stepDefaultProduct(step);
+    if(last) cell.choices[stepId] = last;
+  }
+  const nowComplete = routineComplete(r, d);
   renderRoutines();
   renderFocus();
   renderRoutineCard();
@@ -3480,11 +3545,173 @@ async function toggleStep(routineId, stepId){
   // the day redraws too — it only looked right before because finishing the
   // routine happened to call renderAll on its way through.
   renderAll();
-  await persistProgress(routineId);
-  if(!wasComplete && nowComplete) completeTasksForRoutine(routineId);
+  await persistProgress(routineId, d);
+  if(!wasComplete && nowComplete) completeTasksForRoutine(routineId, d);
 }
-function completeTasksForRoutine(routineId){
-  const today = todayStr();
+// The cache is read through defaults everywhere else; this is the one place
+// that needs a real object to write into.
+function mutableCell(routineId, date){
+  const d = date || todayStr();
+  if(!ROUTINE_PROGRESS[d]) ROUTINE_PROGRESS[d] = {};
+  const cur = ROUTINE_PROGRESS[d][routineId];
+  if(!cur) ROUTINE_PROGRESS[d][routineId] = {done: [], choices: {}};
+  else {
+    if(!Array.isArray(cur.done)) cur.done = [];
+    if(!cur.choices || typeof cur.choices !== 'object') cur.choices = {};
+  }
+  return ROUTINE_PROGRESS[d][routineId];
+}
+
+/* ---- the product a step was done with ----
+   Keys point into the skincare product library, which is deliberately the same
+   list the skincare tracker has always used: her products carry over by name,
+   renaming one keeps its history, and a write-in here is the same "sample"
+   product the skincare panel's one-off already created. */
+function stepProducts(step){
+  const keys = (step && Array.isArray(step.products)) ? step.products : [];
+  // Resolved against the live library, so a deleted product drops out of the
+  // picker on its own rather than offering a name nothing can look up.
+  return keys.map(k => skinProducts().find(p => p.k === k)).filter(Boolean);
+}
+// What ticking will record. `last` is a UI memory, not the record — the record
+// is in `choices` — so it is only written when she actively changes it, and a
+// step with one product needs no memory at all.
+function stepDefaultProduct(step){
+  const list = stepProducts(step);
+  if(!list.length) return null;
+  if(step.last && list.some(p => p.k === step.last)) return step.last;
+  return list.length === 1 ? list[0].k : null;
+}
+function productName(key){
+  const p = skinProducts().find(x => x.k === key);
+  return p ? p.name : '';
+}
+// Picking a product also ticks the step, because choosing what she moisturized
+// with is a stronger statement than the checkbox is.
+async function chooseStepProduct(routineId, stepId, key, date){
+  if(_guestMode || !_currentUser){ showNotice('Sign in to track routines.', 'warn'); return; }
+  const d = date || todayStr();
+  const r = routineById(routineId);
+  const step = r && (r.steps || []).find(s => s.id === stepId);
+  if(!step) return;
+  if(step.last !== key){ step.last = key; touch(step); saveRoutine(r); }
+  const cell = mutableCell(routineId, d);
+  cell.choices[stepId] = key;
+  const wasComplete = routineComplete(r, d);
+  if(!cell.done.includes(stepId)) cell.done.push(stepId);
+  const nowComplete = routineComplete(r, d);
+  _rtPicking = null;
+  renderRoutines(); renderFocus(); renderRoutineCard(); renderAll();
+  await persistProgress(routineId, d);
+  if(!wasComplete && nowComplete) completeTasksForRoutine(routineId, d);
+}
+/* Which products a step offers, set in edit mode. The whole library is shown as
+   toggles rather than hidden behind a picker: attaching products is a one-time
+   setup job, and seeing what is on and what is off at a glance is the point.
+
+   A step with none attached stays a plain checklist step, which is why this
+   sits quietly closed behind a count until she opens it. */
+function stepProductEditorHtml(r, s){
+  const all = skinProducts().filter(p => p.active !== false);
+  const on = Array.isArray(s.products) ? s.products : [];
+  const open = _rtProdEdit === `${r.id}|${s.id}`;
+  const summary = on.length ? `${on.length} product${on.length===1?'':'s'}` : 'add products';
+  if(!open){
+    return `<div class="rt-prod-edit"><button class="rt-prod ${on.length?'set':''}" onclick="toggleStepProdEditor('${esc(r.id)}','${esc(s.id)}')">${esc(summary)}</button></div>`;
+  }
+  const chips = all.length ? all.map(p =>
+    `<button class="sk-chip ${on.includes(p.k)?'on':''} ${p.sample?'sample':''}" onclick="toggleStepProduct('${esc(r.id)}','${esc(s.id)}','${esc(p.k)}')">
+      <span class="sk-ring">${on.includes(p.k)?ico('check'):''}</span>${esc(p.name)}</button>`).join('')
+    : `<span class="empty-note">No products yet — <button class="sk-manage" onclick="openSkincareSubmodal()">add some</button>.</span>`;
+  return `<div class="rt-prod-edit open">
+      <div class="sk-chips">${chips}</div>
+      <button class="sk-manage" style="margin-top:6px" onclick="toggleStepProdEditor('${esc(r.id)}','${esc(s.id)}')">Done</button>
+    </div>`;
+}
+let _rtProdEdit = null;
+function toggleStepProdEditor(routineId, stepId){
+  const key = `${routineId}|${stepId}`;
+  _rtProdEdit = _rtProdEdit === key ? null : key;
+  renderRoutines();
+}
+function toggleStepProduct(routineId, stepId, key){
+  const r = routineById(routineId);
+  const s = r && (r.steps || []).find(x => x.id === stepId);
+  if(!s) return;
+  if(!Array.isArray(s.products)) s.products = [];
+  const i = s.products.indexOf(key);
+  if(i >= 0){
+    s.products.splice(i, 1);
+    // The remembered default has to go with it, or the step would keep quietly
+    // logging a product it no longer offers.
+    if(s.last === key) delete s.last;
+  }else s.products.push(key);
+  touch(s); saveRoutine(r); renderRoutines();
+}
+
+/* One step row, shared by the Routines tab and the card the day view opens —
+   they showed the same thing before products existed and there is no reason for
+   them to drift now that the row has more in it. */
+function stepRowHtml(r, s, date){
+  const done = doneSteps(r.id, date);
+  const on = done.includes(s.id);
+  const list = stepProducts(s);
+  const chosen = stepChoices(r.id, date)[s.id];
+  const picking = _rtPicking === `${r.id}|${s.id}`;
+  const args = `'${esc(r.id)}','${esc(s.id)}','${esc(date)}'`;
+
+  // The product line only exists once a step has products on it, so a plain
+  // checklist step stays a plain checklist step.
+  let sub = '';
+  if(list.length || chosen){
+    const label = chosen ? productName(chosen) : (on ? 'not recorded' : 'choose');
+    sub = `<button class="rt-prod ${chosen?'set':''}" onclick="event.stopPropagation();toggleStepPicker('${esc(r.id)}','${esc(s.id)}')">${esc(label)}</button>`;
+  }
+  const picker = picking ? `<div class="rt-picker">
+      ${list.map(p => `<button class="sk-chip ${chosen===p.k?'on':''} ${p.sample?'sample':''}" onclick="chooseStepProduct('${esc(r.id)}','${esc(s.id)}','${esc(p.k)}','${esc(date)}')">
+        <span class="sk-ring">${chosen===p.k?ico('check'):''}</span>${esc(p.name)}</button>`).join('')}
+      <span class="sk-oneoff"><input type="text" id="rt-writein" placeholder="Something else…" autocomplete="off"
+        onkeydown="if(event.key==='Enter')addStepWriteIn(${args});if(event.key==='Escape')toggleStepPicker('${esc(r.id)}','${esc(s.id)}')">
+        <button class="sk-add" onclick="addStepWriteIn(${args})">Add</button></span>
+    </div>` : '';
+
+  return `<div class="rt-step ${on?'done':''}">
+      <span class="rt-chk" onclick="toggleStep(${args})">${ico('check')}</span>
+      <span class="rt-text" onclick="toggleStep(${args})"><span class="rt-label">${esc(s.text || '—')}</span>${sub}</span>
+      ${s.minutes ? `<span class="rt-min">${s.minutes}m</span>` : ''}
+    </div>${picker}`;
+}
+
+let _rtPicking = null;   // "routineId|stepId" whose product picker is open
+function toggleStepPicker(routineId, stepId){
+  const key = `${routineId}|${stepId}`;
+  _rtPicking = _rtPicking === key ? null : key;
+  renderRoutines(); renderRoutineCard();
+  const input = document.getElementById('rt-writein');
+  if(input) input.focus();
+}
+// A write-in becomes a real product flagged `sample`, exactly as the skincare
+// panel's one-off does — so something she tried once and liked is already
+// chartable and can be promoted without retyping, and the two ways in produce
+// the same kind of thing.
+function addStepWriteIn(routineId, stepId, date){
+  const input = document.getElementById('rt-writein');
+  if(!input) return;
+  const name = input.value.trim();
+  if(!name){ _rtPicking = null; renderRoutines(); renderRoutineCard(); return; }
+  const r = routineById(routineId);
+  const step = r && (r.steps || []).find(s => s.id === stepId);
+  if(!step) return;
+  const p = skinProducts().find(x => x.name.toLowerCase() === name.toLowerCase())
+         || addSkinProduct(name, 'both', true);
+  if(!p) return;
+  if(!Array.isArray(step.products)) step.products = [];
+  if(!step.products.includes(p.k)){ step.products.push(p.k); touch(step); saveRoutine(r); }
+  touchSkincare();
+  chooseStepProduct(routineId, stepId, p.k, date);
+}
+function completeTasksForRoutine(routineId, date){
+  const today = date || todayStr();
   let changed = false;
   TASKS.forEach(t => {
     if(String(t.routine_id) === String(routineId) && t.date === today && !t.done){
@@ -3533,14 +3760,10 @@ function renderRoutines(){
           <span class="rt-min"><input type="number" min="0" max="999" placeholder="min" value="${s.minutes || ''}"
             onchange="editStep('${esc(r.id)}','${esc(s.id)}','minutes',this.value)"></span>
           <button class="rt-del" onclick="deleteStep('${esc(r.id)}','${esc(s.id)}')" data-ico="trash" title="Delete step"></button>
-        </div>`;
+        </div>
+        ${stepProductEditorHtml(r, s)}`;
       }
-      const on = done.includes(s.id);
-      return `<div class="rt-step ${on?'done':''}">
-        <span class="rt-chk" onclick="toggleStep('${esc(r.id)}','${esc(s.id)}')">${ico('check')}</span>
-        <span class="rt-text" onclick="toggleStep('${esc(r.id)}','${esc(s.id)}')">${esc(s.text || '—')}</span>
-        ${s.minutes ? `<span class="rt-min">${s.minutes}m</span>` : ''}
-      </div>`;
+      return stepRowHtml(r, s, todayStr());
     }).join('');
 
     const foot = editing
@@ -3684,13 +3907,14 @@ function routineChipHtml(task){
   if(!task || !task.routine_id) return '';
   const r = routineById(task.routine_id);
   if(!r) return '';      // archived or not loaded yet — say nothing rather than lie
+  const d = task.date || todayStr();
   const steps = (r.steps || []).length;
-  const done = doneSteps(r.id).length;
+  const done = doneSteps(r.id, d).length;
   // Once she has started, the chip counts rather than showing the estimate: how
   // far in she is is the live fact, and the total stops being the question. On
   // a day not yet begun it falls back to the time, then to the name.
   const label = (steps && done) ? `${done}/${steps}` : (routineTotalLabel(r) || r.name);
-  return `<span class="rt-chip${steps && done >= steps ? ' complete' : ''}" onclick="event.stopPropagation();openRoutineCard('${esc(r.id)}')" title="Open ${esc(r.name)}">`
+  return `<span class="rt-chip${steps && done >= steps ? ' complete' : ''}" onclick="event.stopPropagation();openRoutineCard('${esc(r.id)}','${esc(d)}')" title="Open ${esc(r.name)}">`
     + `${ico('list')}${esc(label)}</span>`;
 }
 
@@ -3698,9 +3922,14 @@ function routineChipHtml(task){
    in a modal, so ticking one does not cost her the day she was looking at.
    Deliberately no edit mode — this is the running surface, and editing lives
    where the library lives. */
-let _rcmRoutine = null;
-function openRoutineCard(id){
+let _rcmRoutine = null, _rcmDate = null;
+function openRoutineCard(id, date){
   _rcmRoutine = String(id);
+  // The day the chip was on, not today. Opening yesterday's task and ticking
+  // its routine has to log yesterday, or the card is lying about what it shows.
+  _rcmDate = date || todayStr();
+  _rtPicking = null;
+  ensureProgressFor(_rcmDate);
   // Open first: renderRoutineCard refuses to paint a modal that isn't up, so
   // rendering before this left the card blank on its first open.
   openModal('routine-card-modal');
@@ -3718,23 +3947,22 @@ function renderRoutineCard(){
     el.innerHTML = `<p class="empty-note">This routine isn't available any more.</p>`;
     return;
   }
+  const d = _rcmDate || todayStr();
   const total = routineTotalLabel(r);
   document.getElementById('rcm-title').textContent = r.name;
-  const done = doneSteps(r.id);
-  const steps = (r.steps || []).map(s => {
-    const on = done.includes(s.id);
-    return `<div class="rt-step ${on?'done':''}">
-      <span class="rt-chk" onclick="toggleStep('${esc(r.id)}','${esc(s.id)}')">${ico('check')}</span>
-      <span class="rt-text" onclick="toggleStep('${esc(r.id)}','${esc(s.id)}')">${esc(s.text || '—')}</span>
-      ${s.minutes ? `<span class="rt-min">${s.minutes}m</span>` : ''}
-    </div>`;
-  }).join('');
-  el.innerHTML = `<div class="rt-card ${routineComplete(r)?'complete':''}" style="border:none;padding:0;background:none">
-      ${total ? `<div class="rt-total" style="margin-bottom:6px">${esc(total)}</div>` : ''}
+  const done = doneSteps(r.id, d);
+  const steps = (r.steps || []).map(s => stepRowHtml(r, s, d)).join('');
+  // Says which day it is writing to whenever that is not today, because the
+  // card can now be opened from any date and a checkbox that silently logs the
+  // wrong day is worse than no checkbox.
+  const when = d === todayStr() ? '' : `<div class="rt-total" style="margin-bottom:6px">Logging ${esc(fmtLong(d))}</div>`;
+  const scope = d === todayStr() ? 'today' : 'that day';
+  el.innerHTML = `<div class="rt-card ${routineComplete(r, d)?'complete':''}" style="border:none;padding:0;background:none">
+      ${when}${total ? `<div class="rt-total" style="margin-bottom:6px">${esc(total)}</div>` : ''}
       <div class="rt-steps">${steps || '<p class="empty-note" style="padding:4px 0">No steps yet.</p>'}</div>
       <div class="rt-foot">
-        <button class="rt-start" onclick="closeModal('routine-card-modal');startFocus('${esc(r.id)}')" ${!(r.steps||[]).length?'disabled':''}>Start</button>
-        <span class="rt-progress">${(r.steps||[]).length ? (routineComplete(r) ? 'All done today' : `${done.length} of ${r.steps.length} today`) : 'No steps yet'}</span>
+        <button class="rt-start" onclick="closeModal('routine-card-modal');startFocus('${esc(r.id)}','${esc(d)}')" ${!(r.steps||[]).length?'disabled':''}>Start</button>
+        <span class="rt-progress">${(r.steps||[]).length ? (routineComplete(r, d) ? `All done ${scope}` : `${done.length} of ${r.steps.length} ${scope}`) : 'No steps yet'}</span>
         <button class="sk-manage" onclick="closeModal('routine-card-modal');openRoutineFromTask('${esc(r.id)}')">Edit</button>
       </div>
     </div>`;
@@ -3742,13 +3970,14 @@ function renderRoutineCard(){
 }
 
 /* ---- focus mode ---- */
-let _focusRoutine = null, _focusIndex = 0;
-function startFocus(id){
+let _focusRoutine = null, _focusIndex = 0, _focusDate = null;
+function startFocus(id, date){
   const r = routineById(id);
   if(!r || !(r.steps || []).length) return;
   _focusRoutine = String(id);
+  _focusDate = date || todayStr();
   // Resume where she left off rather than restarting a half-finished routine.
-  const done = doneSteps(id);
+  const done = doneSteps(id, _focusDate);
   const next = r.steps.findIndex(s => !done.includes(s.id));
   _focusIndex = next < 0 ? 0 : next;
   document.getElementById('focus-overlay').classList.add('open');
@@ -3766,8 +3995,8 @@ function focusAdvance(markDone){
     if(_focusIndex + 1 >= r.steps.length) endFocus();
     else { _focusIndex++; renderFocus(); }
   };
-  if(markDone && step && !doneSteps(r.id).includes(step.id)){
-    toggleStep(r.id, step.id).then(goNext);
+  if(markDone && step && !doneSteps(r.id, _focusDate).includes(step.id)){
+    toggleStep(r.id, step.id, _focusDate).then(goNext);
   }else goNext();
 }
 function renderFocus(){
@@ -3777,11 +4006,19 @@ function renderFocus(){
   if(!r) return endFocus();
   const step = r.steps[_focusIndex];
   if(!step) return endFocus();
-  const done = doneSteps(r.id);
+  const done = doneSteps(r.id, _focusDate);
+  // The product the Done button will record, stated rather than asked. Tapping
+  // it is how she overrides — the same sticky choice the card makes, kept
+  // consistent so focus mode never becomes the slower way to run a routine.
+  const chosen = stepChoices(r.id, _focusDate)[step.id] || stepDefaultProduct(step);
+  const prodLine = stepProducts(step).length
+    ? `<div class="fc-min"><button class="rt-prod ${chosen?'set':''}" onclick="endFocus();openRoutineCard('${esc(r.id)}','${esc(_focusDate)}');toggleStepPicker('${esc(r.id)}','${esc(step.id)}')">${esc(chosen ? productName(chosen) : 'choose a product')}</button></div>`
+    : '';
   el.innerHTML = `
     <div class="fc-count">${esc(r.name)} · step ${_focusIndex+1} of ${r.steps.length}</div>
     <div class="fc-step">${esc(step.text || '—')}</div>
     ${step.minutes ? `<div class="fc-min">${step.minutes} min</div>` : ''}
+    ${prodLine}
     <div class="fc-dots">${r.steps.map((s, i) =>
       `<span class="${i===_focusIndex ? 'now' : (done.includes(s.id) ? 'done' : '')}"></span>`).join('')}</div>
     <div class="fc-actions">
@@ -4736,9 +4973,70 @@ function skinPanelHtml(){
     </div>`;
 }
 
+/* ---- how often a product actually got used ----
+   Two logs answer this now: the skincare panel's own compact day log, and the
+   product recorded against a routine step. Neither is the whole story on its
+   own, and the point of pointing routine steps at this same library was that
+   the history would join up rather than restart — so the count unions them.
+
+   Dates are a Set because both can name the same day: a morning logged on the
+   skincare line and then again through a routine is one day she used it, not
+   two. */
+let ROUTINE_PRODUCT_USE = null;   // product key -> Set of dates. null = not fetched.
+async function loadProductUsage(force){
+  if((ROUTINE_PRODUCT_USE && !force) || _guestMode || !_currentUser) return;
+  const {data, error} = await sb.from('routine_progress')
+    .select('date, choices').eq('user_id', _currentUser.id);
+  if(error){ console.error('loadProductUsage error:', error); return; }
+  const map = {};
+  (data || []).forEach(row => {
+    Object.values(row.choices || {}).forEach(k => {
+      if(!k) return;
+      (map[k] = map[k] || new Set()).add(row.date);
+    });
+  });
+  ROUTINE_PRODUCT_USE = map;
+}
+// The skincare log's own side of it, read straight out of the settings row.
+function skinLogUseDates(key){
+  const out = new Set();
+  const log = getSkincare().log || {};
+  Object.keys(log).forEach(mk => {
+    const bucket = log[mk] || {};
+    Object.keys(bucket).forEach(dk => {
+      const raw = bucket[dk] || '';
+      const bar = raw.indexOf('|');
+      const am = bar < 0 ? raw : raw.slice(0, bar);
+      const pm = bar < 0 ? '' : raw.slice(bar + 1);
+      if(skinChunk(am).includes(key) || skinChunk(pm).includes(key))
+        out.add(`${mk}-${String(dk).padStart(2, '0')}`);
+    });
+  });
+  return out;
+}
+function productUsage(key){
+  const dates = skinLogUseDates(key);
+  const fromRoutines = ROUTINE_PRODUCT_USE && ROUTINE_PRODUCT_USE[key];
+  if(fromRoutines) fromRoutines.forEach(d => dates.add(d));
+  if(!dates.size) return {count: 0, last: null};
+  // Plain "YYYY-MM-DD" sorts lexically, which is why the app stores them this way.
+  return {count: dates.size, last: [...dates].sort().pop()};
+}
+function usageLabel(key){
+  const {count, last} = productUsage(key);
+  if(!count) return ROUTINE_PRODUCT_USE ? 'never used' : '';
+  return `used ${count} day${count === 1 ? '' : 's'} · last ${fmtShort(last)}`;
+}
+
 /* ---- product management ---- */
 function skinWhenLabel(w){ return w === 'am' ? 'Morning' : w === 'pm' ? 'Evening' : 'Morning + evening'; }
-function openSkincareSubmodal(){ renderSkincareList(); openModal('skincare-submodal'); }
+function openSkincareSubmodal(){
+  renderSkincareList();
+  openModal('skincare-submodal');
+  // Fetched on open, not on load: the counts are only ever read here, and this
+  // is the one place in the app that wants every progress row rather than a day.
+  loadProductUsage().then(renderSkincareList);
+}
 function renderSkincareList(){
   const el = document.getElementById('skincare-list');
   if(!el) return;
@@ -4746,7 +5044,7 @@ function renderSkincareList(){
   el.innerHTML = prods.length ? prods.map((p, i) => `
     <div class="routine-row sk-prod-row ${p.active===false?'retired':''}">
       <span class="r-title">${esc(p.name)}${p.sample?`<button class="sk-badge" onclick="promoteSkinSample(${p.id})" title="Make this a regular step">sample</button>`:''}${p.active===false?'<span class="sk-badge">retired</span>':''}
-        <div class="r-recur">${skinWhenLabel(p.when)}${p.sample?' · only shows on days you use it':''}</div></span>
+        <div class="r-recur">${skinWhenLabel(p.when)}${p.sample?' · only shows on days you use it':''}${usageLabel(p.k)?` · ${esc(usageLabel(p.k))}`:''}</div></span>
       <select onchange="setSkinWhen(${p.id}, this.value)" title="When you use it">
         <option value="both" ${p.when==='both'?'selected':''}>AM+PM</option>
         <option value="am" ${p.when==='am'?'selected':''}>AM</option>
