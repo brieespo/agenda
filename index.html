@@ -582,6 +582,10 @@ textarea.ae-input { resize: vertical; line-height: 1.4; min-height: 2.4em; }
 .rt-step.done .rt-prod { text-decoration-line: underline; }
 .rt-picker { display: flex; flex-wrap: wrap; gap: 5px; align-items: center; padding: 6px 0 8px 26px; }
 .rt-act-form { align-items: flex-end; gap: 6px; }
+.rt-kind { margin: 0 0 10px; padding-bottom: 10px; border-bottom: 1px solid var(--hairline); }
+.rt-kind select { font: inherit; font-size: var(--fs-sm); padding: 5px 7px; border-radius: 8px; border: 1px solid var(--border); background: var(--page); color: var(--ink); }
+.rt-kind-ico { flex: none; display: inline-flex; color: var(--muted); }
+.rt-kind-ico .icon { width: 1.05em; height: 1.05em; }
 .rt-step .rt-min .icon { width: 1em; height: 1em; }
 .rt-prod-edit { padding: 0 0 6px 26px; }
 .rt-prod-edit.open { padding-bottom: 10px; }
@@ -3376,7 +3380,7 @@ async function loadRoutines(force){
   if(_routinesLoaded && !force) return;
   if(_guestMode || !_currentUser){ ROUTINES = []; _routinesLoaded = true; return; }
   const {data, error} = await sb.from('routines')
-    .select('id, name, steps, position, archived').eq('user_id', _currentUser.id)
+    .select('id, name, steps, position, archived, kind').eq('user_id', _currentUser.id)
     .eq('archived', false).order('position');
   if(error){ console.error('loadRoutines error:', error); return; }
   ROUTINES = (data || []).map(r => ({...r, steps: Array.isArray(r.steps) ? r.steps : []}));
@@ -3439,7 +3443,7 @@ function routineComplete(r, date){
 async function saveRoutine(r){
   if(_guestMode || !_currentUser) return;
   const {error} = await sb.from('routines')
-    .update({name: r.name, steps: r.steps, position: r.position}).eq('id', r.id);
+    .update({name: r.name, steps: r.steps, position: r.position, kind: routineKind(r)}).eq('id', r.id);
   if(error){ console.error('saveRoutine error:', error); showNotice("Couldn't save that routine.", 'warn'); }
 }
 async function persistProgress(routineId, date){
@@ -3459,8 +3463,8 @@ async function addRoutine(){
   if(_guestMode || !_currentUser){ showNotice('Sign in to build routines.', 'warn'); return; }
   const pos = ROUTINES.length ? Math.max(...ROUTINES.map(r => r.position || 0)) + 1 : 0;
   const {data, error} = await sb.from('routines')
-    .insert({user_id: _currentUser.id, name: 'New routine', steps: [], position: pos})
-    .select('id, name, steps, position, archived').single();
+    .insert({user_id: _currentUser.id, name: 'New routine', steps: [], position: pos, kind: 'products'})
+    .select('id, name, steps, position, archived, kind').single();
   if(error){ console.error(error); showNotice("Couldn't create that.", 'warn'); return; }
   ROUTINES.push({...data, steps: []});
   _rtEditing = data.id;          // a brand-new routine opens ready to be typed into
@@ -3605,7 +3609,33 @@ function productName(key){
 function stepExercise(step){
   return (step && step.exercise) ? actExerciseByKey(step.exercise) : null;
 }
-function isExerciseStep(step){ return !!stepExercise(step); }
+/* Which kind of thing a card's steps log. Absent means products, so every
+   routine that already exists is one without being touched.
+
+   It lives on the card rather than on each step because a card is one activity:
+   a skincare routine and a workout are never the same card, and asking the
+   question per step meant every step carried a mode toggle to answer something
+   the card already knew. It also lets a whole run be coherent — focus mode on a
+   workout asks for numbers throughout instead of changing character step to
+   step.
+
+   Switching kinds is deliberately non-destructive: the fields the other kind
+   used are ignored, not deleted, so flipping back finds them intact. */
+function routineKind(r){ return (r && r.kind === 'exercise') ? 'exercise' : 'products'; }
+function isExerciseRoutine(r){ return routineKind(r) === 'exercise'; }
+// The card's kind decides, not the step's leftovers — a stray `exercise` on a
+// products card is dormant data, not an exercise step.
+function isExerciseStep(step, routine){
+  return isExerciseRoutine(routine) && !!stepExercise(step);
+}
+function setRoutineKind(id, kind){
+  const r = routineById(id);
+  if(!r) return;
+  r.kind = kind === 'exercise' ? 'exercise' : 'products';
+  touch(r); saveRoutine(r);
+  _rtProdEdit = null;
+  renderRoutines();
+}
 // The entry a step wrote, if it is still there. Deleting it from the Activity
 // panel is a legitimate way to undo, so this resolves live rather than trusting
 // the stored id.
@@ -3694,32 +3724,39 @@ async function chooseStepProduct(routineId, stepId, key, date){
 
    A step with none attached stays a plain checklist step, which is why this
    sits quietly closed behind a count until she opens it. */
+// Only ever one question here now, because the card has already answered which
+// one it is.
 function stepProductEditorHtml(r, s){
-  const all = skinProducts().filter(p => p.active !== false);
+  const open = _rtProdEdit === `${r.id}|${s.id}`;
+  const exercise = isExerciseRoutine(r);
   const on = Array.isArray(s.products) ? s.products : [];
   const ex = stepExercise(s);
-  const open = _rtProdEdit === `${r.id}|${s.id}`;
-  const summary = ex ? `exercise: ${ex.name}`
-                : on.length ? `${on.length} product${on.length===1?'':'s'}` : 'add products or an exercise';
+  const summary = exercise
+    ? (ex ? ex.name : 'pick an exercise')
+    : (on.length ? `${on.length} product${on.length===1?'':'s'}` : 'add products');
   if(!open){
-    return `<div class="rt-prod-edit"><button class="rt-prod ${(ex||on.length)?'set':''}" onclick="toggleStepProdEditor('${esc(r.id)}','${esc(s.id)}')">${esc(summary)}</button></div>`;
+    return `<div class="rt-prod-edit"><button class="rt-prod ${(exercise?ex:on.length)?'set':''}" onclick="toggleStepProdEditor('${esc(r.id)}','${esc(s.id)}')">${esc(summary)}</button></div>`;
   }
-  const chips = all.length ? all.map(p =>
-    `<button class="sk-chip ${on.includes(p.k)?'on':''} ${p.sample?'sample':''}" onclick="toggleStepProduct('${esc(r.id)}','${esc(s.id)}','${esc(p.k)}')">
-      <span class="sk-ring">${on.includes(p.k)?ico('check'):''}</span>${esc(p.name)}</button>`).join('')
-    : `<span class="empty-note">No products yet — <button class="sk-manage" onclick="openSkincareSubmodal()">add some</button>.</span>`;
-  // Products or an exercise, never both: one asks which of several things she
-  // used, the other asks for numbers, and a step that tried to do both would
-  // have no coherent answer to what ticking it means.
-  const exOpts = [`<option value="">Not an exercise</option>`].concat(
-    actExercises().filter(e => e.active !== false)
-      .map(e => `<option value="${esc(e.k)}" ${ex && ex.k === e.k ? 'selected' : ''}>${esc(e.name)}</option>`)).join('');
+  let body;
+  if(exercise){
+    const opts = [`<option value="">Just a checklist step</option>`].concat(
+      actExercises().filter(e => e.active !== false)
+        .map(e => `<option value="${esc(e.k)}" ${ex && ex.k === e.k ? 'selected' : ''}>${esc(e.name)}</option>`)).join('');
+    // A workout still has steps that are not exercises — stretch, rest, put the
+    // bar away — so "no exercise" stays available and simply means a plain tick.
+    body = `<div class="act-field">
+        <label>Logs to Activity as</label>
+        <select onchange="setStepExercise('${esc(r.id)}','${esc(s.id)}', this.value)">${opts}</select>
+      </div>`;
+  }else{
+    const all = skinProducts().filter(p => p.active !== false);
+    body = all.length ? `<div class="sk-chips">${all.map(p =>
+      `<button class="sk-chip ${on.includes(p.k)?'on':''} ${p.sample?'sample':''}" onclick="toggleStepProduct('${esc(r.id)}','${esc(s.id)}','${esc(p.k)}')">
+        <span class="sk-ring">${on.includes(p.k)?ico('check'):''}</span>${esc(p.name)}</button>`).join('')}</div>`
+      : `<span class="empty-note">No products yet — <button class="sk-manage" onclick="openSkincareSubmodal()">add some</button>.</span>`;
+  }
   return `<div class="rt-prod-edit open">
-      ${ex ? '' : `<div class="sk-chips">${chips}</div>`}
-      <div class="act-field" style="margin-top:${ex?'0':'8px'}">
-        <label>Or log this step to Activity</label>
-        <select onchange="setStepExercise('${esc(r.id)}','${esc(s.id)}', this.value)">${exOpts}</select>
-      </div>
+      ${body}
       <button class="sk-manage" style="margin-top:6px" onclick="toggleStepProdEditor('${esc(r.id)}','${esc(s.id)}')">Done</button>
     </div>`;
 }
@@ -3727,14 +3764,7 @@ function setStepExercise(routineId, stepId, key){
   const r = routineById(routineId);
   const s = r && (r.steps || []).find(x => x.id === stepId);
   if(!s) return;
-  if(key){
-    s.exercise = key;
-    // The two are exclusive, so taking one clears the other rather than leaving
-    // a step carrying settings that no longer do anything.
-    delete s.products; delete s.last;
-  }else{
-    delete s.exercise;
-  }
+  if(key) s.exercise = key; else delete s.exercise;
   touch(s); saveRoutine(r); renderRoutines();
 }
 let _rtProdEdit = null;
@@ -3796,9 +3826,13 @@ function exerciseStepRowHtml(r, s, date, on){
 function stepRowHtml(r, s, date){
   const done = doneSteps(r.id, date);
   const on = done.includes(s.id);
-  if(isExerciseStep(s)) return exerciseStepRowHtml(r, s, date, on);
-  const list = stepProducts(s);
-  const chosen = stepChoices(r.id, date)[s.id];
+  if(isExerciseStep(s, r)) return exerciseStepRowHtml(r, s, date, on);
+  // A step on a workout card that names no exercise is a plain tick — stretch,
+  // rest, rack the bar. Any products left on it are the other kind's dormant
+  // data and must not put a picker on a workout.
+  const bare = isExerciseRoutine(r);
+  const list = bare ? [] : stepProducts(s);
+  const chosen = bare ? null : stepChoices(r.id, date)[s.id];
   const picking = _rtPicking === `${r.id}|${s.id}`;
   const args = `'${esc(r.id)}','${esc(s.id)}','${esc(date)}'`;
 
@@ -3919,14 +3953,27 @@ function renderRoutines(){
            <span class="rt-progress">${(r.steps||[]).length ? (complete ? 'All done today' : `${done.length} of ${r.steps.length} today`) : 'No steps yet'}</span>
          </div>`;
 
+    const workout = isExerciseRoutine(r);
+    // The kind is set once, when the card is made, so it lives in edit mode
+    // rather than taking up room on a card she is running.
+    const kindRow = editing ? `<div class="act-field rt-kind">
+        <label>This card's steps log</label>
+        <select onchange="setRoutineKind('${esc(r.id)}', this.value)">
+          <option value="products" ${workout?'':'selected'}>Products — skincare, body, makeup</option>
+          <option value="exercise" ${workout?'selected':''}>Exercises — writes to Activity</option>
+        </select>
+      </div>` : '';
+
     return `<div class="rt-card ${complete?'complete':''}" data-routine="${esc(r.id)}">
       <div class="rt-head">
+        ${workout && !editing ? `<span class="rt-kind-ico" title="Logs to Activity">${icoCls('dumbbell')}</span>` : ''}
         ${editing
           ? `<span class="rt-name"><input type="text" value="${esc(r.name)}" onchange="renameRoutine('${esc(r.id)}',this.value)"></span>`
           : `<span class="rt-name">${esc(r.name)}</span>`}
         ${total && !editing ? `<span class="rt-total">${esc(total)}</span>` : ''}
         <button class="rt-edit" onclick="toggleRoutineEdit('${esc(r.id)}')">${editing?'Done':'Edit'}</button>
       </div>
+      ${kindRow}
       <div class="rt-steps">${steps || '<p class="empty-note" style="padding:4px 0">No steps yet.</p>'}</div>
       ${foot}
     </div>`;
