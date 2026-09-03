@@ -1446,7 +1446,7 @@ footer button { font: inherit; font-size: var(--fs-sm); border: none; background
         <span class="sm-chevron" data-ico="chevron-right"></span>
       </button>
       <button class="settings-menu-row" onclick="openSkincareSubmodal()">
-        <span class="sm-title"><strong>Skincare</strong><span class="sm-sub" id="skincare-count-label"></span></span>
+        <span class="sm-title"><strong>Products</strong><span class="sm-sub" id="skincare-count-label"></span></span>
         <span class="sm-chevron" data-ico="chevron-right"></span>
       </button>
       <button class="settings-menu-row" onclick="openActivitySubmodal()">
@@ -1529,12 +1529,12 @@ footer button { font: inherit; font-size: var(--fs-sm); border: none; background
 <!-- Skincare products submenu: the step list behind the day-view line -->
 <div class="modal-bg" id="skincare-submodal">
   <div class="modal" style="max-width:480px">
-    <div class="modal-head"><strong>Skincare</strong><button class="modal-x" data-ico="x" onclick="closeModal('skincare-submodal')"></button></div>
+    <div class="modal-head"><strong>Products</strong><button class="modal-x" data-ico="x" onclick="closeModal('skincare-submodal')"></button></div>
     <div class="modal-body">
-      <p style="font-size: var(--fs-sm);color:var(--muted);margin-bottom:6px">Your steps, in the order you use them. <strong>Retire</strong> a product to take it off the daily line but keep its history — that's the move for a finished bottle. Delete is for typos.</p>
+      <p style="font-size: var(--fs-sm);color:var(--muted);margin-bottom:6px">Everything you use during a routine — skincare, body, hair, makeup. Attach them to routine steps, and their history follows the product wherever it's used. <strong>Retire</strong> one to take it off the pickers but keep its history — that's the move for a finished bottle. Delete is for typos.</p>
       <div id="skincare-list"></div>
       <div class="quick-add-row">
-        <input type="text" id="skin-new-name" placeholder="New product or step…" onkeydown="if(event.key==='Enter')addSkinProductFromSettings()">
+        <input type="text" id="skin-new-name" placeholder="New product…" onkeydown="if(event.key==='Enter')addSkinProductFromSettings()">
         <select id="skin-new-when" style="font:inherit;font-size: var(--fs-md);padding:7px 8px;border-radius:8px;border:1px solid var(--border);background:var(--page);color:var(--ink)">
           <option value="both">AM+PM</option>
           <option value="am">AM</option>
@@ -1543,7 +1543,7 @@ footer button { font: inherit; font-size: var(--fs-sm); border: none; background
         <button onclick="addSkinProductFromSettings()">Add</button>
       </div>
       <div class="routine-row" style="border-bottom:none;margin-top:14px">
-        <span class="r-title">Show on the day view<div class="r-recur">The one quiet line under your meals. Turning this off hides it completely — your products and history stay put.</div></span>
+        <span class="r-title">Show the Skincare tile<div class="r-recur">The AM/PM tile on the day view, which is the only thing the morning/evening setting above affects — routine steps ignore it. Turning this off hides the tile completely; your products and their history stay put, and routines go on using them.</div></span>
         <button class="toggle" id="skin-show-toggle" onclick="toggleSkinVisible()"></button>
       </div>
     </div>
@@ -2535,8 +2535,11 @@ function updateSettingsMenuCounts(){
   const recurring = getDepartures().filter(d => !d.date && (d.recurrence && (d.recurrence.days || []).length || (d.recurrence||{}).freq === 'daily')).length;
   document.getElementById('leave-count-label').textContent = recurring ? `${recurring} recurring` : 'None yet';
   const skinCount = skinProducts().filter(p => p.active !== false && !p.sample).length;
-  document.getElementById('skincare-count-label').textContent = !skinVisible() ? 'Hidden'
-    : skinCount ? `${skinCount} step${skinCount===1?'':'s'}` : 'Not set up';
+  // Counts the library, not the tile: the products outlive the Skincare line
+  // now that routine steps draw on them, so hiding the tile is no longer the
+  // same as having nothing here.
+  document.getElementById('skincare-count-label').textContent =
+    skinCount ? `${skinCount} product${skinCount===1?'':'s'}` : 'Not set up';
   const actCount = actExercises().filter(e => e.active !== false).length;
   document.getElementById('activity-count-label').textContent = !actVisible() ? 'Hidden'
     : actCount ? `${actCount} exercise${actCount===1?'':'s'}` : 'Not set up';
@@ -5045,7 +5048,7 @@ function renderSkincareList(){
     <div class="routine-row sk-prod-row ${p.active===false?'retired':''}">
       <span class="r-title">${esc(p.name)}${p.sample?`<button class="sk-badge" onclick="promoteSkinSample(${p.id})" title="Make this a regular step">sample</button>`:''}${p.active===false?'<span class="sk-badge">retired</span>':''}
         <div class="r-recur">${skinWhenLabel(p.when)}${p.sample?' · only shows on days you use it':''}${usageLabel(p.k)?` · ${esc(usageLabel(p.k))}`:''}</div></span>
-      <select onchange="setSkinWhen(${p.id}, this.value)" title="When you use it">
+      <select onchange="setSkinWhen(${p.id}, this.value)" title="Which slot it appears in on the Skincare tile — routine steps ignore this">
         <option value="both" ${p.when==='both'?'selected':''}>AM+PM</option>
         <option value="am" ${p.when==='am'?'selected':''}>AM</option>
         <option value="pm" ${p.when==='pm'?'selected':''}>PM</option>
