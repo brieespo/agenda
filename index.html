@@ -5269,6 +5269,9 @@ async function loadActivity(){
   if(error){ _actError = error.message || String(error); return; }
   ACTIVITY = data || [];
 }
+// A retry, not the main path — afterLoad fetches this up front now. It still
+// earns its place: if that fetch failed, opening the panel tries again rather
+// than leaving her with a tile that stays empty until a reload.
 async function ensureActivityLoaded(){
   if(ACTIVITY || _guestMode || !_currentUser) return;
   await loadActivity();
@@ -8815,6 +8818,15 @@ function afterLoad(){
   // a missing library just means no chips, never a broken task list.
   if(_currentUser && !_guestMode && !_routinesLoaded){
     Promise.all([loadRoutines(), loadRoutineProgress()]).then(() => renderAll());
+  }
+  // The activity log loads with everything else, not on first open. Lazy was
+  // copied from the Health tile, where fetching nothing until asked *is* the
+  // feature; here it meant the tile's count vanished on every reload until she
+  // opened the panel, while the skincare marks beside it — read straight from
+  // the settings row — were always there. A tile that reports at rest has to
+  // have its data at rest.
+  if(_currentUser && !_guestMode && !ACTIVITY){
+    loadActivity().then(() => renderStripGrid());
   }
   applyTheme();
   applyFont();
