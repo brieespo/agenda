@@ -656,6 +656,31 @@ a.meal-title:hover .meal-link-ico { opacity: 1; }
 .meal-quick-matches .meal-picker-opt .mp-name { font-size: var(--fs-base); }
 .meal-quick-matches .quick-match-note { font-size: var(--fs-xs); color: var(--muted); margin: 2px 0 0; }
 
+/* ---- the tracker tiles ----
+   Skincare, Health and Activity share one row of tiles and one panel slot below
+   it. auto-fit rather than a hard `repeat(3, 1fr)`: three tiles fit a phone
+   comfortably, but a narrow screen or a large text size drops them to two and
+   then one on their own instead of squeezing the labels to nothing.
+
+   Only one panel is open at a time — with a single slot under a shared row
+   there is nowhere for a second one to go, and the tile you tapped should be
+   the thing you are looking at. */
+.strip-grid { margin-bottom: 14px; }
+.sg-tiles { display: grid; grid-template-columns: repeat(auto-fit, minmax(104px, 1fr)); gap: 6px; }
+.sg-tile { display: flex; flex-direction: column; align-items: flex-start; gap: 3px; min-width: 0; padding: 7px 9px; border: 1px solid var(--border); border-radius: 10px; background: var(--surface); font: inherit; font-size: var(--fs-sm); color: var(--muted); cursor: pointer; text-align: left; transition: border-color 120ms ease, background 120ms ease, color 120ms ease; }
+.sg-tile:hover { border-color: var(--accent); color: var(--ink-2); }
+.sg-tile.open { border-color: var(--accent); background: var(--accent-light); color: var(--ink); }
+.sg-tile-head { display: flex; align-items: center; gap: 6px; width: 100%; min-width: 0; }
+.sg-tile-head .icon { width: 1.05em; height: 1.05em; flex: none; }
+.sg-tile-head .sg-name { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.sg-tile-head .sk-chevron { flex: none; transition: transform 120ms ease; }
+.sg-tile-head .sk-chevron.open { transform: rotate(90deg); }
+/* The mark line keeps its height whether or not it has marks, so tapping a tile
+   never shifts the two beside it. Health's is empty by design and stays that
+   way — see the Health strip's own note. */
+.sg-marks { display: flex; align-items: center; gap: 8px; min-height: 10px; font-size: var(--fs-micro); overflow: hidden; white-space: nowrap; }
+.sg-panel:not(:empty) { margin-top: 6px; }
+
 /* ---- skincare ----
    Deliberately not a card. It's one quiet line that only opens when tapped, so
    it can be ignored on a bad day without ever looking like an unchecked box —
@@ -772,6 +797,42 @@ a.meal-title:hover .meal-link-ico { opacity: 1; }
 .cyc-hist-row .ch-gap { color: var(--ink-2); font-size: var(--fs-sm); flex: none; min-width: 84px; text-align: right; font-variant-numeric: tabular-nums; }
 .cyc-hist-row.current .ch-range { font-weight: 600; }
 .cyc-empty { font-size: var(--fs-sm); color: var(--muted); padding: 6px 2px; }
+
+/* ---- activity ----
+   The one tracker here with numbers in it, so it is the one that gets a form.
+   Logged entries read as a list rather than as chips: "135 x 8 x 3" is a fact
+   about a set, not a toggle, and there is nothing to un-check. */
+.act-list { display: flex; flex-direction: column; gap: 3px; margin-bottom: 9px; }
+.act-entry { display: flex; align-items: baseline; gap: 8px; padding: 4px 6px; border-radius: 7px; }
+.act-entry:hover { background: var(--hover); }
+.act-entry .ae-name { flex: 1; min-width: 0; font-size: var(--fs-base); color: var(--ink); overflow-wrap: anywhere; }
+/* Tabular figures so a column of loads lines up on the digit, which is the
+   whole point of scanning back through a week of the same lift. */
+.act-entry .ae-num { flex: none; font-size: var(--fs-sm); color: var(--ink-2); font-variant-numeric: tabular-nums; }
+.act-entry .ae-note { display: block; font-size: var(--fs-xs); color: var(--muted); }
+.act-entry .ae-x { flex: none; border: none; background: none; color: var(--muted); cursor: pointer; padding: 2px; opacity: 0; transition: opacity 120ms ease, color 120ms ease; }
+.act-entry:hover .ae-x, .act-entry:focus-within .ae-x { opacity: 1; }
+.act-entry .ae-x:hover { color: var(--critical); }
+.act-entry .ae-x .icon { width: 13px; height: 13px; }
+
+/* The picker is the chip row again — same affordance as choosing a skincare
+   step — and only the exercise she picks opens the number fields below it. */
+.act-form { border-top: 1px solid var(--hairline); padding-top: 9px; }
+.act-fields { display: flex; flex-wrap: wrap; align-items: flex-end; gap: 6px; margin-top: 9px; }
+.act-field { display: flex; flex-direction: column; gap: 3px; }
+.act-field label { font-size: var(--fs-micro); text-transform: uppercase; letter-spacing: var(--tracking-caps); color: var(--muted); }
+.act-field input { font: inherit; font-size: var(--fs-base); width: 72px; padding: 5px 7px; border-radius: 8px; border: 1px solid var(--border); background: var(--page); color: var(--ink); }
+.act-field.wide input { width: 100%; min-width: 130px; }
+.act-field.wide { flex: 1; min-width: 130px; }
+.act-field select { font: inherit; font-size: var(--fs-sm); padding: 5px 6px; border-radius: 8px; border: 1px solid var(--border); background: var(--page); color: var(--ink); }
+.act-fields .act-save { font: inherit; font-size: var(--fs-sm); padding: 6px 14px; border-radius: 8px; border: 1px solid var(--accent); background: var(--accent); color: #fff; cursor: pointer; }
+.act-fields .act-save:hover { background: var(--accent-strong); border-color: var(--accent-strong); }
+.act-kind-label { font-size: var(--fs-micro); text-transform: uppercase; letter-spacing: var(--tracking-caps); color: var(--muted); margin-bottom: 5px; display: flex; align-items: center; gap: 5px; }
+.act-kind-label .icon { width: 1.05em; height: 1.05em; }
+.act-group { margin-bottom: 9px; }
+.act-group:last-child { margin-bottom: 0; }
+.act-prod-row select { font: inherit; font-size: var(--fs-sm); padding: 3px 5px; border-radius: 6px; border: 1px solid var(--border); background: var(--page); color: var(--ink); flex: none; }
+.act-prod-row.retired .r-title { opacity: var(--done-op); }
 
 /* ---- absences ----
    A record, not a scoreboard. The count only turns warm when she is actually
@@ -1151,10 +1212,11 @@ footer button { font: inherit; font-size: var(--fs-sm); border: none; background
           <button class="primary" onclick="quickParseAdd()">Add</button>
         </div>
         <div class="meal-strip" id="meal-strip" data-drop="meal-day"></div>
-        <div class="skin-strip" id="skin-strip"></div>
-        <!-- Same class, deliberately: "matches the skincare one" is the brief,
-             and sharing the stylesheet is the only way that stays true. -->
-        <div class="skin-strip" id="health-strip"></div>
+        <!-- Skincare, Health and Activity, as a row of compact tiles with one
+             shared full-width panel underneath. Three separate collapsible rows
+             cost three lines of vertical space to say almost nothing; this says
+             the same at a glance in one. Rendered whole by renderStripGrid(). -->
+        <div class="strip-grid" id="strip-grid"></div>
         <div class="card" id="today-card" data-drop="today-list">
           <div class="today-card-head">
             <h2>Today</h2>
@@ -1365,6 +1427,10 @@ footer button { font: inherit; font-size: var(--fs-sm); border: none; background
         <span class="sm-title"><strong>Skincare</strong><span class="sm-sub" id="skincare-count-label"></span></span>
         <span class="sm-chevron" data-ico="chevron-right"></span>
       </button>
+      <button class="settings-menu-row" onclick="openActivitySubmodal()">
+        <span class="sm-title"><strong>Exercises</strong><span class="sm-sub" id="activity-count-label"></span></span>
+        <span class="sm-chevron" data-ico="chevron-right"></span>
+      </button>
       <!-- The sub-label is a fixed string, not a count. Every other row here
            summarises its data; this one deliberately doesn't, because the
            summary would be the private part. -->
@@ -1455,6 +1521,39 @@ footer button { font: inherit; font-size: var(--fs-sm); border: none; background
       <div class="routine-row" style="border-bottom:none;margin-top:14px">
         <span class="r-title">Show on the day view<div class="r-recur">The one quiet line under your meals. Turning this off hides it completely — your products and history stay put.</div></span>
         <button class="toggle" id="skin-show-toggle" onclick="toggleSkinVisible()"></button>
+      </div>
+    </div>
+  </div>
+</div>
+
+<div class="modal-bg" id="activity-submodal">
+  <div class="modal" style="max-width:520px">
+    <div class="modal-head"><strong>Exercises</strong><button class="modal-x" data-ico="x" onclick="closeModal('activity-submodal')"></button></div>
+    <div class="modal-body">
+      <p style="font-size: var(--fs-sm);color:var(--muted);margin-bottom:6px">The exercises you can log, and which template each one uses — <strong>lifting</strong> asks for weight, reps and sets; <strong>cardio</strong> asks for time and distance. <strong>Retire</strong> one to take it off the day view but keep its history. Delete is for typos; logged entries keep the name they were logged under either way.</p>
+      <div id="activity-list"></div>
+      <div class="quick-add-row">
+        <input type="text" id="act-new-name" placeholder="New exercise…" onkeydown="if(event.key==='Enter')addActExerciseFromSettings()">
+        <select id="act-new-kind" style="font:inherit;font-size: var(--fs-md);padding:7px 8px;border-radius:8px;border:1px solid var(--border);background:var(--page);color:var(--ink)">
+          <option value="lift">Lifting</option>
+          <option value="cardio">Cardio</option>
+        </select>
+        <button onclick="addActExerciseFromSettings()">Add</button>
+      </div>
+      <div class="routine-row">
+        <span class="r-title">Units<div class="r-recur">What new entries are logged in. Entries you've already logged keep the unit they were logged with.</div></span>
+        <select id="act-unit-select" onchange="setActUnit(this.value)" title="Weight">
+          <option value="lb">lb</option>
+          <option value="kg">kg</option>
+        </select>
+        <select id="act-dist-select" onchange="setActDistUnit(this.value)" title="Distance">
+          <option value="mi">mi</option>
+          <option value="km">km</option>
+        </select>
+      </div>
+      <div class="routine-row" style="border-bottom:none;margin-top:14px">
+        <span class="r-title">Show on the day view<div class="r-recur">The Activity tile beside Skincare and Health. Turning this off hides it completely — your exercises and history stay put.</div></span>
+        <button class="toggle" id="act-show-toggle" onclick="toggleActVisible()"></button>
       </div>
     </div>
   </div>
@@ -1596,6 +1695,14 @@ const ICONS = {
   "chat": '<path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/>',
   "send": '<line x1="22" y1="2" x2="11" y2="13"/><polygon points="22 2 15 22 11 13 2 9 22 2"/>',
   "utensils": '<path d="M3 2v7c0 1.1.9 2 2 2h4a2 2 0 0 0 2-2V2"/><path d="M7 2v20"/><path d="M21 15V2a5 5 0 0 0-5 5v6c0 1.1.9 2 2 2h3z"/><path d="M18 15v7"/>',
+  // Two plates and a bar, and nothing else. The conventional five-stroke
+  // dumbbell (inner plates, outer plates, bar) collapses into a smudge at the
+  // ~14px the tile label draws it — the strokes land closer together than the
+  // stroke is wide. Three shapes still read.
+  "dumbbell": '<rect x="2.5" y="8" width="4.5" height="8" rx="1.5"/><rect x="17" y="8" width="4.5" height="8" rx="1.5"/><line x1="7" y1="12" x2="17" y2="12"/>',
+  // A pulse trace rather than a running figure — a runner is unreadable at this
+  // size, and cardio is the thing being labelled, not running specifically.
+  "pulse": '<polyline points="3 12 7 12 9.5 6.5 14.5 17.5 17 12 21 12"/>',
   "external": '<path d="M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6"/><polyline points="15 3 21 3 21 9"/><line x1="10" y1="14" x2="21" y2="3"/>',
   "eye": '<path d="M2 12s3.5-7 10-7 10 7 10 7-3.5 7-10 7-10-7-10-7z"/><circle cx="12" cy="12" r="3"/>',
   "eye-off": '<path d="M17.9 17.9A10.4 10.4 0 0 1 12 19c-6.5 0-10-7-10-7a18.6 18.6 0 0 1 5.1-5.9"/><path d="M9.9 4.2A10.6 10.6 0 0 1 12 4c6.5 0 10 7 10 7a18.7 18.7 0 0 1-2.2 3.2"/><path d="M9.9 9.9a3 3 0 0 0 4.2 4.2"/><line x1="2" y1="2" x2="22" y2="22"/>',
@@ -2315,6 +2422,9 @@ function updateSettingsMenuCounts(){
   const skinCount = skinProducts().filter(p => p.active !== false && !p.sample).length;
   document.getElementById('skincare-count-label').textContent = !skinVisible() ? 'Hidden'
     : skinCount ? `${skinCount} step${skinCount===1?'':'s'}` : 'Not set up';
+  const actCount = actExercises().filter(e => e.active !== false).length;
+  document.getElementById('activity-count-label').textContent = !actVisible() ? 'Hidden'
+    : actCount ? `${actCount} exercise${actCount===1?'':'s'}` : 'Not set up';
 }
 function openRoutinesSubmodal(){
   renderRoutinesList();
@@ -4260,8 +4370,6 @@ const SKIN_STARTER = [
   ['Eye cream', 'both'], ['Moisturizer', 'both'], ['SPF', 'am'], ['Retinol', 'pm'],
   ['Lip balm', 'both']
 ];
-let _skinOpen = false;        // panel expanded — intentionally not persisted, so
-                              // every load starts quiet
 let _skinYesterday = false;   // only meaningful while the day view is on today
 let _skinOneoffSlot = null;   // slot whose one-off input is currently showing
 
@@ -4340,7 +4448,6 @@ function skinSlotProducts(slot, logged){
 }
 function skinTargetDate(){ return (_skinYesterday && currentDate === todayStr()) ? addDays(currentDate, -1) : currentDate; }
 
-function toggleSkinPanel(){ _skinOpen = !_skinOpen; _skinOneoffSlot = null; renderSkinStrip(); }
 function setSkinTarget(yesterday){ _skinYesterday = !!yesterday; _skinOneoffSlot = null; renderSkinStrip(); }
 function toggleSkinLog(slot, key){
   const date = skinTargetDate();
@@ -4385,12 +4492,11 @@ function addSkinProduct(name, when, sample){
   return p;
 }
 
-function renderSkinStrip(){
-  const el = document.getElementById('skin-strip');
-  if(!el) return;
-  // Yesterday only means anything relative to today; navigating away drops it.
-  if(currentDate !== todayStr()) _skinYesterday = false;
-  if(!skinVisible()){ el.innerHTML = ''; return; }
+// Both halves are called by renderStripGrid, never on their own. Splitting the
+// old single renderer in two is what lets the tile sit in the shared row while
+// its panel opens full-width below it.
+function skinTileHtml(){
+  if(!skinVisible()) return '';
 
   const date = skinTargetDate();
   const cell = skinLogFor(date);
@@ -4404,18 +4510,23 @@ function renderSkinStrip(){
     if(!n) return '';
     return `<span class="sk-slot-dots"><b>${slot}</b>${'<span class="sk-dot on"></span>'.repeat(Math.min(n, 8))}${n>8?`<span class="sk-more">+${n-8}</span>`:''}</span>`;
   }).filter(Boolean).join('');
-  const summary = !skinProducts().length ? '<span>set up your steps</span>'
+  const summary = !skinProducts().length ? '<span>set up</span>'
                 : (dots || '<span>not logged</span>');
 
-  const line = `<button class="skin-line" onclick="toggleSkinPanel()" title="Skincare">
-      <span data-ico="droplet"></span>
-      <span class="sk-label">Skincare</span>
-      <span class="sk-dots">${summary}</span>
-      <span class="sk-chevron ${_skinOpen?'open':''}" data-ico="chevron-right"></span>
+  const open = _openStrip === 'skin';
+  return `<button class="sg-tile ${open?'open':''}" onclick="toggleStrip('skin')" title="Skincare">
+      <span class="sg-tile-head">
+        <span data-ico="droplet"></span>
+        <span class="sg-name">Skincare</span>
+        <span class="sk-chevron ${open?'open':''}" data-ico="chevron-right"></span>
+      </span>
+      <span class="sg-marks">${summary}</span>
     </button>`;
+}
 
-  if(!_skinOpen){ el.innerHTML = line; paintIcons(el); return; }
-
+function skinPanelHtml(){
+  const date = skinTargetDate();
+  const cell = skinLogFor(date);
   const slots = SKIN_SLOTS.map(([slot, label]) => ({slot, label, prods: skinSlotProducts(slot, cell[slot])}));
 
   // On today she gets the Today/Yesterday switch, because "did I do it last
@@ -4444,12 +4555,11 @@ function renderSkinStrip(){
       }).join('')
     : `<p class="empty-note" style="padding:2px 0 6px">Nothing set up yet — <button class="sk-manage" onclick="seedSkinStarter()">start from a common list</button> and rename from there, or <button class="sk-manage" onclick="openSkincareSubmodal()">add your own</button>.</p>`;
 
-  el.innerHTML = line + `<div class="skin-panel">
+  return `<div class="skin-panel">
       <div class="skin-panel-head">${head}</div>
       ${body}
       <div class="skin-panel-foot"><button class="sk-manage" onclick="openSkincareSubmodal()">Edit products</button></div>
     </div>`;
-  paintIcons(el);
 }
 
 /* ---- product management ---- */
@@ -4615,6 +4725,12 @@ function cycSpanName(start, end){
   return '';
 }
 
+// Two surfaces read CYCLE — the settings calendar and the day-view strip — and
+// a write from either has to repaint both, or the one you tapped sits stale
+// until something else redraws it. Both renderers no-op when their element is
+// absent, so this is safe to call from anywhere.
+function paintCycle(){ renderCycle(); renderHealthStrip(); }
+
 // Optimistic, then reconciled: the tap lands immediately and a failed write
 // puts the old value back, because a mark that silently didn't save is worse
 // here than one that visibly bounced.
@@ -4624,7 +4740,7 @@ async function setCycle(date, kind, value){
   const prev = CYCLE.get(key) || null;
   if(value === prev) value = null;          // tapping the lit chip clears the day
   if(value) CYCLE.set(key, value); else CYCLE.delete(key);
-  renderCycle();
+  paintCycle();
   try{
     const {error} = value
       ? await sb.from('cycle_events')
@@ -4634,7 +4750,7 @@ async function setCycle(date, kind, value){
     if(error) throw error;
   }catch(e){
     if(prev) CYCLE.set(key, prev); else CYCLE.delete(key);
-    renderCycle();
+    paintCycle();
     showNotice("Couldn't save that — it's not written down.", 'warn');
   }
 }
@@ -4854,15 +4970,16 @@ function renderCycleHistory(){
    skincare one" was the brief, and sharing the CSS is the only way that keeps
    being true as either changes).
 
-   One deliberate difference: **collapsed, this line shows nothing.** The
-   skincare line reports its dots at rest; this one reports only the word
-   Health. That is the whole privacy design surviving the move onto the main
-   screen — a glance at her day view, or someone else's glance, learns nothing,
-   and the marks appear only once she opens it herself. (The skincare line is
-   already fairly private at rest, which is what made this pattern the right one
-   to copy; this is that same idea taken one step further.) `_healthOpen` is not
-   persisted, so every load starts closed — it stays open while paging between
-   days, exactly as the skincare panel does.
+   One deliberate difference: **collapsed, this tile shows nothing.** The
+   skincare and activity tiles report their marks at rest; this one reports only
+   the word Health. That is the whole privacy design surviving the move onto the
+   main screen — a glance at her day view, or someone else's glance, learns
+   nothing, and the marks appear only once she opens it herself. (The skincare
+   line is already fairly private at rest, which is what made this pattern the
+   right one to copy; this is that same idea taken one step further.) The open
+   state lives in `_openStrip` and is not persisted, so every load starts
+   closed — it stays open while paging between days, exactly as the skincare
+   panel does.
 
    It is also why the load is lazy: nothing is fetched until she expands it, so
    a session that never opens this never pulls the rows at all.
@@ -4886,16 +5003,13 @@ function toggleHealthVisible(){
   renderCycle();   // the toggle lives in that modal, so redraw its state
 }
 
-let _healthOpen = false;
-async function toggleHealthPanel(){
-  _healthOpen = !_healthOpen;
-  renderHealthStrip();
-  // Fetched on first open, never on load. A closed line needs no data, and not
-  // holding it is the point.
-  if(_healthOpen && !CYCLE && !_guestMode && _currentUser){
-    await loadCycle();
-    renderHealthStrip();
-  }
+// Fetched on first open, never on load. A closed tile needs no data, and not
+// holding it is the point. Called by toggleStrip after the tile is already
+// painted open, so the panel shows its own loading state while this runs.
+async function ensureCycleLoaded(){
+  if(CYCLE || _guestMode || !_currentUser) return;
+  await loadCycle();
+  renderStripGrid();
 }
 
 // Logging from the strip writes to whatever day the view is on, which is the
@@ -4903,25 +5017,27 @@ async function toggleHealthPanel(){
 // what you log. No Today/Yesterday switch here — this is not the tracker that
 // gets asked "did I actually do it last night?", and the full calendar in
 // settings is the better tool for backfilling anything older.
-async function setCycleFromStrip(kind, value){
-  await setCycle(currentDate, kind, value);
-  renderHealthStrip();
+function setCycleFromStrip(kind, value){
+  setCycle(currentDate, kind, value);   // repaints the strip itself, optimistically
 }
 
-function renderHealthStrip(){
-  const el = document.getElementById('health-strip');
-  if(!el) return;
-  if(!healthVisible() || _guestMode || !_currentUser){ el.innerHTML = ''; return; }
-
-  const line = `<button class="skin-line" onclick="toggleHealthPanel()" title="Health">
-      <span data-ico="heart"></span>
-      <span class="sk-label">Health</span>
-      <span class="sk-dots"></span>
-      <span class="sk-chevron ${_healthOpen?'open':''}" data-ico="chevron-right"></span>
+function healthTileHtml(){
+  if(!healthVisible() || _guestMode || !_currentUser) return '';
+  const open = _openStrip === 'health';
+  // The marks line is deliberately empty — that is the whole privacy design,
+  // and it survives the move into the tile row unchanged. It still renders, so
+  // this tile stands the same height as the two beside it.
+  return `<button class="sg-tile ${open?'open':''}" onclick="toggleStrip('health')" title="Health">
+      <span class="sg-tile-head">
+        <span data-ico="heart"></span>
+        <span class="sg-name">Health</span>
+        <span class="sk-chevron ${open?'open':''}" data-ico="chevron-right"></span>
+      </span>
+      <span class="sg-marks"></span>
     </button>`;
+}
 
-  if(!_healthOpen){ el.innerHTML = line; paintIcons(el); return; }
-
+function healthPanelHtml(){
   let body;
   if(!CYCLE){
     body = `<p class="empty-note" style="padding:2px 0 6px">Loading…</p>`;
@@ -4942,13 +5058,448 @@ function renderHealthStrip(){
   }
 
   const when = currentDate === todayStr() ? 'Logging today' : `Logging ${fmtLong(currentDate)}`;
-  el.innerHTML = line + `<div class="skin-panel">
+  return `<div class="skin-panel">
       <div class="skin-panel-head"><span class="sk-when">${esc(when)}</span></div>
       ${body}
       <div class="skin-panel-foot"><button class="sk-manage" onclick="openCycleSubmodal()">Calendar and history</button></div>
     </div>`;
+}
+
+/* =====================================================================
+   ACTIVITY — lifting and cardio.
+
+   Split across the two stores the app already uses, along the line it already
+   draws for skincare and the cycle log:
+
+     settings.activity = {                        <- the catalog, in the row
+       exercises: [{id, k, name, kind, active, _u}],
+       unit: 'lb'|'kg', distUnit: 'mi'|'km',
+       show: true
+     }
+     activity_events                              <- the log, its own table
+
+   The catalog is short, ordered and rarely edited, which is exactly the skincare
+   products list; the log is thousands of rows a year carrying real numbers,
+   which settings JSON cannot hold — see the migration for the size argument.
+
+   `kind` is what makes the two templates work. It rides on the exercise in the
+   catalog, so picking "Bench press" already decides that the form asks for
+   weight/reps/sets and picking "Run" asks for time/distance. She never chooses a
+   template; she chooses the thing she did. It is copied onto each logged row so
+   that reclassifying an exercise later cannot reinterpret old numbers.
+
+   Rows are inserted and deleted, never upserted by day: benching twice in one
+   session is a real thing, not a conflict.
+   ===================================================================== */
+const ACT_KINDS = [['lift', 'Lifting'], ['cardio', 'Cardio']];
+// Offered on the empty state so she starts by renaming rather than typing a gym
+// out from scratch, same as the skincare starter.
+const ACT_STARTER = [
+  ['Squat', 'lift'], ['Deadlift', 'lift'], ['Bench press', 'lift'],
+  ['Overhead press', 'lift'], ['Barbell row', 'lift'], ['Lat pulldown', 'lift'],
+  ['Leg press', 'lift'], ['Bicep curl', 'lift'],
+  ['Run', 'cardio'], ['Walk', 'cardio'], ['Cycling', 'cardio'], ['Elliptical', 'cardio']
+];
+
+let ACTIVITY = null;      // rows for the signed-in user. null = not loaded yet.
+let _actError = null;
+let _actPick = null;      // exercise key whose number fields are showing
+
+function getActivity(){
+  const s = SETTINGS.activity;
+  if(!s || typeof s !== 'object') SETTINGS.activity = {exercises: [], show: true};
+  else {
+    if(!Array.isArray(s.exercises)) s.exercises = [];
+    // Same guard the skincare list makes, for the same reason: a keyless
+    // exercise would write "undefined" into every row it logged and no longer
+    // match its own catalog entry. Memory only — load-time normalization must
+    // never write to the server. The list is passed explicitly so newActKey()
+    // cannot recurse back through getActivity() on a half-built entry.
+    s.exercises.forEach(e => { if(e && typeof e.k !== 'string') e.k = newActKey(s.exercises); });
+  }
+  return SETTINGS.activity;
+}
+function actExercises(){ return getActivity().exercises; }
+function actExerciseById(id){ return actExercises().find(e => e.id === id); }
+function actExerciseByKey(k){ return actExercises().find(e => e.k === k); }
+function actVisible(){ return getActivity().show !== false; }
+function actUnit(){ return getActivity().unit === 'kg' ? 'kg' : 'lb'; }
+function actDistUnit(){ return getActivity().distUnit === 'km' ? 'km' : 'mi'; }
+function touchActivity(){ touch(getActivity()); saveToStorage(); }
+
+function newActKey(list){
+  const used = new Set((list || actExercises()).map(e => e.k));
+  let k = '';
+  for(let i = 0; i < 200; i++){
+    k = Math.random().toString(36).slice(2, 6).padEnd(4, '0');
+    if(!used.has(k)) return k;
+  }
+  return k;
+}
+
+/* ---- the log ---- */
+async function loadActivity(){
+  ACTIVITY = null;
+  _actError = null;
+  if(_guestMode || !_currentUser) return;
+  // Everything, like the cycle log, because the day view and any future history
+  // both want arbitrary dates. If this ever gets slow the fix is a date window
+  // plus a refetch on navigating past its edge — not a cache here.
+  const {data, error} = await sb.from('activity_events')
+    .select('id, date, exercise_key, name, kind, weight, reps, sets, unit, minutes, distance, dist_unit, note')
+    .eq('user_id', _currentUser.id)
+    .order('date', {ascending: false});
+  if(error){ _actError = error.message || String(error); return; }
+  ACTIVITY = data || [];
+}
+async function ensureActivityLoaded(){
+  if(ACTIVITY || _guestMode || !_currentUser) return;
+  await loadActivity();
+  renderStripGrid();
+}
+function activityOn(dateStr){
+  return ACTIVITY ? ACTIVITY.filter(r => r.date === dateStr) : [];
+}
+
+// How an entry reads on one line. Only the fields she actually filled in show
+// up: "Bench press 135 lb" is a true statement about a set whose reps she did
+// not record, and inventing a 0 there would be a lie in the history.
+function actEntryText(r){
+  const parts = [];
+  if(r.kind === 'lift'){
+    if(r.weight != null) parts.push(`${(+r.weight)} ${esc(r.unit || 'lb')}`);
+    if(r.reps != null) parts.push(`${r.reps} rep${r.reps === 1 ? '' : 's'}`);
+    if(r.sets != null) parts.push(`${r.sets} set${r.sets === 1 ? '' : 's'}`);
+  }else{
+    if(r.minutes != null) parts.push(`${(+r.minutes)} min`);
+    if(r.distance != null) parts.push(`${(+r.distance)} ${esc(r.dist_unit || 'mi')}`);
+  }
+  return parts.join(' · ');
+}
+
+// Optimistic like setCycle, and for the same reason: a tap that only lands once
+// the network answers reads as a tracker that ignored you. The row goes in with
+// a temporary id, and the insert swaps in the real one so a later delete has
+// something to aim at.
+async function addActivityEntry(kind, fields){
+  if(!ACTIVITY || _guestMode || !_currentUser) return;
+  const ex = actExerciseByKey(_actPick);
+  if(!ex) return;
+  const row = {
+    date: currentDate, exercise_key: ex.k, name: ex.name, kind,
+    weight: null, reps: null, sets: null, unit: null,
+    minutes: null, distance: null, dist_unit: null,
+    note: fields.note || null
+  };
+  if(kind === 'lift'){
+    row.weight = fields.weight; row.reps = fields.reps; row.sets = fields.sets;
+    if(fields.weight != null) row.unit = actUnit();
+  }else{
+    row.minutes = fields.minutes; row.distance = fields.distance;
+    if(fields.distance != null) row.dist_unit = actDistUnit();
+  }
+
+  const temp = {...row, id: 'tmp-' + newId()};
+  ACTIVITY.unshift(temp);
+  _actPick = null;
+  renderStripGrid();
+
+  try{
+    const {data, error} = await sb.from('activity_events')
+      .insert({...row, user_id: _currentUser.id}).select('id').single();
+    if(error) throw error;
+    temp.id = data.id;
+  }catch(e){
+    const i = ACTIVITY.indexOf(temp);
+    if(i >= 0) ACTIVITY.splice(i, 1);
+    renderStripGrid();
+    showNotice("Couldn't save that — it's not written down.", 'warn');
+  }
+}
+
+async function deleteActivityEntry(id){
+  if(!ACTIVITY) return;
+  const i = ACTIVITY.findIndex(r => String(r.id) === String(id));
+  if(i < 0) return;
+  const [row] = ACTIVITY.splice(i, 1);
+  renderStripGrid();
+  // A row whose insert never came back has no server id to delete. Dropping it
+  // locally is the whole job — the insert's own catch already removed it, and
+  // reaching the server with "tmp-…" would only produce a confusing error.
+  if(String(row.id).startsWith('tmp-')) return;
+  try{
+    const {error} = await sb.from('activity_events').delete().eq('id', row.id);
+    if(error) throw error;
+  }catch(e){
+    ACTIVITY.splice(i, 0, row);
+    renderStripGrid();
+    showNotice("Couldn't remove that one.", 'warn');
+  }
+}
+
+function pickActExercise(k){
+  _actPick = _actPick === k ? null : k;   // tapping the open one closes it
+  renderStripGrid();
+  const first = document.querySelector('.act-fields input');
+  if(first) first.focus();
+}
+
+// Blank stays blank. Only a value she actually typed becomes a number, so an
+// untouched field is null in the row rather than 0 — the difference between
+// "no reps recorded" and "zero reps", which a chart would read very differently.
+function actNum(id, int){
+  const el = document.getElementById(id);
+  if(!el) return null;
+  const raw = el.value.trim();
+  if(!raw) return null;
+  const n = int ? parseInt(raw, 10) : parseFloat(raw);
+  return Number.isFinite(n) && n > 0 ? n : null;
+}
+function saveActEntry(kind){
+  const fields = kind === 'lift'
+    ? {weight: actNum('act-weight'), reps: actNum('act-reps', true), sets: actNum('act-sets', true)}
+    : {minutes: actNum('act-minutes'), distance: actNum('act-distance')};
+  const noteEl = document.getElementById('act-note');
+  fields.note = noteEl ? noteEl.value.trim() : '';
+  // An entry with no numbers at all is still worth keeping — "I squatted today"
+  // is the fact, and the load is the detail. Nothing to validate against.
+  addActivityEntry(kind, fields);
+}
+
+/* ---- the tile and the panel ---- */
+function actTileHtml(){
+  if(!actVisible() || _guestMode || !_currentUser) return '';
+  const open = _openStrip === 'activity';
+  const rows = activityOn(currentDate);
+  // A count, not a dot per entry: eight sets of accessories should not turn this
+  // into a smear, and the number is the thing worth knowing at a glance.
+  const marks = !ACTIVITY ? ''
+    : rows.length ? `<span>${rows.length} logged</span>`
+    : '<span>nothing yet</span>';
+  return `<button class="sg-tile ${open?'open':''}" onclick="toggleStrip('activity')" title="Activity">
+      <span class="sg-tile-head">
+        <span data-ico="dumbbell"></span>
+        <span class="sg-name">Activity</span>
+        <span class="sk-chevron ${open?'open':''}" data-ico="chevron-right"></span>
+      </span>
+      <span class="sg-marks">${marks}</span>
+    </button>`;
+}
+
+function actPanelHtml(){
+  let body;
+  if(_actError){
+    body = `<p class="empty-note" style="padding:2px 0 6px">Couldn't load: ${esc(_actError)}</p>`;
+  }else if(!ACTIVITY){
+    body = `<p class="empty-note" style="padding:2px 0 6px">Loading…</p>`;
+  }else if(!actExercises().length){
+    body = `<p class="empty-note" style="padding:2px 0 6px">No exercises yet — <button class="sk-manage" onclick="seedActStarter()">start from a common list</button> and rename from there, or <button class="sk-manage" onclick="openActivitySubmodal()">add your own</button>.</p>`;
+  }else{
+    const logged = activityOn(currentDate).map(r => {
+      const nums = actEntryText(r);
+      return `<div class="act-entry">
+          <span class="ae-name">${esc(r.name)}${r.note ? `<span class="ae-note">${esc(r.note)}</span>` : ''}</span>
+          <span class="ae-num">${nums}</span>
+          <button class="ae-x" onclick="deleteActivityEntry('${esc(r.id)}')" title="Remove" data-ico="x"></button>
+        </div>`;
+    }).join('');
+
+    // Grouped by kind so the two templates read as two things, and so a long
+    // catalog does not mix a run in among the presses.
+    const groups = ACT_KINDS.map(([kind, label]) => {
+      const list = actExercises().filter(e => e.kind === kind && e.active !== false);
+      if(!list.length) return '';
+      const chips = list.map(e => {
+        const on = _actPick === e.k;
+        return `<button class="sk-chip ${on?'on':''}" onclick="pickActExercise('${e.k}')">`
+             + `<span class="sk-ring">${on?ico('check'):''}</span>${esc(e.name)}</button>`;
+      }).join('');
+      const picked = list.find(e => e.k === _actPick);
+      const fields = picked ? (kind === 'lift'
+        ? `<div class="act-fields">
+             <div class="act-field"><label>Weight (${actUnit()})</label><input type="number" inputmode="decimal" id="act-weight" step="0.5" min="0" onkeydown="if(event.key==='Enter')saveActEntry('lift')"></div>
+             <div class="act-field"><label>Reps</label><input type="number" inputmode="numeric" id="act-reps" step="1" min="1" onkeydown="if(event.key==='Enter')saveActEntry('lift')"></div>
+             <div class="act-field"><label>Sets</label><input type="number" inputmode="numeric" id="act-sets" step="1" min="1" onkeydown="if(event.key==='Enter')saveActEntry('lift')"></div>
+             <div class="act-field wide"><label>Note</label><input type="text" id="act-note" placeholder="Optional" onkeydown="if(event.key==='Enter')saveActEntry('lift')"></div>
+             <button class="act-save" onclick="saveActEntry('lift')">Log</button>
+           </div>`
+        : `<div class="act-fields">
+             <div class="act-field"><label>Minutes</label><input type="number" inputmode="decimal" id="act-minutes" step="1" min="1" onkeydown="if(event.key==='Enter')saveActEntry('cardio')"></div>
+             <div class="act-field"><label>Distance (${actDistUnit()})</label><input type="number" inputmode="decimal" id="act-distance" step="0.01" min="0" onkeydown="if(event.key==='Enter')saveActEntry('cardio')"></div>
+             <div class="act-field wide"><label>Note</label><input type="text" id="act-note" placeholder="Optional" onkeydown="if(event.key==='Enter')saveActEntry('cardio')"></div>
+             <button class="act-save" onclick="saveActEntry('cardio')">Log</button>
+           </div>`) : '';
+      return `<div class="act-group">
+          <div class="act-kind-label">${icoCls(kind === 'lift' ? 'dumbbell' : 'pulse')}${label}</div>
+          <div class="sk-chips">${chips}</div>
+          ${fields}
+        </div>`;
+    }).join('');
+
+    body = (logged ? `<div class="act-list">${logged}</div>` : '')
+         + `<div class="act-form">${groups}</div>`;
+  }
+
+  const when = currentDate === todayStr() ? 'Logging today' : `Logging ${fmtLong(currentDate)}`;
+  return `<div class="skin-panel">
+      <div class="skin-panel-head"><span class="sk-when">${esc(when)}</span></div>
+      ${body}
+      <div class="skin-panel-foot"><button class="sk-manage" onclick="openActivitySubmodal()">Edit exercises</button></div>
+    </div>`;
+}
+
+/* ---- exercise management, in settings ---- */
+function openActivitySubmodal(){ renderActivityList(); openModal('activity-submodal'); }
+function renderActivityList(){
+  const el = document.getElementById('activity-list');
+  if(!el) return;
+  const list = actExercises();
+  el.innerHTML = list.length ? list.map((e, i) => `
+    <div class="routine-row act-prod-row ${e.active===false?'retired':''}">
+      <span class="r-title">${esc(e.name)}${e.active===false?'<span class="sk-badge">retired</span>':''}
+        <div class="r-recur">${e.kind === 'lift' ? 'Weight, reps, sets' : 'Time, distance'}</div></span>
+      <select onchange="setActKind(${e.id}, this.value)" title="Which template it logs with">
+        <option value="lift" ${e.kind==='lift'?'selected':''}>Lifting</option>
+        <option value="cardio" ${e.kind==='cardio'?'selected':''}>Cardio</option>
+      </select>
+      <button onclick="moveActExercise(${e.id},-1)" title="Move up" ${i===0?'disabled style="opacity:.25"':''}>&uarr;</button>
+      <button onclick="moveActExercise(${e.id},1)" title="Move down" ${i===list.length-1?'disabled style="opacity:.25"':''}>&darr;</button>
+      <button onclick="toggleActRetired(${e.id})" title="${e.active===false?'Bring it back':'Retire — keeps the history, hides the chip'}" data-ico="${e.active===false?'eye':'eye-off'}"></button>
+      <button class="danger" onclick="deleteActExercise(${e.id})" title="Delete" data-ico="trash"></button>
+    </div>`).join('')
+    : `<p class="empty-note">No exercises yet. Add them below, or <button class="sk-manage" onclick="seedActStarter()">start from a common list</button> and rename from there.</p>`;
+  paintIcons(el);
+  const t = document.getElementById('act-show-toggle');
+  if(t) t.classList.toggle('on', actVisible());
+  const u = document.getElementById('act-unit-select');
+  if(u) u.value = actUnit();
+  const d = document.getElementById('act-dist-select');
+  if(d) d.value = actDistUnit();
+}
+function afterActEdit(){
+  touchActivity();
+  renderActivityList();
+  renderStripGrid();
+  if(document.getElementById('activity-count-label')) updateSettingsMenuCounts();
+}
+function addActExercise(name, kind){
+  name = String(name == null ? '' : name).trim();
+  if(!name) return null;
+  const e = touch({id: newId(), k: newActKey(), name, kind: kind === 'cardio' ? 'cardio' : 'lift', active: true});
+  actExercises().push(e);
+  return e;
+}
+function addActExerciseFromSettings(){
+  const input = document.getElementById('act-new-name');
+  if(!addActExercise(input.value, document.getElementById('act-new-kind').value)) return;
+  input.value = '';
+  afterActEdit();
+  input.focus();
+}
+function seedActStarter(){
+  if(actExercises().length) return;
+  ACT_STARTER.forEach(([name, kind]) => addActExercise(name, kind));
+  afterActEdit();
+  openActivitySubmodal();
+}
+function setActKind(id, kind){
+  const e = actExerciseById(id);
+  if(!e) return;
+  e.kind = kind === 'cardio' ? 'cardio' : 'lift';
+  touch(e); afterActEdit();
+}
+function moveActExercise(id, dir){
+  const list = actExercises();
+  const i = list.findIndex(e => e.id === id), j = i + dir;
+  if(i < 0 || j < 0 || j >= list.length) return;
+  const tmp = list[i]; list[i] = list[j]; list[j] = tmp;
+  afterActEdit();
+}
+function toggleActRetired(id){
+  const e = actExerciseById(id);
+  if(!e) return;
+  e.active = e.active === false;   // undefined counts as active, so this turns it off
+  touch(e); afterActEdit();
+}
+// Deleting an exercise leaves its logged rows alone and readable: each one
+// stored the name it was logged under, so history survives the catalog.
+// Retiring is the move for something she's stopped doing; this one is for typos.
+function deleteActExercise(id){
+  const list = actExercises();
+  const i = list.findIndex(e => e.id === id);
+  if(i < 0) return;
+  list.splice(i, 1);
+  tombstone('activityExercises', id);
+  afterActEdit();
+}
+function toggleActVisible(){
+  getActivity().show = !actVisible();
+  afterActEdit();
+}
+// Units are a display and a default, not a conversion: past rows keep the unit
+// they were logged in, because 135 lb does not become 135 kg because she moved
+// to a gym that plates in metric.
+function setActUnit(u){ getActivity().unit = u === 'kg' ? 'kg' : 'lb'; afterActEdit(); }
+function setActDistUnit(u){ getActivity().distUnit = u === 'km' ? 'km' : 'mi'; afterActEdit(); }
+
+/* =====================================================================
+   THE TRACKER GRID — one row of tiles, one panel below it.
+
+   Skincare, Health and Activity each render a tile and a panel; this decides
+   which panel is showing and draws the lot in one pass. One open at a time,
+   because there is one slot.
+
+   `_openStrip` is not persisted, so every load starts with all three closed —
+   that was already true of the skincare and health panels separately, and it is
+   what keeps the two lazy loads (the cycle table, the activity table) from
+   firing on a session that never asks for them.
+
+   renderSkinStrip/renderHealthStrip stay as names because a dozen call sites
+   across the app reach for them; they now all mean "redraw the grid".
+   ===================================================================== */
+let _openStrip = null;   // null | 'skin' | 'health' | 'activity'
+
+function toggleStrip(name){
+  _openStrip = _openStrip === name ? null : name;
+  _skinOneoffSlot = null;   // a half-typed one-off does not survive leaving the panel
+  _actPick = null;
+  renderStripGrid();
+  // Both fetches happen after the paint, so the panel is already open and
+  // showing its own loading state while the rows are on the way.
+  if(_openStrip === 'health') ensureCycleLoaded();
+  if(_openStrip === 'activity') ensureActivityLoaded();
+}
+
+function renderStripGrid(){
+  const el = document.getElementById('strip-grid');
+  if(!el) return;
+  // Yesterday only means anything relative to today; navigating away drops it.
+  if(currentDate !== todayStr()) _skinYesterday = false;
+
+  const tiles = [
+    ['skin', skinTileHtml()],
+    ['health', healthTileHtml()],
+    ['activity', actTileHtml()]
+  ].filter(([, html]) => html);
+
+  // Every tracker hidden means no row at all, rather than an empty bordered box.
+  if(!tiles.length){ el.innerHTML = ''; return; }
+
+  // A panel whose tile isn't on screen — hidden in settings while it was open —
+  // has nothing to close it, so the open state is dropped here rather than
+  // stranding a panel under a row that no longer offers it.
+  if(_openStrip && !tiles.some(([name]) => name === _openStrip)) _openStrip = null;
+
+  const panel = _openStrip === 'skin' ? skinPanelHtml()
+              : _openStrip === 'health' ? healthPanelHtml()
+              : _openStrip === 'activity' ? actPanelHtml() : '';
+
+  el.innerHTML = `<div class="sg-tiles">${tiles.map(([, html]) => html).join('')}</div>`
+               + `<div class="sg-panel">${panel}</div>`;
   paintIcons(el);
 }
+function renderSkinStrip(){ renderStripGrid(); }
+function renderHealthStrip(){ renderStripGrid(); }
 
 /* =====================================================================
    LEAVE BY — a departure time beside the weather.
@@ -5213,7 +5764,7 @@ function renderAll(){
   renderSidebar();
   renderMonthSidebar();
   renderMealSidebar();
-  if(currentView==='day'){ renderMealStrip(); renderSkinStrip(); renderHealthStrip(); renderLeave(); }
+  if(currentView==='day'){ renderMealStrip(); renderStripGrid(); renderLeave(); }
 }
 
 /* =====================================================================
