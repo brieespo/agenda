@@ -7595,6 +7595,23 @@ function assignGroupHtml(dateStr, rows, label, opts){
   const picker = courses.map(c => `<option value="${esc(c.id)}">${esc(c.name || 'Course')}</option>`).join('');
   const open = rows.filter(r => !r.a.done), done = rows.filter(r => r.a.done);
   const showDone = _asgDoneOpen.has(dateStr);
+
+  // The day view keeps finished rows in place, struck through, the way the
+  // Today list does. Folding them away earns its keep in the Assignments tab,
+  // which spans many days and would otherwise be mostly finished work — but on
+  // a single day's card it took away the only sign that the tick had landed:
+  // the row you tapped disappeared, and one item due became a bare "All done"
+  // line. A checkbox that makes its row vanish reads as a click that failed.
+  if(bare){
+    return `<div class="asg-group bare" data-date="${esc(dateStr)}">
+      ${open.map(assignItemHtml).join('')}
+      ${done.map(assignItemHtml).join('')}
+      ${courses.length ? `<div class="asg-add">
+        <select class="asg-pick" aria-label="Course">${picker}</select>
+        <input class="asg-new" type="text" placeholder="Add an assignment…" data-act="add-asg">
+      </div>` : ''}
+    </div>`;
+  }
   // A day with nothing left folds to a single line. Ticking the last item off
   // and being left with a heading, an "All done." note, a Done fold and an add
   // row is four lines of paperwork for a day that needs none. The same click
