@@ -568,7 +568,10 @@ textarea.ae-input { resize: vertical; line-height: 1.4; min-height: 2.4em; }
 /* ---- routine chip on a task ---- */
 .rt-chip { display: inline-flex; align-items: center; gap: 4px; font-size: var(--fs-xs); padding: 1px 7px 1px 5px; border-radius: 20px; border: 1px solid var(--border); background: var(--page); color: var(--muted); cursor: pointer; margin-left: 6px; white-space: nowrap; vertical-align: baseline; }
 .rt-chip:hover { border-color: var(--accent); color: var(--accent); }
-.rt-chip .icon { width: 11px; height: 11px; }
+.rt-chip .icon { width: 11px; height: 11px; flex: none; }
+/* A routine name can be longer than the room beside a task title, so the chip
+   truncates rather than pushing the row's own text out of the way. */
+.rt-chip-label { overflow: hidden; text-overflow: ellipsis; max-width: 22ch; }
 /* Finished reads as finished without shouting — the task's own tick is the
    headline, and this is the footnote agreeing with it. */
 .rt-chip.complete { border-color: var(--good); color: var(--good-text); }
@@ -4251,12 +4254,14 @@ function routineChipHtml(task){
   // Counts blocks on a card that has them, matching what the card itself says —
   // the chip must not report 2/11 for a workout the card calls finished.
   const p = routineProgress(r, d);
-  // Once she has started, the chip counts rather than showing the estimate: how
-  // far in she is is the live fact, and the total stops being the question. On
-  // a day not yet begun it falls back to the time, then to the name.
-  const label = (p.total && p.done) ? `${p.done}/${p.total}` : (routineTotalLabel(r) || r.name);
+  // The name until she starts, then how far in she is. It used to lead with the
+  // time estimate, which made the chip read as a duration label rather than as
+  // the way into the routine — "5m+" beside a task is a fact about the task,
+  // where "Strength — Home Dumbbell" is plainly a thing to open. The estimate
+  // is inside the card, which is where it is actually useful.
+  const label = (p.total && p.done) ? `${p.done}/${p.total}` : r.name;
   return `<span class="rt-chip${routineComplete(r, d) ? ' complete' : ''}" onclick="event.stopPropagation();openRoutineCard('${esc(r.id)}','${esc(d)}')" title="Open ${esc(r.name)}">`
-    + `${ico('list')}${esc(label)}</span>`;
+    + `${ico('list')}<span class="rt-chip-label">${esc(label)}</span></span>`;
 }
 
 /* The card behind the chip: the same steps and checkboxes as the Routines tab,
