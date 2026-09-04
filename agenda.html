@@ -2319,6 +2319,10 @@ function renderTemplateFreqFields(){
     const EVERY = [[1,'Every week'],[2,'Every other week'],[3,'Every 3 weeks'],[4,'Every 4 weeks'],[6,'Every 6 weeks'],[8,'Every 8 weeks']];
     el.innerHTML = `<div class="field"><label>How often</label>
         <select id="tpm-weeks" onchange="renderTemplateWeekHint()">${EVERY.map(([v,l])=>`<option value="${v}" ${v===every?'selected':''}>${l}</option>`).join('')}</select>
+        <div id="tpm-week-from-wrap" style="margin-top:6px;display:none">
+          <label style="display:block">Start from</label>
+          <input type="date" id="tpm-week-from" onchange="renderTemplateWeekHint()">
+        </div>
         <div class="r-recur" id="tpm-week-hint" style="margin-top:4px"></div>
       </div>
       <div class="field"><label>Days</label><div class="dow-picker">${DOW_LONG.map((d,i)=>`<label><input type="checkbox" value="${d}" ${sel.includes(d)?'checked':''}><span>${DOW_SHORT[i]}</span></label>`).join('')}</div></div>`;
@@ -2360,11 +2364,42 @@ function weekAnchorFor(prev, every){
 function renderTemplateWeekHint(){
   const sel = document.getElementById('tpm-weeks');
   const hint = document.getElementById('tpm-week-hint');
+  const wrap = document.getElementById('tpm-week-from-wrap');
+  const from = document.getElementById('tpm-week-from');
   if(!sel || !hint) return;
   const every = parseInt(sel.value, 10) || 1;
+  if(wrap) wrap.style.display = every === 1 ? 'none' : '';
   if(every === 1){ hint.textContent = ''; return; }
-  const anchor = weekAnchorFor(editingTemplate && editingTemplate.recurrence, every);
-  hint.textContent = `Counting from the week of ${fmtShort(anchor)} — the weeks in between are skipped.`;
+  // Which week it counts from is a real choice, not a consequence of when she
+  // happened to open this box. Two things on the same interval only stay in a
+  // fixed order — a clarifying wash always before a gloss — if their phases can
+  // be set apart, and until this field existed both anchored to the current
+  // week and could only ever collide or drift.
+  if(from && !from.value) from.value = weekAnchorFor(editingTemplate && editingTemplate.recurrence, every);
+  const anchor = tplWeekFromValue(every);
+  const days = (editingTemplate && editingTemplate.recurrence && editingTemplate.recurrence.days) || [];
+  const first = firstOccurrenceOnOrAfter(anchor, days, every);
+  hint.textContent = first
+    ? `Counting from the week of ${fmtShort(anchor)} — first one lands ${fmtLong(first)}, then every ${every} weeks.`
+    : `Counting from the week of ${fmtShort(anchor)} — the weeks in between are skipped.`;
+}
+// What the box is currently set to, normalized to a week start — the maths
+// counts whole weeks, so a mid-week date means the week that contains it.
+function tplWeekFromValue(every){
+  const from = document.getElementById('tpm-week-from');
+  const raw = from && from.value;
+  return raw ? startOfWeek(raw) : weekAnchorFor(editingTemplate && editingTemplate.recurrence, every);
+}
+// Stated back to her as a date, because "the week of Sep 20" and "Sunday the
+// 20th" are not obviously the same thing when the ticked day is a Friday.
+function firstOccurrenceOnOrAfter(anchor, days, every){
+  if(!days.length) return null;
+  const tpl = {active: true, recurrence: {freq: 'weekly', days, interval: every, since: anchor}};
+  for(let i = 0; i < every * 7 + 7; i++){
+    const d = addDays(anchor, i);
+    if(templateOccursOn(tpl, d)) return d;
+  }
+  return null;
 }
 function renderTemplateMonthMode(){
   const dow = document.getElementById('tpm-monthmode').value === 'dow';
@@ -2383,6 +2418,10 @@ function openTemplateModal(tpl){
   document.getElementById('tpm-miss').value = tpl ? missRule(tpl) : 'drop';
   document.getElementById('tpm-delete').style.display = tpl ? '' : 'none';
   populateRoutineSelect(document.getElementById('tpm-routine'), (tpl && tpl.routine_id) || '');
+  // Cleared so renderTemplateFreqFields reseeds it from this template rather
+  // than leaving the previous one's start week in the box.
+  const wf = document.getElementById('tpm-week-from');
+  if(wf) wf.value = '';
   renderTemplateFreqFields();
   openModal('template-modal');
 }
@@ -2418,7 +2457,10 @@ function saveTemplateFromModal(){
     // has to be migrated and an older build still reads it correctly.
     if(every > 1){
       recurrence.interval = every;
-      recurrence.since = weekAnchorFor(editingTemplate && editingTemplate.recurrence, every);
+      // Whatever the Start-from box says, normalized to a week. It is seeded
+      // from the existing anchor when the editor opens, so an edit that never
+      // touches it still holds the rhythm steady.
+      recurrence.since = tplWeekFromValue(every);
     }
   } else if(freq==='monthly'){
     if(document.getElementById('tpm-monthmode').value === 'dow'){
