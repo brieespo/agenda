@@ -584,6 +584,22 @@ textarea.ae-input { resize: vertical; line-height: 1.4; min-height: 2.4em; }
 .rt-act-form { align-items: flex-end; gap: 6px; }
 .rt-kind { margin: 0 0 10px; padding-bottom: 10px; border-bottom: 1px solid var(--hairline); }
 .rt-kind select { font: inherit; font-size: var(--fs-sm); padding: 5px 7px; border-radius: 8px; border: 1px solid var(--border); background: var(--page); color: var(--ink); }
+/* A block of steps where any one counts. The heading carries the rule, because
+   "any one of 4" has to be readable before she decides what to skip. */
+.rt-sec { border-left: 2px solid var(--hairline); padding-left: 9px; margin: 8px 0; }
+.rt-sec.done { border-left-color: var(--good); }
+.rt-sec-head { display: flex; align-items: baseline; gap: 7px; margin-bottom: 3px; }
+.rt-sec-name { font-size: var(--fs-micro); text-transform: uppercase; letter-spacing: var(--tracking-caps); color: var(--muted); font-weight: 600; }
+.rt-sec-note { font-size: var(--fs-micro); color: var(--muted); opacity: .75; }
+.rt-sec.done .rt-sec-name, .rt-sec.done .rt-sec-note { color: var(--good-text); opacity: 1; }
+/* Block name and target sit under the step in edit mode — secondary settings,
+   and putting them on the row would have made an already-full row unreadable. */
+.rt-step-meta { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; padding: 0 0 6px 26px; }
+.rt-step-meta input { font: inherit; font-size: var(--fs-xs); padding: 3px 6px; border-radius: 6px; border: 1px solid var(--border); background: var(--page); color: var(--ink); }
+.rt-sec-input { width: 130px; }
+.rt-target { display: inline-flex; align-items: center; gap: 4px; }
+.rt-target input { width: 54px; text-align: center; }
+.rt-target span { font-size: var(--fs-xs); color: var(--muted); }
 .rt-kind-ico { flex: none; display: inline-flex; color: var(--muted); }
 .rt-kind-ico .icon { width: 1.05em; height: 1.05em; }
 .rt-step .rt-min .icon { width: 1em; height: 1em; }
@@ -3452,9 +3468,49 @@ function routineTotalLabel(r){
   if(none) return '';
   return fmtMins(total) + (partial ? '+' : '');
 }
+/* ---- sections ----
+   Consecutive steps sharing a `section` name are one block, and a block counts
+   as done the moment *one* of its steps is ticked. That is the "floor" idea
+   written into the data: the block is ordered most-important-first, so doing
+   the top move is a real win rather than 1/4 of one — and a card that reported
+   1 of 11 on a day she did the important thing would be the denominator
+   problem the skincare tracker exists to avoid.
+
+   Derived from a field on the step rather than stored as its own list, so the
+   steps stay one ordered array and drag-to-reorder keeps working untouched.
+   A step with no section is its own required item, which is exactly how every
+   routine behaved before this existed. */
+function routineSections(r){
+  const out = [];
+  (r && r.steps || []).forEach(s => {
+    const name = (s.section || '').trim();
+    const last = out[out.length - 1];
+    // Only *consecutive* steps group. Two blocks that happen to share a name
+    // with something between them are two blocks, which is what the order says.
+    if(last && last.name === name && name) last.steps.push(s);
+    else out.push({name, steps: [s]});
+  });
+  return out;
+}
+function sectionDone(sec, doneIds){
+  return sec.name
+    ? sec.steps.some(s => doneIds.includes(s.id))     // any one carries the block
+    : sec.steps.every(s => doneIds.includes(s.id));   // ungrouped: each stands alone
+}
+// Progress counts blocks when there are any, because that is what the card is
+// asking of her — "warm up, one glute move, one arm move" is three things, not
+// eleven.
+function routineProgress(r, date){
+  const done = doneSteps(r.id, date);
+  const secs = routineSections(r);
+  const named = secs.some(s => s.name);
+  if(!named) return {done: r.steps.filter(s => done.includes(s.id)).length, total: (r.steps||[]).length, unit: 'step'};
+  return {done: secs.filter(s => sectionDone(s, done)).length, total: secs.length, unit: 'block'};
+}
 function routineComplete(r, date){
   const done = doneSteps(r.id, date);
-  return (r.steps || []).length > 0 && r.steps.every(s => done.includes(s.id));
+  const secs = routineSections(r);
+  return (r.steps || []).length > 0 && secs.every(sec => sectionDone(sec, done));
 }
 
 async function saveRoutine(r){
@@ -3526,11 +3582,50 @@ function editStep(id, stepId, field, value){
   if(field === 'minutes'){
     const n = parseInt(value, 10);
     st.minutes = n > 0 ? n : null;
+  }else if(field === 'section'){
+    const v = String(value).trim();
+    if(v) st.section = v; else delete st.section;
+  }else if(field === 'tSets' || field === 'tReps'){
+    const n = parseInt(value, 10);
+    const k = field === 'tSets' ? 'targetSets' : 'targetReps';
+    if(n > 0) st[k] = n; else delete st[k];
+  }else if(field === 'tWeight'){
+    const n = parseFloat(value);
+    if(n > 0) st.targetWeight = n; else delete st.targetWeight;
   }else{
     st.text = String(value);
   }
+  touch(st);
   saveRoutine(r);
   renderRoutines();
+}
+// What the card is asking for, e.g. "3 × 12 · 25 lb". Only the parts she set.
+function stepTargetLabel(s){
+  if(!s) return '';
+  const parts = [];
+  if(s.targetSets && s.targetReps) parts.push(`${s.targetSets} × ${s.targetReps}`);
+  else if(s.targetSets) parts.push(`${s.targetSets} set${s.targetSets===1?'':'s'}`);
+  else if(s.targetReps) parts.push(`${s.targetReps} reps`);
+  if(s.targetWeight) parts.push(`${s.targetWeight} ${actUnit()}`);
+  return parts.join(' · ');
+}
+/* What the numbers form opens with. Last session's actual numbers beat the
+   target, because progressive overload is judged against what she last did —
+   "only move up when the last session felt solid" needs the last session in
+   front of her, not the goal. The target fills in the first time, when there is
+   no last session yet. */
+function stepPrefill(s, exKey){
+  const prev = ACTIVITY
+    ? ACTIVITY.filter(r => r.exercise_key === exKey)
+        .sort((a, b) => String(b.date).localeCompare(String(a.date)))[0]
+    : null;
+  return {
+    weight: (prev && prev.weight != null) ? +prev.weight : (s.targetWeight || ''),
+    reps:   (prev && prev.reps   != null) ? prev.reps   : (s.targetReps  || ''),
+    sets:   (prev && prev.sets   != null) ? prev.sets   : (s.targetSets  || ''),
+    minutes:(prev && prev.minutes!= null) ? +prev.minutes : '',
+    distance:(prev && prev.distance != null) ? +prev.distance : ''
+  };
 }
 function deleteStep(id, stepId){
   const r = routineById(id);
@@ -3825,15 +3920,21 @@ function exerciseStepRowHtml(r, s, date, on){
 
   // What it logged, or an invitation to log it. A ticked step whose entry has
   // since been deleted from the Activity panel says so rather than pretending.
-  const label = row ? (actEntryText(row) || 'logged') : (on ? 'entry removed' : 'add your numbers');
+  // Before it is logged the sublabel is what the card asks for; afterwards it is
+  // what she actually did. The target stops being the useful number the moment
+  // there is a real one.
+  const target = stepTargetLabel(s);
+  const label = row ? (actEntryText(row) || 'logged')
+              : (on ? 'entry removed' : (target || 'add your numbers'));
   const sub = `<button class="rt-prod ${row?'set':''}" onclick="event.stopPropagation();toggleStepActForm('${esc(r.id)}','${esc(s.id)}')">${esc(label)}</button>`;
 
+  const pre = stepPrefill(s, ex.k);
   const form = open ? `<div class="rt-picker rt-act-form">${ex.kind === 'lift'
-    ? `<div class="act-field"><label>Weight (${actUnit()})</label><input type="number" inputmode="decimal" id="rt-act-weight" step="0.5" min="0" onkeydown="if(event.key==='Enter')saveStepActivity(${args})"></div>
-       <div class="act-field"><label>Reps</label><input type="number" inputmode="numeric" id="rt-act-reps" step="1" min="1" onkeydown="if(event.key==='Enter')saveStepActivity(${args})"></div>
-       <div class="act-field"><label>Sets</label><input type="number" inputmode="numeric" id="rt-act-sets" step="1" min="1" onkeydown="if(event.key==='Enter')saveStepActivity(${args})"></div>`
-    : `<div class="act-field"><label>Minutes</label><input type="number" inputmode="decimal" id="rt-act-minutes" step="1" min="1" onkeydown="if(event.key==='Enter')saveStepActivity(${args})"></div>
-       <div class="act-field"><label>Distance (${actDistUnit()})</label><input type="number" inputmode="decimal" id="rt-act-distance" step="0.01" min="0" onkeydown="if(event.key==='Enter')saveStepActivity(${args})"></div>`}
+    ? `<div class="act-field"><label>Weight (${actUnit()})</label><input type="number" inputmode="decimal" id="rt-act-weight" step="0.5" min="0" value="${esc(pre.weight)}" onkeydown="if(event.key==='Enter')saveStepActivity(${args})"></div>
+       <div class="act-field"><label>Reps</label><input type="number" inputmode="numeric" id="rt-act-reps" step="1" min="1" value="${esc(pre.reps)}" onkeydown="if(event.key==='Enter')saveStepActivity(${args})"></div>
+       <div class="act-field"><label>Sets</label><input type="number" inputmode="numeric" id="rt-act-sets" step="1" min="1" value="${esc(pre.sets)}" onkeydown="if(event.key==='Enter')saveStepActivity(${args})"></div>`
+    : `<div class="act-field"><label>Minutes</label><input type="number" inputmode="decimal" id="rt-act-minutes" step="1" min="1" value="${esc(pre.minutes)}" onkeydown="if(event.key==='Enter')saveStepActivity(${args})"></div>
+       <div class="act-field"><label>Distance (${actDistUnit()})</label><input type="number" inputmode="decimal" id="rt-act-distance" step="0.01" min="0" value="${esc(pre.distance)}" onkeydown="if(event.key==='Enter')saveStepActivity(${args})"></div>`}
       <button class="act-save" onclick="saveStepActivity(${args})">Log</button>
     </div>` : '';
 
@@ -3842,6 +3943,24 @@ function exerciseStepRowHtml(r, s, date, on){
       <span class="rt-text" onclick="toggleExerciseStep(${args})"><span class="rt-label">${esc(s.text || ex.name)}</span>${sub}</span>
       <span class="rt-min">${icoCls(ex.kind === 'lift' ? 'dumbbell' : 'pulse')}</span>
     </div>${form}`;
+}
+
+/* The steps of a card, grouped into their blocks. A block that is satisfied
+   says so on its heading, which is where "one of these counts" becomes visible
+   — without it, a card showing three ticks out of eleven looks like a failure
+   on a day she did exactly what the card asked. */
+function stepsHtml(r, date){
+  const done = doneSteps(r.id, date);
+  return routineSections(r).map(sec => {
+    const rows = sec.steps.map(s => stepRowHtml(r, s, date)).join('');
+    if(!sec.name) return rows;
+    const ok = sectionDone(sec, done);
+    return `<div class="rt-sec ${ok?'done':''}">
+        <div class="rt-sec-head"><span class="rt-sec-name">${esc(sec.name)}</span>
+          <span class="rt-sec-note">${ok ? 'done' : `any ${sec.steps.length === 1 ? 'one' : 'one of ' + sec.steps.length}`}</span></div>
+        ${rows}
+      </div>`;
+  }).join('');
 }
 
 /* One step row, shared by the Routines tab and the card the day view opens —
@@ -3951,9 +4070,8 @@ function renderRoutines(){
     const done = doneSteps(r.id);
     const complete = routineComplete(r);
     const total = routineTotalLabel(r);
-    const steps = (r.steps || []).map(s => {
-      if(editing){
-        return `<div class="rt-step" data-step="${esc(s.id)}">
+    const steps = editing
+      ? (r.steps || []).map(s => `<div class="rt-step" data-step="${esc(s.id)}">
           <span class="rt-grip" data-ico="grip" title="Drag to reorder"></span>
           <span class="rt-text"><input type="text" value="${esc(s.text)}" placeholder="Step…"
             onchange="editStep('${esc(r.id)}','${esc(s.id)}','text',this.value)"></span>
@@ -3961,10 +4079,19 @@ function renderRoutines(){
             onchange="editStep('${esc(r.id)}','${esc(s.id)}','minutes',this.value)"></span>
           <button class="rt-del" onclick="deleteStep('${esc(r.id)}','${esc(s.id)}')" data-ico="trash" title="Delete step"></button>
         </div>
-        ${stepProductEditorHtml(r, s)}`;
-      }
-      return stepRowHtml(r, s, todayStr());
-    }).join('');
+        <div class="rt-step-meta">
+          <input type="text" class="rt-sec-input" value="${esc(s.section || '')}" placeholder="Block (optional)"
+            title="Steps sharing a block name group together, and any one of them completes the block"
+            onchange="editStep('${esc(r.id)}','${esc(s.id)}','section',this.value)">
+          ${isExerciseRoutine(r) ? `<span class="rt-target">
+            <input type="number" min="1" max="99" placeholder="sets" value="${s.targetSets || ''}" onchange="editStep('${esc(r.id)}','${esc(s.id)}','tSets',this.value)">
+            <span>×</span>
+            <input type="number" min="1" max="999" placeholder="reps" value="${s.targetReps || ''}" onchange="editStep('${esc(r.id)}','${esc(s.id)}','tReps',this.value)">
+            <input type="number" min="0" step="0.5" placeholder="${actUnit()}" value="${s.targetWeight || ''}" onchange="editStep('${esc(r.id)}','${esc(s.id)}','tWeight',this.value)">
+          </span>` : ''}
+        </div>
+        ${stepProductEditorHtml(r, s)}`).join('')
+      : stepsHtml(r, todayStr());
 
     const foot = editing
       ? `<div class="rt-foot">
@@ -3974,7 +4101,7 @@ function renderRoutines(){
          </div>`
       : `<div class="rt-foot">
            <button class="rt-start" onclick="startFocus('${esc(r.id)}')" ${!(r.steps||[]).length?'disabled':''}>Start</button>
-           <span class="rt-progress">${(r.steps||[]).length ? (complete ? 'All done today' : `${done.length} of ${r.steps.length} today`) : 'No steps yet'}</span>
+           <span class="rt-progress">${(r.steps||[]).length ? (complete ? 'All done today' : (() => { const p = routineProgress(r); return `${p.done} of ${p.total} ${p.unit}${p.total===1?'':'s'} today`; })()) : 'No steps yet'}</span>
          </div>`;
 
     const workout = isExerciseRoutine(r);
@@ -4121,13 +4248,14 @@ function routineChipHtml(task){
   const r = routineById(task.routine_id);
   if(!r) return '';      // archived or not loaded yet — say nothing rather than lie
   const d = task.date || todayStr();
-  const steps = (r.steps || []).length;
-  const done = doneSteps(r.id, d).length;
+  // Counts blocks on a card that has them, matching what the card itself says —
+  // the chip must not report 2/11 for a workout the card calls finished.
+  const p = routineProgress(r, d);
   // Once she has started, the chip counts rather than showing the estimate: how
   // far in she is is the live fact, and the total stops being the question. On
   // a day not yet begun it falls back to the time, then to the name.
-  const label = (steps && done) ? `${done}/${steps}` : (routineTotalLabel(r) || r.name);
-  return `<span class="rt-chip${steps && done >= steps ? ' complete' : ''}" onclick="event.stopPropagation();openRoutineCard('${esc(r.id)}','${esc(d)}')" title="Open ${esc(r.name)}">`
+  const label = (p.total && p.done) ? `${p.done}/${p.total}` : (routineTotalLabel(r) || r.name);
+  return `<span class="rt-chip${routineComplete(r, d) ? ' complete' : ''}" onclick="event.stopPropagation();openRoutineCard('${esc(r.id)}','${esc(d)}')" title="Open ${esc(r.name)}">`
     + `${ico('list')}${esc(label)}</span>`;
 }
 
@@ -4163,8 +4291,8 @@ function renderRoutineCard(){
   const d = _rcmDate || todayStr();
   const total = routineTotalLabel(r);
   document.getElementById('rcm-title').textContent = r.name;
-  const done = doneSteps(r.id, d);
-  const steps = (r.steps || []).map(s => stepRowHtml(r, s, d)).join('');
+  const steps = stepsHtml(r, d);
+  const prog = routineProgress(r, d);
   // Says which day it is writing to whenever that is not today, because the
   // card can now be opened from any date and a checkbox that silently logs the
   // wrong day is worse than no checkbox.
@@ -4175,7 +4303,7 @@ function renderRoutineCard(){
       <div class="rt-steps">${steps || '<p class="empty-note" style="padding:4px 0">No steps yet.</p>'}</div>
       <div class="rt-foot">
         <button class="rt-start" onclick="closeModal('routine-card-modal');startFocus('${esc(r.id)}','${esc(d)}')" ${!(r.steps||[]).length?'disabled':''}>Start</button>
-        <span class="rt-progress">${(r.steps||[]).length ? (routineComplete(r, d) ? `All done ${scope}` : `${done.length} of ${r.steps.length} ${scope}`) : 'No steps yet'}</span>
+        <span class="rt-progress">${(r.steps||[]).length ? (routineComplete(r, d) ? `All done ${scope}` : `${prog.done} of ${prog.total} ${prog.unit}${prog.total===1?'':'s'} ${scope}`) : 'No steps yet'}</span>
         <button class="sk-manage" onclick="closeModal('routine-card-modal');openRoutineFromTask('${esc(r.id)}')">Edit</button>
       </div>
     </div>`;
