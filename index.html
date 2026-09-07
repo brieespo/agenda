@@ -763,6 +763,10 @@ a.meal-title:hover .meal-link-ico { opacity: 1; }
 .sk-chip.on { border-color: var(--accent); background: var(--accent-light); color: var(--ink); font-weight: 600; }
 .sk-chip.on .sk-ring, .sk-chip.on:hover .sk-ring { background: var(--accent); border-color: var(--accent); }
 .sk-chip.sample { border-style: dashed; }
+/* Logged by a routine rather than ticked here — same "done" reading, with a
+   quiet mark saying where it came from. */
+.sk-chip.via-routine .sk-via { display: inline-flex; margin-left: 5px; opacity: .55; }
+.sk-chip.via-routine .sk-via .icon { width: 10px; height: 10px; }
 .sk-oneoff { display: inline-flex; align-items: center; gap: 4px; }
 .sk-oneoff input { font: inherit; font-size: var(--fs-sm); padding: 4px 10px; border-radius: 20px; border: 1px solid var(--accent); background: var(--page); color: var(--ink); width: 150px; }
 .sk-add { border: 1px dashed var(--border); background: none; color: var(--muted); font: inherit; font-size: var(--fs-sm); line-height: 1.2; padding: 5px 11px; border-radius: 20px; cursor: pointer; transition: color 120ms ease, border-color 120ms ease; }
@@ -5337,6 +5341,59 @@ function skinSlotProducts(slot, logged){
 }
 function skinTargetDate(){ return (_skinYesterday && currentDate === todayStr()) ? addDays(currentDate, -1) : currentDate; }
 
+/* ---- what a day actually shows ----
+   The tile used to read only its own log, so a morning done through the AM
+   Skincare routine left it saying "not logged" — a tracker reporting the
+   opposite of what happened, which is worse than one that says nothing. It now
+   *derives* the day from both places rather than either copying into the other:
+   one fact, two ways of recording it, one view over the union. Nothing is
+   duplicated, so nothing can disagree.
+
+   Which slot a routine's products land in is the routine's `slot`, inferred
+   from its name when she has not said otherwise — "AM Skincare" and "PM
+   Retinal" already answer the question, and asking her to restate it in a
+   settings field would be the app pretending not to know. A routine with no
+   slot contributes nothing here, which is right for a workout. */
+function routineSlot(r){
+  if(!r) return null;
+  if(r.slot === 'am' || r.slot === 'pm') return r.slot;
+  if(r.slot === 'none') return null;          // explicitly opted out
+  const n = String(r.name || '').trim().toLowerCase();
+  if(/^am\b|\bmorning\b/.test(n)) return 'am';
+  if(/^pm\b|\bevening\b|\bnight\b/.test(n)) return 'pm';
+  return null;
+}
+// slot -> [{k, routineId, routineName}] for products a routine logged that day.
+function skinFromRoutines(dateStr){
+  const out = {am: [], pm: []};
+  (ROUTINES || []).forEach(r => {
+    const slot = routineSlot(r);
+    if(!slot || isExerciseRoutine(r)) return;
+    const ch = stepChoices(r.id, dateStr);
+    Object.keys(ch).forEach(stepId => {
+      const k = ch[stepId];
+      if(!k || !skinProducts().some(p => p.k === k)) return;
+      if(out[slot].some(x => x.k === k)) return;      // same product twice is one use
+      out[slot].push({k, routineId: r.id, routineName: r.name});
+    });
+  });
+  return out;
+}
+// The union the tile and panel both read. `direct` is what she ticked here;
+// `viaRoutine` is what a routine recorded. A product in both is hers once.
+function skinDayView(dateStr){
+  const direct = skinLogFor(dateStr);
+  const routed = skinFromRoutines(dateStr);
+  const view = {};
+  SKIN_SLOTS.forEach(([slot]) => {
+    const seen = new Set(direct[slot]);
+    view[slot] = direct[slot].filter(k => skinProducts().some(p => p.k === k))
+                             .map(k => ({k, via: null}));
+    routed[slot].forEach(x => { if(!seen.has(x.k)) view[slot].push({k: x.k, via: x}); });
+  });
+  return view;
+}
+
 function setSkinTarget(yesterday){ _skinYesterday = !!yesterday; _skinOneoffSlot = null; renderSkinStrip(); }
 function toggleSkinLog(slot, key){
   const date = skinTargetDate();
@@ -5388,14 +5445,14 @@ function skinTileHtml(){
   if(!skinVisible()) return '';
 
   const date = skinTargetDate();
-  const cell = skinLogFor(date);
+  const view = skinDayView(date);
 
   // Only what she actually did gets a dot. Rendering an empty circle for every
   // step she skipped would turn the line into the row of unchecked boxes this
   // feature exists to not be — a light day should look calm, not deficient.
   // Orphan keys (a deleted product) are dropped so the dots match the chips.
   const dots = SKIN_SLOTS.map(([slot]) => {
-    const n = cell[slot].filter(k => skinProducts().some(p => p.k === k)).length;
+    const n = view[slot].length;
     if(!n) return '';
     return `<span class="sk-slot-dots"><b>${slot}</b>${'<span class="sk-dot on"></span>'.repeat(Math.min(n, 8))}${n>8?`<span class="sk-more">+${n-8}</span>`:''}</span>`;
   }).filter(Boolean).join('');
@@ -5416,7 +5473,14 @@ function skinTileHtml(){
 function skinPanelHtml(){
   const date = skinTargetDate();
   const cell = skinLogFor(date);
-  const slots = SKIN_SLOTS.map(([slot, label]) => ({slot, label, prods: skinSlotProducts(slot, cell[slot])}));
+  const view = skinDayView(date);
+  // A product a routine logged has to be offered even when its `when` would
+  // hide it from this slot, or the panel would claim she did nothing while the
+  // dots above it say otherwise.
+  const slots = SKIN_SLOTS.map(([slot, label]) => ({
+    slot, label,
+    prods: skinSlotProducts(slot, view[slot].map(x => x.k))
+  }));
 
   // On today she gets the Today/Yesterday switch, because "did I do it last
   // night?" is the question this tracker actually gets asked. On any other date
@@ -5432,9 +5496,17 @@ function skinPanelHtml(){
   const body = skinProducts().length
     ? slots.map(s => {
         const chips = s.prods.map(p => {
-          const on = cell[s.slot].includes(p.k);
-          return `<button class="sk-chip ${on?'on':''} ${p.sample?'sample':''}" onclick="toggleSkinLog('${s.slot}','${p.k}')">
-            <span class="sk-ring">${on?ico('check'):''}</span>${esc(p.name)}</button>`;
+          const direct = cell[s.slot].includes(p.k);
+          const hit = view[s.slot].find(x => x.k === p.k);
+          const via = hit && hit.via;
+          // Ticked here, or ticked by a routine. A routine's one opens that
+          // routine instead of toggling: un-ticking it from here would say she
+          // did not do a step she plainly did, and this surface does not own
+          // that record.
+          if(via) return `<button class="sk-chip on via-routine" onclick="openRoutineCard('${esc(via.routineId)}','${esc(date)}')" title="Logged by ${esc(via.routineName)} — tap to open it">
+            <span class="sk-ring">${ico('check')}</span>${esc(p.name)}<span class="sk-via">${ico('list')}</span></button>`;
+          return `<button class="sk-chip ${direct?'on':''} ${p.sample?'sample':''}" onclick="toggleSkinLog('${s.slot}','${p.k}')">
+            <span class="sk-ring">${direct?ico('check'):''}</span>${esc(p.name)}</button>`;
         }).join('');
         const oneoff = _skinOneoffSlot === s.slot
           ? `<span class="sk-oneoff"><input type="text" id="sk-oneoff-input" placeholder="Sample or one-off…" autocomplete="off"
@@ -6903,6 +6975,10 @@ function renderStripGrid(){
   if(!el) return;
   // Yesterday only means anything relative to today; navigating away drops it.
   if(currentDate !== todayStr()) _skinYesterday = false;
+  // The skincare tile reads what her AM/PM routines logged, so it needs that
+  // day's progress even when nothing on screen carries a routine. Fires once
+  // per date and repaints when it lands.
+  if(skinVisible() && (ROUTINES || []).some(r => routineSlot(r))) ensureProgressFor(skinTargetDate());
 
   // Health sits last on purpose: it is the one tile that says nothing at rest,
   // so it reads as the quiet end of the row rather than a gap in the middle.
