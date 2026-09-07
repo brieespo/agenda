@@ -914,8 +914,16 @@ a.meal-title:hover .meal-link-ico { opacity: 1; }
    the legend is there so she is not opening settings to remember what is in it. */
 .med-n { margin-left: 6px; font-size: var(--fs-micro); color: var(--muted); font-variant-numeric: tabular-nums; }
 .sk-chip.on .med-n { color: var(--ink-2); }
-.med-legend { font-size: var(--fs-xs); color: var(--muted); padding: 1px 0 0 28px; overflow-wrap: anywhere; }
-.med-legend b { font-weight: 600; text-transform: uppercase; font-size: var(--fs-micro); letter-spacing: var(--tracking-caps); margin-right: 5px; }
+.med-legend { display: flex; flex-wrap: wrap; align-items: baseline; gap: 4px; font-size: var(--fs-xs); color: var(--muted); padding: 2px 0 0 28px; }
+.med-legend b { font-weight: 600; text-transform: uppercase; font-size: var(--fs-micro); letter-spacing: var(--tracking-caps); margin-right: 3px; }
+/* Each item tappable on its own — what a linked task marks, and what lets a
+   half-taken dose be recorded honestly. */
+.med-item { font: inherit; font-size: var(--fs-xs); border: none; background: none; color: var(--muted); cursor: pointer; padding: 1px 4px; border-radius: 5px; text-decoration: underline; text-decoration-style: dotted; text-underline-offset: 2px; }
+.med-item:hover { color: var(--accent); }
+.med-item.on { color: var(--good-text); background: var(--accent-light); text-decoration: none; }
+/* A dose part-done reads as started, not as untouched. */
+.sk-chip.part { border-color: var(--accent); }
+.sk-chip.part .sk-ring { background: var(--accent-light); border-color: var(--accent); }
 .med-row select, .med-row button { font: inherit; font-size: var(--fs-sm); }
 .med-row select { padding: 3px 5px; border-radius: 6px; border: 1px solid var(--border); background: var(--page); color: var(--ink); flex: none; }
 .med-row.retired .r-title { opacity: var(--done-op); }
@@ -1844,6 +1852,11 @@ footer button { font: inherit; font-size: var(--fs-sm); border: none; background
         <div class="r-recur" style="margin-top:4px">Adds a tappable chip to the task each day. Opening it shows the steps with checkboxes; ticking them all ticks the task.</div>
       </div>
       <div class="field">
+        <label>Logs a medication</label>
+        <select id="tpm-med"></select>
+        <div class="r-recur" style="margin-top:4px">Ticking this task marks it taken under Health, and logging it there ticks this task. Unticking either leaves the other alone.</div>
+      </div>
+      <div class="field">
         <label>If it's not done that day</label>
         <select id="tpm-miss">
           <option value="drop">Let it go</option>
@@ -2252,6 +2265,13 @@ function createExceptionFromInstance(item){
 }
 function toggleItemDone(item){
   if(item.virtual){
+    // Ticking a medication task logs its dose. Only on the way *on*: unticking
+    // a task is not a statement that she did not take the pill.
+    const wasDone = instanceDone(item.template_id, item.date);
+    if(!wasDone){
+      const tpl = TEMPLATES.find(t => t.id === item.template_id);
+      if(tpl) applyMedLinkFromTask(tpl, item.date);
+    }
     const idx = COMPLETIONS.findIndex(c => c.template_id===item.template_id && c.date===item.date);
     // A completion's identity is its content, so unchecking is a deletion and
     // needs a tombstone — otherwise a merge would just re-add it from the other
@@ -2547,6 +2567,7 @@ function openTemplateModal(tpl){
   document.getElementById('tpm-miss').value = tpl ? missRule(tpl) : 'drop';
   document.getElementById('tpm-delete').style.display = tpl ? '' : 'none';
   populateRoutineSelect(document.getElementById('tpm-routine'), (tpl && tpl.routine_id) || '');
+  populateMedSelect(document.getElementById('tpm-med'), (tpl && tpl.medLink) || '');
   // Cleared so renderTemplateFreqFields reseeds it from this template rather
   // than leaving the previous one's start week in the box.
   const wf = document.getElementById('tpm-week-from');
@@ -2558,6 +2579,20 @@ function openTemplateModal(tpl){
 // nothing for it. The stored id is kept as an option anyway rather than
 // silently resetting the field to None — saving an unrelated edit should not
 // quietly detach the routine.
+// A whole dose, or one item from it. Same "keep an unavailable value" rule the
+// routine select uses: saving an unrelated edit must not quietly unlink.
+function populateMedSelect(sel, current){
+  if(!sel) return;
+  const opts = [`<option value="">Nothing</option>`,
+                `<option value="slot:am">The whole morning dose</option>`,
+                `<option value="slot:pm">The whole evening dose</option>`]
+    .concat(medItems().filter(m => m.active !== false)
+      .map(m => `<option value="key:${esc(m.k)}">${esc(m.name)}${m.dose ? ` ${esc(m.dose)}` : ''}</option>`));
+  if(current && !opts.some(o => o.includes(`value="${current}"`)))
+    opts.push(`<option value="${esc(current)}">(unavailable medication)</option>`);
+  sel.innerHTML = opts.join('');
+  sel.value = current || '';
+}
 function populateRoutineSelect(sel, current){
   if(!sel) return;
   const opts = [`<option value="">None</option>`]
@@ -2576,6 +2611,7 @@ function saveTemplateFromModal(){
   const includeInBrief = document.getElementById('tpm-include-brief').checked;
   const miss = document.getElementById('tpm-miss').value;
   const routineId = document.getElementById('tpm-routine').value || null;
+  const medLink = document.getElementById('tpm-med').value || null;
   let recurrence = {freq};
   if(freq==='weekly'){
     recurrence.days = Array.from(document.querySelectorAll('#tpm-freq-fields input[type=checkbox]:checked')).map(el=>el.value);
@@ -2606,10 +2642,10 @@ function saveTemplateFromModal(){
   const missFloor = tpl => (miss === 'drop' || tpl.miss_since) ? tpl.miss_since : startOfWeek(todayStr());
   if(editingTemplate){
     editingTemplate.miss_since = missFloor(editingTemplate);
-    editingTemplate.title = title; editingTemplate.recurrence = recurrence; editingTemplate.time = time; editingTemplate.category = category; editingTemplate.include_in_brief = includeInBrief; editingTemplate.miss = miss; editingTemplate.routine_id = routineId;
+    editingTemplate.title = title; editingTemplate.recurrence = recurrence; editingTemplate.time = time; editingTemplate.category = category; editingTemplate.include_in_brief = includeInBrief; editingTemplate.miss = miss; editingTemplate.routine_id = routineId; editingTemplate.medLink = medLink;
     touch(editingTemplate);
   } else {
-    const tpl = {id: newId(), title, recurrence, time, active:true, category, include_in_brief: includeInBrief, miss, routine_id: routineId};
+    const tpl = {id: newId(), title, recurrence, time, active:true, category, include_in_brief: includeInBrief, miss, routine_id: routineId, medLink};
     tpl.miss_since = missFloor(tpl);
     TEMPLATES.push(touch(tpl));
   }
@@ -2845,7 +2881,7 @@ function renderRoutinesList(){
     return `
     <div class="routine-row">
       <button class="toggle ${tpl.active?'on':''}" onclick="toggleTemplateActive(${tpl.id})"></button>
-      <span class="r-title">${esc(tpl.title)}<div class="r-recur">${esc(recurLabel(tpl))}${tpl.include_in_brief?' · in morning brief':''}${missLabel(tpl)}${r?` · ${esc(r.name)}`:''}</div></span>
+      <span class="r-title">${esc(tpl.title)}<div class="r-recur">${esc(recurLabel(tpl))}${tpl.include_in_brief?' · in morning brief':''}${missLabel(tpl)}${r?` · ${esc(r.name)}`:''}${medLinkLabel(tpl)?` · logs ${esc(medLinkLabel(tpl))}`:''}</div></span>
       <select class="r-cat-select" data-tpl-id="${tpl.id}" onchange="setTemplateCategory(${tpl.id}, this.value)"></select>
       <button onclick='openTemplateModal(TEMPLATES.find(t=>t.id===${tpl.id}))' title="Edit">${ico('settings')}</button>
     </div>
@@ -6097,14 +6133,37 @@ function medsDueOn(dateStr, slot){
     (!Array.isArray(m.days) || !m.days.length || m.days.includes(dow))
   );
 }
+/* The log records **which items** went down, in the skincare log's exact shape —
+   month bucket -> day -> AM keys, "|", PM keys, four characters each. It first
+   shipped recording only the dose ('a'/'p'), which was enough while a dose was
+   the only thing she could tap; tying a recurring task to *one* medication
+   needs something for that task to mark, and a boolean per slot has no room
+   for it.
+
+   The one-tap dose chip is unchanged — it marks every item due in that slot at
+   once, which is still the daily path. Per-item marks exist underneath it so a
+   task can carry one, and so a partly-taken dose can say so rather than
+   rounding to yes or no. */
 function medLogFor(dateStr){
   const raw = (getMeds().log[dateStr.slice(0,7)] || {})[String(Number(dateStr.slice(8,10)))] || '';
-  return {am: raw.includes('a'), pm: raw.includes('p')};
+  // The original format was 'a', 'p' or 'ap' — one character per dose, no
+  // separator. A key is always four characters, so nothing in the new format
+  // can look like this, and an old day reads as "everything due was taken",
+  // which is exactly what it meant.
+  if(/^[ap]{1,2}$/.test(raw)){
+    return {
+      am: raw.includes('a') ? medsDueOn(dateStr, 'am').map(m => m.k) : [],
+      pm: raw.includes('p') ? medsDueOn(dateStr, 'pm').map(m => m.k) : []
+    };
+  }
+  const bar = raw.indexOf('|');
+  return bar < 0 ? {am: skinChunk(raw), pm: []}
+                 : {am: skinChunk(raw.slice(0, bar)), pm: skinChunk(raw.slice(bar + 1))};
 }
 function writeMedLog(dateStr, cell){
   const log = getMeds().log;
   const mk = dateStr.slice(0,7), dk = String(Number(dateStr.slice(8,10)));
-  const raw = (cell.am ? 'a' : '') + (cell.pm ? 'p' : '');
+  const raw = cell.am.join('') + (cell.pm.length ? '|' + cell.pm.join('') : '');
   if(raw){
     if(!log[mk]) log[mk] = {};
     log[mk][dk] = raw;
@@ -6115,13 +6174,42 @@ function writeMedLog(dateStr, cell){
     if(!Object.keys(log[mk]).length) delete log[mk];
   }
 }
+// How much of a dose is done. `all` is what the chip lights on; `some` is what
+// stops it claiming a partly-taken dose is untouched.
+function medSlotState(dateStr, slot){
+  const due = medsDueOn(dateStr, slot);
+  if(!due.length) return {due: 0, taken: 0, all: false, some: false};
+  const cell = medLogFor(dateStr);
+  const taken = due.filter(m => cell[slot].includes(m.k)).length;
+  return {due: due.length, taken, all: taken === due.length, some: taken > 0};
+}
+// The dose chip: all-or-nothing, because that is the tap she asked for. A
+// partly-taken dose fills the rest rather than clearing it — she is saying the
+// dose is done, and the items a task already marked are part of it.
 function toggleMedSlot(slot, date){
   const d = date || currentDate;
   const cell = medLogFor(d);
-  cell[slot] = !cell[slot];
+  const due = medsDueOn(d, slot).map(m => m.k);
+  cell[slot] = medSlotState(d, slot).all
+    ? cell[slot].filter(k => !due.includes(k))
+    : cell[slot].concat(due.filter(k => !cell[slot].includes(k)));
   writeMedLog(d, cell);
   touchMeds();
+  syncMedLinkedTasks(d);
   renderStripGrid();
+}
+// One item, which is what a linked task marks.
+function toggleMedItem(key, slot, date, want){
+  const d = date || currentDate;
+  const cell = medLogFor(d);
+  const has = cell[slot].includes(key);
+  const on = (want === undefined) ? !has : !!want;
+  if(on && !has) cell[slot].push(key);
+  if(!on && has) cell[slot].splice(cell[slot].indexOf(key), 1);
+  if(on === has) return false;
+  writeMedLog(d, cell);
+  touchMeds();
+  return true;
 }
 
 /* The row inside the Health panel. Renders from settings, so it does not wait
@@ -6140,16 +6228,98 @@ function medsRowHtml(date){
       <button class="sk-add" onclick="openMedsSubmodal()">+ add your medications</button></div></div>`;
   }
   const chips = slots.map(s => {
-    const on = cell[s.slot];
+    const st = medSlotState(date, s.slot);
     const names = s.due.map(m => m.name + (m.dose ? ` ${m.dose}` : '')).join(' · ');
-    return `<button class="sk-chip ${on?'on':''}" onclick="toggleMedSlot('${s.slot}','${esc(date)}')" title="${esc(names)}">
-      <span class="sk-ring">${on?ico('check'):''}</span>${esc(s.label)}<span class="med-n">${s.due.length}</span></button>`;
+    // A part-done dose says so rather than rounding to yes or no — that is the
+    // whole reason the marks are per item underneath.
+    const count = st.all ? s.due.length : `${st.taken}/${s.due.length}`;
+    return `<button class="sk-chip ${st.all?'on':''} ${st.some && !st.all ? 'part':''}" onclick="toggleMedSlot('${s.slot}','${esc(date)}')" title="${esc(names)}">
+      <span class="sk-ring">${st.all?ico('check'):''}</span>${esc(s.label)}<span class="med-n">${count}</span></button>`;
   }).join('');
-  // What is in each dose, so she is not opening settings to find out.
-  const legend = slots.map(s =>
-    `<div class="med-legend"><b>${esc(s.label)}</b> ${esc(s.due.map(m => m.name + (m.dose ? ` ${m.dose}` : '')).join(' · '))}</div>`
-  ).join('');
+  // What is in each dose, so she is not opening settings to find out — each one
+  // tappable on its own, which is what a linked task marks too.
+  const legend = slots.map(s => {
+    const cell = medLogFor(date);
+    const items = s.due.map(m => {
+      const on = cell[s.slot].includes(m.k);
+      return `<button class="med-item ${on?'on':''}" onclick="toggleMedItem('${esc(m.k)}','${s.slot}','${esc(date)}');syncMedLinkedTasks('${esc(date)}');renderStripGrid()">${esc(m.name)}${m.dose?` ${esc(m.dose)}`:''}</button>`;
+    }).join('');
+    return `<div class="med-legend"><b>${esc(s.label)}</b>${items}</div>`;
+  }).join('');
   return `<div class="cyc-row">${icoCls('pill')}<div class="cyc-chips">${chips}</div></div>${legend}`;
+}
+
+/* ---- tying a recurring task to a dose or a medication ----
+   `tpl.medLink` is `'slot:am'`, `'slot:pm'` or `'key:ab12'`. One string rather
+   than two nullable fields, because the two are mutually exclusive and a pair
+   invites the state where both are set.
+
+   It runs both ways, and deliberately asymmetrically — the same rule the
+   routines make. Ticking the task logs the dose. Logging the dose ticks the
+   task. But **un-ticking one never un-ticks the other**: she may have said done
+   and moved on, and pulling a completed task back open under her is worse than
+   a stale tick. Un-logging a medication is a correction to the medical record,
+   not a statement about her to-do list. */
+function medLinkOf(tpl){
+  const v = tpl && tpl.medLink;
+  if(typeof v !== 'string' || !v) return null;
+  const [kind, val] = v.split(':');
+  if(kind === 'slot') return (val === 'am' || val === 'pm') ? {slot: val} : null;
+  if(kind === 'key'){
+    const m = medItems().find(x => x.k === val);
+    return m ? {item: m} : null;      // a deleted medication quietly unlinks
+  }
+  return null;
+}
+function medLinkLabel(tpl){
+  const l = medLinkOf(tpl);
+  if(!l) return '';
+  return l.slot ? (l.slot === 'am' ? 'Morning dose' : 'Evening dose') : l.item.name;
+}
+// Which slot an item is being taken in on a given day. `both` items resolve to
+// whichever half is still outstanding, so ticking a task twice in a day fills
+// morning and then evening rather than fighting over one.
+function medItemSlot(m, dateStr){
+  if(m.when !== 'both') return m.when;
+  const cell = medLogFor(dateStr);
+  return cell.am.includes(m.k) ? 'pm' : 'am';
+}
+// Called when a template instance is ticked. Marking only — see above.
+function applyMedLinkFromTask(tpl, dateStr){
+  const l = medLinkOf(tpl);
+  if(!l) return;
+  if(l.slot){
+    const cell = medLogFor(dateStr);
+    const due = medsDueOn(dateStr, l.slot).map(m => m.k);
+    if(!due.length) return;
+    cell[l.slot] = cell[l.slot].concat(due.filter(k => !cell[l.slot].includes(k)));
+    writeMedLog(dateStr, cell);
+    touchMeds();
+  }else{
+    // Nothing is logged for a day the medication is not due — a Saturday pill
+    // ticked on a Tuesday would be a false entry in a medication record.
+    const slot = medItemSlot(l.item, dateStr);
+    if(!medsDueOn(dateStr, slot).some(m => m.k === l.item.k)) return;
+    toggleMedItem(l.item.k, slot, dateStr, true);
+  }
+}
+// The other direction: logging in Health ticks any recurring task pointing at
+// what was just satisfied.
+function syncMedLinkedTasks(dateStr){
+  let changed = false;
+  TEMPLATES.forEach(tpl => {
+    const l = medLinkOf(tpl);
+    if(!l || !templateOccursOn(tpl, dateStr)) return;
+    if(hasException(tpl.id, dateStr) || instanceDone(tpl.id, dateStr)) return;
+    const satisfied = l.slot
+      ? medSlotState(dateStr, l.slot).all
+      : medLogFor(dateStr)[medItemSlot(l.item, dateStr)].includes(l.item.k)
+        || medLogFor(dateStr).am.includes(l.item.k) || medLogFor(dateStr).pm.includes(l.item.k);
+    if(!satisfied) return;
+    COMPLETIONS.push({template_id: tpl.id, date: dateStr});
+    changed = true;
+  });
+  if(changed){ saveToStorage(); renderAll(); }
 }
 
 /* ---- managing the list ---- */
