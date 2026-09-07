@@ -78,7 +78,46 @@ If a task appears to exceed your ability — a fix has failed twice, architectur
 | tasks | array of task objects |
 | templates | array of recurring-template objects |
 | completions | array of {template_id, date} — done-marks for template instances |
-| settings | selected Google calendars, week start day, theme, `displayName`, `ghosted`, `skincare` (see below) |
+| settings | selected Google calendars, week start day, theme, `displayName`, `ghosted`, `skincare`, `activity`, `journal.show` (see below) |
+
+**Tables this app owns beyond `agenda_data`:** `cycle_events`, `cycle_spans`,
+`class_absences`, `routines`, `routine_progress`, `activity_events`,
+`journal_entries`. The rule for choosing is in the cycle-log section and has
+held every time: a thing that is *one row per event* goes in a table, because
+real rows race with nothing; a short ordered list she edits rarely stays in
+`settings`, because it is small and the row merge already carries it.
+
+**Tables it reads and writes but does not own:** `law_school_data` (Assignments)
+and `perfume_data` (the perfume tile). Both follow the cross-app write rule —
+re-read immediately before writing, send back only the columns touched.
+
+### Migrations
+
+In `supabase/migrations/`, all applied as of 2026-09-07:
+
+| file | what |
+|---|---|
+| `20260825_cycle_events` | cycle log |
+| `20260825b_cycle_spans` | names for long gaps |
+| `20260825c_class_absences` | attendance |
+| `20260831_routines` | `routines` + `routine_progress` |
+| `20260903_activity_events` | the workout log |
+| `20260903b_routine_choices` | `routine_progress.choices` |
+| `20260903c_routine_kind` | `routines.kind` |
+| `20260907_journal` | `journal_entries` |
+
+**Verify before building on one.** She applies these by hand in the Supabase SQL
+editor, and on 2026-09-03 two turns of work were built on a column that had not
+been created yet — which is what turned an ordinary render bug into a total
+outage. An unauthenticated `curl` against PostgREST answers it in seconds and
+needs no credentials: a missing table 404s, a missing column 400s, and a table
+that exists returns 200 with an empty array because RLS is doing its job.
+
+```
+curl -s -o /dev/null -w '%{http_code}\n' \
+  'https://<project>.supabase.co/rest/v1/<table>?select=<col>&limit=1' \
+  -H "apikey: <the anon key in agenda.html>"
+```
 
 ### Task object (one-time items)
 
@@ -108,10 +147,40 @@ If a task appears to exceed your ability — a fix has failed twice, architectur
                                                 // monthly by weekday: {freq:"monthly", nth: 2, dow: "fri"}
                                                 //   nth 1-4, or -1 for "last". A template with `dow`
                                                 //   ignores `day` — the presence of dow is the mode.
+                                                // every N weeks: {freq:"weekly", days:["sun"],
+                                                //   interval: 4, since: "2026-09-06"}
   time: null,               // optional fixed time
-  active: true
+  active: true,
+  routine_id: null          // a walkthrough to run for this task (see Routines)
 }
 ```
+
+### Every N weeks (built 2026-09-03)
+
+An **interval on top of the weekly days**, not a fourth frequency: the question
+it answers is still "which weekdays", so the day picker is reused and every
+template already saved is simply interval 1. Only an every-other-week-or-longer
+one carries `interval` and `since`, so nothing needed migrating and an older
+build still reads the rest.
+
+`since` is a **week start**, and the count is in whole weeks from it — counting
+in days would drift across a DST boundary. Weeks before the anchor never match:
+a fortnightly task does not backfill into the weeks before she set it up.
+
+**Which week it starts from is a choice, not an accident of when she opened the
+box** (2026-09-03). It anchored to the current week, so two tasks on the same
+interval could only ever collide or drift — and a pair like *clarifying wash
+then gloss* only holds its order if their phases can be set apart. There is now
+a Start-from date, shown only when the interval is more than a week, seeded from
+the existing anchor so an edit that never touches it holds the rhythm steady.
+
+The hint names the **actual first date**, not just the week: "the week of Sep 20"
+and "Sunday the 20th" are not obviously the same thing when the ticked day is a
+Friday.
+
+Two things that must stay in a fixed order need **the same interval with
+different anchors**. Different intervals always drift — every 3 vs every 4 weeks
+realign only every 12 — and no amount of phase-setting fixes that.
 
 **Instances are virtual:** views materialize template occurrences for the visible date range on render — they are not stored as tasks. Completing an instance writes `{template_id, date}` to `completions`. Editing/moving a single instance creates a real task (`source: 'template_exception'`) for that date and suppresses the virtual one. Templates are managed in a simple settings list ("Routines").
 
@@ -198,14 +267,37 @@ The keys are therefore unbounded; `pruneGhosts()` drops any whose stored date is
 more than 60 days past. It runs in `afterLoad` as normalization — no `touch()`,
 no save of its own.
 
-## Skincare tracker (decided)
+## Skincare tracker (decided; became a tile 2026-09-03, derived 2026-09-07)
 
-A tracker that must never read as an obligation. It is **one quiet line** under
-the meal strip — a droplet, the word "Skincare", and a dot per product actually
-used (`AM ●● PM ●`) — that expands in place into tappable chips. Not a card, not
-a modal, and the expanded state is deliberately **not persisted**: every load
-starts collapsed, so a skipped week is invisible rather than accusing. A settings
-toggle (`skincare.show`) hides the line outright without touching the data.
+A tracker that must never read as an obligation. It began as **one quiet line**
+under the meal strip and is now **a tile in the tracker row** (see below) — a
+droplet, the word "Skincare", and a dot per product actually used
+(`AM ●● PM ●`), opening into the same tappable chips in a full-width panel. Not
+a card, not a modal, and the open state is deliberately **not persisted**: every
+load starts closed, so a skipped week is invisible rather than accusing. A
+settings toggle (`skincare.show`) hides the tile outright without touching the
+data.
+
+**It derives its day from two places and owns only one of them** (2026-09-07).
+Her skincare is now mostly logged through routine cards, and while this tile
+read only its own log it said "not logged" on mornings she had plainly done —
+a tracker reporting the opposite of what happened, which is worse than one that
+says nothing. She was ticking the same product in both places to keep it
+honest. `skinDayView(date)` now returns the **union** of this log and the
+products her AM/PM routines recorded; a product logged both ways counts once.
+
+Deliberately a union, not a mirror. Copying routine choices into
+`skincare.log` would make two copies of one fact that can drift apart, which is
+the thing every cross-surface piece in this app avoids. Which slot a routine
+contributes to comes from `routineSlot()` — read off its *name*, because "AM
+Skincare" and "PM Retinal" already answer the question and a settings field
+asking her to restate it would be the app pretending not to know. `slot` on the
+routine overrides, `'none'` opts out, and a routine with no slot contributes
+nothing, which is right for a workout.
+
+A routine-logged chip renders lit with a small list icon and **opens that
+routine** rather than toggling. Un-ticking it here would claim she skipped a
+step she plainly did, and this surface does not own that record.
 
 Only what she *did* gets a dot. The first version drew an empty circle for every
 skipped step, which turned the line into exactly the row of unchecked boxes the
@@ -260,9 +352,18 @@ chart can still count the days it was used. Nothing silently rewrites history.
 Nothing in the load or render path saves: `getSkincare()` normalizes in memory
 only, per the load-time republishing rule below.
 
+**Per-product usage is built** (2026-09-03) and spans both logs. `productUsage(key)`
+unions the days in `skincare.log` with the days a routine step recorded that
+product, **deduped by date** — a morning logged on the tile and again through a
+routine is one day she used it, not two. It surfaces in the Products list as
+"used 12 days · last Sep 1", and is fetched when that modal opens, the only
+place that wants every progress row rather than one day.
+
 **Not built yet (the data is shaped for it):** the month calendar heatmap and
-per-product usage-by-month. Both read straight out of `log` — the month buckets
-are already the natural grain for "is my usage of X up from last month".
+usage-by-month. Both read straight out of `log` — the month buckets are already
+the natural grain for "is my usage of X up from last month" — but note any such
+chart now has to union the routine side too, or it will under-report every
+product she logs through a routine.
 A Phase B merge should **union** a day's key sets rather than take one side:
 logging is additive, and only an un-log is a genuine conflict. `_u` is currently
 stamped at the feature root (`skincare._u`), which is too coarse for that — the
@@ -290,8 +391,26 @@ every drag.
 **"Resets at midnight" without a midnight.** Progress is keyed by date; no row
 for today means the routine is fresh. Nothing runs on a timer, so nothing breaks
 when the phone is asleep, the tab is closed, or the clocks change.
-`loadRoutineProgress()` re-reads when `_rtProgressDate` is no longer today,
-which is what makes it true for a tab left open overnight.
+
+**Progress is cached per date** (2026-09-03), not "today plus a staleness
+check". It held one day and reloaded when the clock rolled over, which was
+enough while the only way in was a tab with no date on it; a routine reached
+from a recurring task is reached from *a day*, and "did I do it last night?" is
+a question this has to answer. `ROUTINE_PROGRESS` is now `date -> routineId ->
+{done, choices}` and the day being logged is an argument everywhere. A new day
+is simply a date it has never fetched, which is what keeps the midnight promise.
+
+**Three sets, because "fetched" and "fetched successfully" are different
+questions** — and conflating them cost a full outage on 2026-09-03. A failed
+fetch was removed from the loaded set so it could not be mistaken for a day with
+nothing done, but the failure path *also re-rendered*, and rendering the day
+view asks for that day again: 27,712 fetches in 1.2 seconds, the DOM rebuilt
+continuously, every click landing on an element replaced before it could act. It
+reads as the entire app being dead, and was reported that way. `_rtTriedDates`
+answers whether to retry and **keeps a failure**; `_rtLoadedDates` /
+`_rtFailedDates` answer whether the data can be trusted. **A failed fetch must
+never drive a render that refetches.** A day that failed to load also refuses to
+be written over, rather than replacing a real row with an empty one.
 
 **Reading it and running it are the same surface.** The card lists steps with
 checkboxes; **Start** enters focus mode — one step, large, with Done / skip /
@@ -324,11 +443,211 @@ rather than lying.
 a backgrounded tab, and collision with the time-tracker's running timer. Worth
 revisiting only if the labels turn out not to be enough.
 
+### Routine steps carry what they were done *with* (2026-09-03)
+
+A step names the general move — "moisturize", "bench press" — and carries what
+answers it. Two kinds, and **a card declares which**, so a step never has to.
+
+**`routines.kind` = `'products'` | `'exercise'`.** On the card rather than on
+each step: a card is one activity, a skincare routine and a workout are never
+the same card, and asking per step meant every step carried a mode toggle to
+answer something the card already knew. It also lets a whole run be coherent —
+focus mode on a workout asks for numbers throughout instead of changing
+character step to step. Switching kinds is **non-destructive**: the other kind's
+fields are ignored, not deleted, so flipping back finds them intact.
+
+**Products** point into `settings.skincare.products` — deliberately the library
+the skincare tracker already uses, which is what lets history join up rather
+than restart. `step.products` is a list of 4-char keys; a write-in becomes a
+real product flagged `sample`, exactly as the skincare panel's one-off does.
+
+The choice is **sticky**, because routines exist so she does not have to decide
+anything and picking the same moisturizer every morning is exactly a decision.
+Ticking records what she used last time; the sublabel is only tapped when
+switching. `step.last` is a UI memory, **not the record** — the record is in
+`choices` — so it is written only when she actively changes it. A step with one
+product needs no memory; a step with none stays a plain checklist step.
+
+**Exercises** point at one entry in `settings.activity.exercises`
+(`step.exercise`), not a list: unlike moisturizers, a squat and a bench press
+are not interchangeable options for the same move. Ticking asks for the numbers
+and **saving them is what marks it done**, writing a real `activity_events` row
+— so a workout run from a routine and one logged straight into the Activity tile
+are the same record in the same place. Un-ticking deletes that row; an entry
+deleted from the Activity panel instead is resolved live, so the step reads
+"entry removed" rather than pretending.
+
+**`routine_progress.choices`** carries both, and never needed a shape that knew
+the difference: on a products step the value is a product key, on an exercise
+step it is the activity row's id. **The step says how to read its own value.**
+That is why exercise support landed with no migration.
+
+### Blocks: any one step carries the group (2026-09-04)
+
+Consecutive steps sharing `step.section` are one block, and ticking **any one**
+of them completes it. This is the "floor vs the full" idea from her workout card
+written into the data: a block is ordered most-important-first, so doing the top
+move is a real win rather than a quarter of one. Progress counts blocks wherever
+there are any — a card reporting 3 of 11 on a day she did exactly what it asked
+is the denominator problem the skincare tracker exists to avoid.
+
+Derived from a field on the step rather than a separate list, so steps stay one
+ordered array and drag-to-reorder is untouched. A step with no block stands
+alone, which is how every routine behaved before this existed.
+
+Exercise steps also carry a **target** (`targetSets`/`targetReps`/`targetWeight`).
+The sublabel shows the target until there is a real entry, then what she actually
+did — the target stops being the useful number the moment there is an actual one.
+The numbers form opens on **last session's numbers**, falling back to the target:
+progressive overload is judged against what she last lifted, so that is what
+belongs in the box.
+
+### Reaching a routine from a task
+
+`routine_id` lives on TASKS **and on TEMPLATES** (2026-09-03), carried onto each
+generated instance and preserved when one day of a series becomes an exception.
+It was on tasks only, so the daily version of a routine — the case a routine is
+actually for — rendered no chip.
+
+Tapping the chip opens the routine as a **card over the day**, not a jump to the
+Routines tab: ticking three steps off a morning routine should not cost her the
+day she was looking at, and finding her way back was the whole friction. The
+chip shows the routine's **name** until she starts, then progress. It led with
+the time estimate once, which made a workout read as "5m+" — a fact about the
+task rather than a way into anything, and the same feature looked broken on one
+row and fine on another purely because of that.
+
+**Finishing a routine ticks its recurring task too.** A recurring task owns no
+row — its instance is generated each morning and "done" is a completion record —
+so that path had to be written separately or tick-through would have worked for
+a one-off and silently done nothing for the daily one.
+
+## The tracker tile row (2026-09-03)
+
+Skincare, Activity, Perfume, Journal and Health share **one row of compact tiles
+and one full-width panel slot** below them. Five stacked collapsible lines cost
+five rows of vertical space to say almost nothing; this says the same at a
+glance in one. One panel is open at a time, because there is one slot and the
+tile she tapped should be the thing she is looking at.
+
+`grid-template-columns: repeat(auto-fit, minmax(104px, 1fr))` rather than a hard
+count: the tiles drop to fewer per row on a narrow screen or at a large text
+size instead of squeezing their labels to nothing. `_openStrip` is not
+persisted, so every load starts closed — which is also what keeps the lazy
+loads (cycle rows, journal entries, the perfume row) from firing on a session
+that never asks for them.
+
+`renderSkinStrip` / `renderHealthStrip` survive as names because a dozen call
+sites reach for them; they now both mean "redraw the grid".
+
+**Each tile's marks line is a privacy decision, not a layout one.** Skincare
+shows dots, Activity a count, Perfume the names — those are facts she is happy
+to have on screen. Health shows **nothing at rest**, which is its whole design.
+Journal shows a **count and never a preview**: knowing she wrote something is
+not itself telling, but the words are.
+
+## Activity — lifting and cardio (built 2026-09-03)
+
+Two templates, chosen by the exercise rather than by her: `kind` rides on the
+catalog entry, so picking "Bench press" already means the form asks for weight,
+reps and sets and picking "Run" asks for time and distance. She never chooses a
+template; she chooses the thing she did. It is copied onto each logged row so
+reclassifying an exercise later cannot reinterpret old numbers.
+
+**The storage splits along the line the app already draws.** The *catalog* is
+`settings.activity.exercises` — short, ordered, rarely edited, exactly the
+skincare products list it is modelled on. The *log* is `activity_events`, its
+own table: a year of lifting is thousands of rows carrying real numbers and
+would not fit the ~60KB the keepalive save can carry, which is the whole reason
+the skincare log compresses to four characters per product per day.
+
+Rows are inserted and deleted by id, never upserted by day — benching twice in
+one session is a real thing, not a conflict. Every numeric field is individually
+optional (a set logged without its weight is still worth having) but a row can
+never carry the other template's numbers, enforced by check constraints, so a
+kind flip in the UI cannot leave a lift row with a distance on it.
+
+**It loads with everything else, not lazily** (2026-09-03). The lazy fetch was
+copied from the Health tile, where fetching nothing until asked *is* the
+feature; here it meant the tile's count vanished on every reload until she
+opened the panel, while the skincare marks beside it were always there. **A tile
+that reports at rest has to have its data at rest.** `ensureActivityLoaded()`
+stays as a retry for a failed startup fetch.
+
+Units are a display and a default, never a conversion: past rows keep the unit
+they were logged in, because 135 lb does not become 135 kg because she moved to
+a gym that plates in metric.
+
+## Journal (built 2026-09-07)
+
+Short entries, kept as rows, **read as a document**. She asked whether it should
+write to a Google Doc; it should not, and the reasoning generalises. Appending
+to a real document means fetching it, finding its end index and inserting there
+— two calls that can each fail, no offline story, a new OAuth scope and a
+permanent write token, and a merge problem the first time she edits it by hand.
+**An entry that silently did not save is the worst outcome this feature has**,
+so the write is one insert that either lands or visibly did not. The "master
+document" is assembled on read instead.
+
+`journal_entries(id, user_id, entry_date, body, created_at, updated_at)`.
+`entry_date` is the day an entry is *about* and `created_at` is when she wrote
+it — writing tonight about yesterday files under yesterday, the same bargain the
+skincare panel and the routine cards make, and the clock time shown is always
+the real one.
+
+**Privacy is structural, following the cycle log exactly**, and each of these is
+easy to break by accident:
+
+- **never cached** — no localStorage, re-read on every open, never held
+- **not in `exportJson()`** — the `.md` export is a separate, explicit action
+- **not in the assistant's prompt** — that call takes named arguments rather
+  than sweeping state, so this stays out by construction *unless someone adds it*
+- rendered only where she opens it
+
+Two ways in, answering different questions: the **tile** is capture and writes
+about the day on screen; the **tab** is for reading back and writing longer.
+On a failed save the text goes **back in the box** rather than the app merely
+apologising — the words are the thing that must not be lost.
+
+The `.md` export is oldest-first, because a journal reads forward even though
+the app shows it backward. It exists so the writing is never trapped in here.
+
+## Perfume tile (built 2026-09-07) — cross-app, owns nothing
+
+`perfume_data.perfumes` is her library and `perfume_data.wear_log` is the
+record; this is a second surface onto both, the way the Assignments tab is a
+second surface onto the law tracker's coursework. **Nothing is duplicated here,
+so nothing can disagree** — and that is the whole design.
+
+Which means the same cross-app rule, for the same reason: re-read the row
+immediately before writing, send back **only the columns touched**, and describe
+the edit as data so it can be applied twice. The perfume app may be open in
+another tab holding its own `note_map` and `settings`. Writes are serialized, or
+two quick taps would both re-read the same row and the second would carry the
+first's entry away.
+
+Search covers name and house; an empty box offers what she *owns*, since that is
+what she is most likely to have reached for. A write-in becomes a real perfume
+marked `sampled` — she wore it, so that is true — carrying every field the
+tracker expects so its own screens never meet a half-built record. Typing a name
+that already exists logs it rather than duplicating it.
+
+Wear ids are minted **max+1 over the freshly-read row**, matching the tracker's
+own scheme rather than the suite's `newId()`: a clock-seeded id would push its
+counter to ~1.8e15 and every perfume she added there afterwards would carry a
+sixteen-digit id. The re-read keeps the collision window to one write.
+
+**Known hazard, and it is the tracker's to fix.** The perfume app upserts the
+whole row from its in-memory copy without re-reading first, so a stale perfume
+tab left open in the background can carry its old `wear_log` back up and delete
+anything logged here. Same documented whole-row last-write-wins hole the time
+tracker had before Phase B/C. Porting `mergeRow` there is the real fix.
+
 ## Calendar: day / week / month (reworked 2026-08-31)
 
-The tab bar is **Calendar · Assignments · Time**. A period is not a sibling of
-Assignments and Time, and four tabs made it look like one. Which period Calendar
-shows is chosen from **the date itself** — it is already the largest thing in
+The tab bar is **Calendar · Routines · Assignments · Time · Journal**. A period
+is not a sibling of those, and giving Day/Week/Month their own tabs made it look
+like one. Which period Calendar shows is chosen from **the date itself** — it is already the largest thing in
 the toolbar and reads as the subject of the page, so it carries the choice and
 no permanent segmented control has to sit there all day saying nothing. The tab
 returns to the last period used (`settings.calendarPeriod`), so a trip to
@@ -475,16 +794,20 @@ first build had an `'unspecified'` value for watch-logged samples with no
 metadata; she doesn't wear the watch, and the honest-uncertainty argument for it
 lost to not wanting a third state.
 
-**The day-view Health line (added 2026-08-25).** Settings turned out to be too
-far to reach for something logged daily, so there is now a line under Skincare —
-same markup, same stylesheet, shared on purpose so "matches the skincare one"
-stays true as either changes. It opens in place to the same two chip rows and
-links out to the calendar. `settings.health.show` hides it.
+**The day-view Health tile (added 2026-08-25 as a line; a tile since
+2026-09-03).** Settings turned out to be too far to reach for something logged
+daily, so it sits in the tracker row beside Skincare — same markup, same
+stylesheet, shared on purpose so "matches the skincare one" stays true as either
+changes. It opens to the same two chip rows and links out to the calendar.
+`settings.health.show` hides it.
 
 This is the one place the original "never renders outside its own modal" rule
-gave way, so it gives way as narrowly as possible: **collapsed, the line shows
-the word Health and nothing else** — no dots, where the skincare line reports
-its own at rest. `_healthOpen` is never persisted, so every load starts closed.
+gave way, so it gives way as narrowly as possible: **at rest, the tile shows the
+word Health and nothing else** — no dots, where every other tile in the row
+reports something. That is the whole privacy design surviving the move onto the
+main screen, and it survived the move into the tile row unchanged. The marks
+line still renders, empty, so the tile stands the same height as its neighbours.
+The open state is never persisted, so every load starts closed.
 The load is lazy for the same reason and not just for speed: a session that
 never opens the line never fetches the rows at all. Rows are labelled by the
 droplet and heart icons rather than the words *Bleeding* and *Sex*, matching the
@@ -589,8 +912,10 @@ of MB.
 **Asked for, not built yet:** a *Tracking* tab for visualising things over time —
 skincare usage, task streaks, and whatever else earns a chart. The skincare log's
 month buckets are already the right grain for it (see above), and this feature's
-rows are too. Water is the next tracker she named; note it wants a count, not a
-chip row, so it should not be forced through the Health panel's existing shape.
+rows are too; `activity_events` and `journal_entries` are dated rows and want
+nothing further. Water is the next tracker she named; note it wants a count, not
+a chip row, so it should not be forced through the Health panel's existing shape
+— the same warning that Activity proved right by needing its own form.
 
 **Not built, and not currently wanted:** any write-back to HealthKit. It would
 need a Shortcut hitting an edge function on the `gcal` pattern (never the
