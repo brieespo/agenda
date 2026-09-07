@@ -909,6 +909,18 @@ a.meal-title:hover .meal-link-ico { opacity: 1; }
 .jr-panel-box:focus { outline: none; border-color: var(--accent); }
 .jr-earlier { margin-top: 10px; padding-top: 8px; border-top: 1px solid var(--hairline); }
 
+/* ---- medications ----
+   A count on the chip and the contents underneath: one tap logs the dose, and
+   the legend is there so she is not opening settings to remember what is in it. */
+.med-n { margin-left: 6px; font-size: var(--fs-micro); color: var(--muted); font-variant-numeric: tabular-nums; }
+.sk-chip.on .med-n { color: var(--ink-2); }
+.med-legend { font-size: var(--fs-xs); color: var(--muted); padding: 1px 0 0 28px; overflow-wrap: anywhere; }
+.med-legend b { font-weight: 600; text-transform: uppercase; font-size: var(--fs-micro); letter-spacing: var(--tracking-caps); margin-right: 5px; }
+.med-row select, .med-row button { font: inherit; font-size: var(--fs-sm); }
+.med-row select { padding: 3px 5px; border-radius: 6px; border: 1px solid var(--border); background: var(--page); color: var(--ink); flex: none; }
+.med-row.retired .r-title { opacity: var(--done-op); }
+.med-dose { font-size: var(--fs-sm); color: var(--muted); font-variant-numeric: tabular-nums; }
+
 /* ---- perfume ---- */
 .pf-search { width: 100%; font: inherit; font-size: var(--fs-base); padding: 7px 10px; border: 1px solid var(--border); border-radius: 9px; background: var(--page); color: var(--ink); margin-bottom: 8px; }
 .pf-search:focus { outline: none; border-color: var(--accent); }
@@ -1540,6 +1552,10 @@ footer button { font: inherit; font-size: var(--fs-sm); border: none; background
         <span class="sm-chevron" data-ico="chevron-right"></span>
       </button>
       <!-- Same fixed-string reasoning as the cycle row below. -->
+      <button class="settings-menu-row" onclick="openMedsSubmodal()">
+        <span class="sm-title"><strong>Medications</strong><span class="sm-sub" id="meds-count-label"></span></span>
+        <span class="sm-chevron" data-ico="chevron-right"></span>
+      </button>
       <button class="settings-menu-row" onclick="openJournalSubmodal()">
         <span class="sm-title"><strong>Journal</strong><span class="sm-sub">Only ever shown here and on its tab</span></span>
         <span class="sm-chevron" data-ico="chevron-right"></span>
@@ -1636,6 +1652,30 @@ footer button { font: inherit; font-size: var(--fs-sm); border: none; background
       <div class="routine-row" style="border-bottom:none;margin-top:14px">
         <span class="r-title">Show the Skincare tile<div class="r-recur">The AM/PM tile on the day view, which is the only thing the morning/evening setting above affects — routine steps ignore it. Turning this off hides the tile completely; your products and their history stay put, and routines go on using them.</div></span>
         <button class="toggle" id="skin-show-toggle" onclick="toggleSkinVisible()"></button>
+      </div>
+    </div>
+  </div>
+</div>
+
+<div class="modal-bg" id="meds-submodal">
+  <div class="modal" style="max-width:560px">
+    <div class="modal-head"><strong>Medications &amp; supplements</strong><button class="modal-x" data-ico="x" onclick="closeModal('meds-submodal')"></button></div>
+    <div class="modal-body">
+      <p style="font-size: var(--fs-sm);color:var(--muted);margin-bottom:6px">What's in each dose. The day view asks you <strong>once per dose</strong>, not once per pill — your pill case has already done that part. <strong>Retire</strong> something you've stopped taking to keep its history.</p>
+      <div id="meds-list"></div>
+      <div class="quick-add-row">
+        <input type="text" id="med-new-name" placeholder="Name…" onkeydown="if(event.key==='Enter')addMedFromSettings()">
+        <input type="text" id="med-new-dose" placeholder="Dose" style="max-width:96px" onkeydown="if(event.key==='Enter')addMedFromSettings()">
+        <select id="med-new-when" style="font:inherit;font-size: var(--fs-md);padding:7px 8px;border-radius:8px;border:1px solid var(--border);background:var(--page);color:var(--ink)">
+          <option value="am">AM</option>
+          <option value="pm">PM</option>
+          <option value="both">AM+PM</option>
+        </select>
+        <button onclick="addMedFromSettings()">Add</button>
+      </div>
+      <div class="routine-row" style="border-bottom:none;margin-top:14px">
+        <span class="r-title">Show in the Health panel<div class="r-recur">The dose row under Health on the day view. Turning this off hides the row; your list and its history stay.</div></span>
+        <button class="toggle" id="med-show-toggle" onclick="toggleMedVisible()"></button>
       </div>
     </div>
   </div>
@@ -1854,6 +1894,9 @@ const ICONS = {
   // A pulse trace rather than a running figure — a runner is unreadable at this
   // size, and cardio is the thing being labelled, not running specifically.
   "pulse": '<polyline points="3 12 7 12 9.5 6.5 14.5 17.5 17 12 21 12"/>',
+  // A capsule on the diagonal, with the seam that makes it read as a pill
+  // rather than a lozenge.
+  "pill": '<rect x="2.6" y="8.4" width="18.8" height="7.2" rx="3.6" transform="rotate(-45 12 12)"/><line x1="8.5" y1="8.5" x2="15.5" y2="15.5"/>',
   // A bottle with a shoulder and a cap. Skincare already owns the droplet, and
   // two tiles sharing a glyph is the one thing a row of tiles cannot afford.
   "bottle": '<path d="M10 2h4v3h-4z"/><path d="M9 8.5A2 2 0 0 1 10.4 6.6L10.6 5h2.8l.2 1.6A2 2 0 0 1 15 8.5V19a2 2 0 0 1-2 2h-2a2 2 0 0 1-2-2z"/><line x1="9" y1="12" x2="15" y2="12"/>',
@@ -2693,6 +2736,9 @@ function updateSettingsMenuCounts(){
   // same as having nothing here.
   document.getElementById('skincare-count-label').textContent =
     skinCount ? `${skinCount} product${skinCount===1?'':'s'}` : 'Not set up';
+  const medCount = medItems().filter(m => m.active !== false).length;
+  document.getElementById('meds-count-label').textContent =
+    medCount ? `${medCount} item${medCount===1?'':'s'}` : 'Not set up';
   const actCount = actExercises().filter(e => e.active !== false).length;
   document.getElementById('activity-count-label').textContent = !actVisible() ? 'Hidden'
     : actCount ? `${actCount} exercise${actCount===1?'':'s'}` : 'Not set up';
@@ -5986,6 +6032,217 @@ function renderCycleHistory(){
 }
 
 /* =====================================================================
+   MEDICATIONS & SUPPLEMENTS — a row in the Health panel.
+
+   **One tap per dose, not per item.** She fills a pill case on Sundays, so the
+   case has already done the per-item work by the time a morning arrives; the
+   app only needs to know the morning set went down. Ticking each capsule
+   separately would be re-doing by hand what the case exists to have finished,
+   every day, forever. The catalog still names everything in each dose, so the
+   record of *what* she takes is there — it just is not what she taps.
+
+   This is also why a denominator is fine here where the skincare tracker
+   forbids one. "2 of 3 today" announces failure for a skincare step; for a
+   medication it is the whole question, and a tracker that would not tell her
+   she had missed a dose would be useless.
+
+   Lives in `settings` beside skincare, and its log borrows that shape: a month
+   bucket -> day -> the slots taken that day, one character each ("ap"). A slot
+   is a boolean per day, so this costs a couple of bytes a day and needs no
+   table.
+
+     settings.meds = {
+       items: [{id, k, name, dose, when:'am'|'pm'|'both', days: null|['sat'], active, _u}],
+       log: {"2026-09": {"7": "ap"}},
+       show: true
+     }
+
+   `days` is load-bearing, not a nicety: her Saturday medication and her daily
+   pill are both in here, and a slot that offered the Saturday one every morning
+   would be asking her to confirm something untrue.
+   ===================================================================== */
+const MED_SLOTS = [['am', 'Morning'], ['pm', 'Evening']];
+
+function getMeds(){
+  const s = SETTINGS.meds;
+  if(!s || typeof s !== 'object') SETTINGS.meds = {items: [], log: {}};
+  else {
+    if(!Array.isArray(s.items)) s.items = [];
+    if(!s.log || typeof s.log !== 'object') s.log = {};
+    // Same guard the skincare list makes: a keyless item cannot be referenced,
+    // and backfilling here is memory-only per the load-time rule.
+    s.items.forEach(m => { if(m && typeof m.k !== 'string') m.k = newMedKey(s.items); });
+  }
+  return SETTINGS.meds;
+}
+function medItems(){ return getMeds().items; }
+function medById(id){ return medItems().find(m => m.id === id); }
+function medVisible(){ return getMeds().show !== false; }
+function touchMeds(){ touch(getMeds()); saveToStorage(); }
+function newMedKey(list){
+  const used = new Set((list || medItems()).map(m => m.k));
+  for(let i = 0; i < 200; i++){
+    const k = Math.random().toString(36).slice(2, 6).padEnd(4, '0');
+    if(!used.has(k)) return k;
+  }
+  return Math.random().toString(36).slice(2, 6).padEnd(4, '0');
+}
+// What is actually due in a slot on a given day. A retired item is gone from
+// here but keeps its history, same bargain as a finished skincare bottle.
+function medsDueOn(dateStr, slot){
+  const dow = DOW_LONG[parseLocalDate(dateStr).getDay()];
+  return medItems().filter(m =>
+    m.active !== false &&
+    (m.when === 'both' || m.when === slot) &&
+    (!Array.isArray(m.days) || !m.days.length || m.days.includes(dow))
+  );
+}
+function medLogFor(dateStr){
+  const raw = (getMeds().log[dateStr.slice(0,7)] || {})[String(Number(dateStr.slice(8,10)))] || '';
+  return {am: raw.includes('a'), pm: raw.includes('p')};
+}
+function writeMedLog(dateStr, cell){
+  const log = getMeds().log;
+  const mk = dateStr.slice(0,7), dk = String(Number(dateStr.slice(8,10)));
+  const raw = (cell.am ? 'a' : '') + (cell.pm ? 'p' : '');
+  if(raw){
+    if(!log[mk]) log[mk] = {};
+    log[mk][dk] = raw;
+  }else if(log[mk]){
+    // An untaken day leaves nothing behind, so un-ticking costs the same bytes
+    // as never having logged.
+    delete log[mk][dk];
+    if(!Object.keys(log[mk]).length) delete log[mk];
+  }
+}
+function toggleMedSlot(slot, date){
+  const d = date || currentDate;
+  const cell = medLogFor(d);
+  cell[slot] = !cell[slot];
+  writeMedLog(d, cell);
+  touchMeds();
+  renderStripGrid();
+}
+
+/* The row inside the Health panel. Renders from settings, so it does not wait
+   on the cycle fetch — the two are unrelated facts that happen to share a
+   panel, and making a dose wait on a network call would be the wrong
+   dependency. */
+function medsRowHtml(date){
+  if(!medVisible()) return '';
+  const cell = medLogFor(date);
+  const slots = MED_SLOTS.map(([slot, label]) => ({slot, label, due: medsDueOn(date, slot)}))
+                         .filter(s => s.due.length);
+  if(!slots.length){
+    // Nothing set up at all is worth an invitation; nothing due *today* is
+    // simply a quiet day and says nothing.
+    return medItems().length ? '' : `<div class="cyc-row">${icoCls('pill')}<div class="cyc-chips">
+      <button class="sk-add" onclick="openMedsSubmodal()">+ add your medications</button></div></div>`;
+  }
+  const chips = slots.map(s => {
+    const on = cell[s.slot];
+    const names = s.due.map(m => m.name + (m.dose ? ` ${m.dose}` : '')).join(' · ');
+    return `<button class="sk-chip ${on?'on':''}" onclick="toggleMedSlot('${s.slot}','${esc(date)}')" title="${esc(names)}">
+      <span class="sk-ring">${on?ico('check'):''}</span>${esc(s.label)}<span class="med-n">${s.due.length}</span></button>`;
+  }).join('');
+  // What is in each dose, so she is not opening settings to find out.
+  const legend = slots.map(s =>
+    `<div class="med-legend"><b>${esc(s.label)}</b> ${esc(s.due.map(m => m.name + (m.dose ? ` ${m.dose}` : '')).join(' · '))}</div>`
+  ).join('');
+  return `<div class="cyc-row">${icoCls('pill')}<div class="cyc-chips">${chips}</div></div>${legend}`;
+}
+
+/* ---- managing the list ---- */
+function openMedsSubmodal(){ renderMedsList(); openModal('meds-submodal'); }
+function medWhenLabel(w){ return w === 'am' ? 'Morning' : w === 'pm' ? 'Evening' : 'Morning + evening'; }
+function medDaysLabel(m){
+  if(!Array.isArray(m.days) || !m.days.length) return 'every day';
+  return m.days.map(d => DOW_SHORT[DOW_LONG.indexOf(d)]).join(', ');
+}
+function renderMedsList(){
+  const el = document.getElementById('meds-list');
+  if(!el) return;
+  const list = medItems();
+  el.innerHTML = list.length ? list.map((m, i) => `
+    <div class="routine-row med-row ${m.active===false?'retired':''}">
+      <span class="r-title">${esc(m.name)}${m.dose?` <span class="med-dose">${esc(m.dose)}</span>`:''}${m.active===false?'<span class="sk-badge">retired</span>':''}
+        <div class="r-recur">${medWhenLabel(m.when)} · ${esc(medDaysLabel(m))}</div></span>
+      <select onchange="setMedWhen(${m.id}, this.value)" title="Which dose it belongs to">
+        <option value="both" ${m.when==='both'?'selected':''}>AM+PM</option>
+        <option value="am" ${m.when==='am'?'selected':''}>AM</option>
+        <option value="pm" ${m.when==='pm'?'selected':''}>PM</option>
+      </select>
+      <button onclick="promptMedDays(${m.id})" title="Which days">${esc(medDaysLabel(m) === 'every day' ? 'daily' : medDaysLabel(m))}</button>
+      <button onclick="moveMed(${m.id},-1)" title="Move up" ${i===0?'disabled style="opacity:.25"':''}>&uarr;</button>
+      <button onclick="moveMed(${m.id},1)" title="Move down" ${i===list.length-1?'disabled style="opacity:.25"':''}>&darr;</button>
+      <button onclick="toggleMedRetired(${m.id})" title="${m.active===false?'Bring it back':'Retire — keeps the history, takes it out of the dose'}" data-ico="${m.active===false?'eye':'eye-off'}"></button>
+      <button class="danger" onclick="deleteMed(${m.id})" title="Delete" data-ico="trash"></button>
+    </div>`).join('')
+    : `<p class="empty-note">Nothing here yet. Add what you take below — the app asks you once per dose, not once per pill.</p>`;
+  paintIcons(el);
+  const t = document.getElementById('med-show-toggle');
+  if(t) t.classList.toggle('on', medVisible());
+}
+function afterMedEdit(){
+  touchMeds();
+  renderMedsList();
+  renderStripGrid();
+}
+function addMed(name, dose, when){
+  name = String(name == null ? '' : name).trim();
+  if(!name) return null;
+  const m = touch({id: newId(), k: newMedKey(), name, dose: String(dose || '').trim(),
+                   when: when || 'am', days: null, active: true});
+  medItems().push(m);
+  return m;
+}
+function addMedFromSettings(){
+  const name = document.getElementById('med-new-name');
+  const dose = document.getElementById('med-new-dose');
+  if(!addMed(name.value, dose.value, document.getElementById('med-new-when').value)) return;
+  name.value = ''; dose.value = '';
+  afterMedEdit();
+  name.focus();
+}
+function setMedWhen(id, when){ const m = medById(id); if(!m) return; m.when = when; touch(m); afterMedEdit(); }
+// A prompt rather than a seven-checkbox row per item: most of these are daily,
+// and the list would be four times taller to serve the exception.
+function promptMedDays(id){
+  const m = medById(id);
+  if(!m) return;
+  const cur = Array.isArray(m.days) && m.days.length ? m.days.join(',') : '';
+  const raw = window.prompt('Which days? Leave blank for every day.\nUse short names separated by commas — e.g. sat  or  mon,wed,fri', cur);
+  if(raw === null) return;
+  const days = raw.split(',').map(s => s.trim().toLowerCase()).filter(d => DOW_LONG.includes(d));
+  m.days = days.length ? days : null;
+  touch(m); afterMedEdit();
+}
+function moveMed(id, dir){
+  const list = medItems();
+  const i = list.findIndex(m => m.id === id), j = i + dir;
+  if(i < 0 || j < 0 || j >= list.length) return;
+  const tmp = list[i]; list[i] = list[j]; list[j] = tmp;
+  afterMedEdit();
+}
+function toggleMedRetired(id){
+  const m = medById(id);
+  if(!m) return;
+  m.active = m.active === false;
+  touch(m); afterMedEdit();
+}
+// Deleting leaves the log alone — it records whether a dose was taken, not
+// which items were in it, so removing an item cannot invalidate a past day.
+function deleteMed(id){
+  const list = medItems();
+  const i = list.findIndex(m => m.id === id);
+  if(i < 0) return;
+  list.splice(i, 1);
+  tombstone('meds', id);
+  afterMedEdit();
+}
+function toggleMedVisible(){ getMeds().show = !medVisible(); afterMedEdit(); }
+
+/* =====================================================================
    HEALTH STRIP — the day-view way in to the cycle log.
 
    Shares the skincare line's markup and stylesheet outright ("matches the
@@ -6079,11 +6336,20 @@ function healthPanelHtml(){
          + `<div class="cyc-chips">${chips(SEX_STEPS, 'sex')}</div></div>`;
   }
 
+  // Outside the CYCLE check on purpose: doses live in settings and are here the
+  // moment the panel opens. They are unrelated facts that happen to share a
+  // panel, and making a dose wait on a network call would be the wrong
+  // dependency — the one thing in here she may be standing at the sink to tap.
+  const meds = medsRowHtml(currentDate);
+
   const when = currentDate === todayStr() ? 'Logging today' : `Logging ${fmtLong(currentDate)}`;
   return `<div class="skin-panel">
       <div class="skin-panel-head"><span class="sk-when">${esc(when)}</span></div>
-      ${body}
-      <div class="skin-panel-foot"><button class="sk-manage" onclick="openCycleSubmodal()">Calendar and history</button></div>
+      ${meds}${body}
+      <div class="skin-panel-foot">
+        <button class="sk-manage" onclick="openCycleSubmodal()">Calendar and history</button>
+        ${medItems().length ? `<button class="sk-manage" style="margin-left:12px" onclick="openMedsSubmodal()">Edit medications</button>` : ''}
+      </div>
     </div>`;
 }
 
