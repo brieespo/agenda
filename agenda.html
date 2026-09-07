@@ -921,6 +921,12 @@ a.meal-title:hover .meal-link-ico { opacity: 1; }
 .med-item { font: inherit; font-size: var(--fs-xs); border: none; background: none; color: var(--muted); cursor: pointer; padding: 1px 4px; border-radius: 5px; text-decoration: underline; text-decoration-style: dotted; text-underline-offset: 2px; }
 .med-item:hover { color: var(--accent); }
 .med-item.on { color: var(--good-text); background: var(--accent-light); text-decoration: none; }
+/* Overdue reads as owed, not as failed — warm rather than red, because a
+   medication a few days late is a thing to do, not an accusation. */
+.med-item.owed { color: var(--warning, var(--ink-2)); text-decoration: none; border: 1px dashed var(--border); }
+.med-item.owed:hover { border-color: var(--accent); color: var(--accent); }
+.med-from { font-size: var(--fs-micro); color: var(--muted); margin-left: 4px; }
+.med-owed b { color: var(--ink-2); }
 /* A dose part-done reads as started, not as untouched. */
 .sk-chip.part { border-color: var(--accent); }
 .sk-chip.part .sk-ring { background: var(--accent-light); border-color: var(--accent); }
@@ -2270,7 +2276,10 @@ function toggleItemDone(item){
     const wasDone = instanceDone(item.template_id, item.date);
     if(!wasDone){
       const tpl = TEMPLATES.find(t => t.id === item.template_id);
-      if(tpl) applyMedLinkFromTask(tpl, item.date);
+      // A carried instance keeps its original date so the completion lands on
+      // the day it was for; the medication is logged against today, because
+      // that is when she actually took it.
+      if(tpl) applyMedLinkFromTask(tpl, item.date, item.carried ? todayStr() : item.date);
     }
     const idx = COMPLETIONS.findIndex(c => c.template_id===item.template_id && c.date===item.date);
     // A completion's identity is its content, so unchecking is a deletion and
@@ -6144,6 +6153,74 @@ function medsDueOn(dateStr, slot){
    once, which is still the daily path. Per-item marks exist underneath it so a
    task can carry one, and so a partly-taken dose can say so rather than
    rounding to yes or no. */
+/* ---- a dose taken late ----
+   A weekly medication on a task set to carry is the case this exists for: the
+   Saturday pill is still owed on Wednesday, and three separate things were
+   wrong about that.
+
+   The medication has to still be *offered* on Wednesday, or there is nowhere to
+   tap it. It has to be logged against **Wednesday**, because that is the day it
+   went down — a medication record saying Saturday would be false, and this is
+   the one log in the app where that matters clinically. And logging it on
+   Wednesday has to settle the carried Saturday task, or she is left ticking the
+   same thing twice.
+
+   Whether a medication carries is **derived from the tasks that link to it**
+   rather than being its own setting. She already said "carry this until I do
+   it" once, on the task; asking her to say it again on the medication would be
+   the app forgetting what it was told. */
+// Due in either half of the day — the question a task asks, which does not care
+// which slot the item belongs to.
+function medDueAnySlot(m, dateStr){
+  return MED_SLOTS.some(([slot]) => medsDueOn(dateStr, slot).some(x => x.k === m.k));
+}
+// The carrying tasks that point at this medication. The earliest of their
+// `miss_since` floors bounds how far back a debt can reach — turning a carry
+// rule on must not dredge up months of missed doses, and that promise has to
+// hold here too or the medication row would show what the task list refuses to.
+function medCarryFloor(m){
+  const floors = TEMPLATES.filter(t => t.active && t.medLink === 'key:' + m.k && missRule(t) !== 'drop')
+                          .map(t => t.miss_since || '');
+  if(!floors.length) return null;
+  return floors.includes('') ? '' : floors.sort()[0];
+}
+function medCarries(m){ return medCarryFloor(m) !== null; }
+// Medications owed from an earlier day and not yet taken. Returns the day each
+// was due, so the panel can say where it came from.
+function medOutstandingOn(dateStr){
+  const out = [];
+  medItems().forEach(m => {
+    if(m.active === false) return;
+    const floor = medCarryFloor(m);
+    if(floor === null) return;
+    const slot = m.when === 'both' ? 'am' : m.when;
+    if(medsDueOn(dateStr, slot).some(x => x.k === m.k)) return;   // due today; not a debt
+    for(let i = 1; i <= MISS_LOOKBACK_DAYS; i++){
+      const d = addDays(dateStr, -i);
+      if(floor && d < floor) return;
+      if(!medsDueOn(d, slot).some(x => x.k === m.k)) continue;
+      // The most recent occurrence is the only one that can be owed — an older
+      // one it already superseded is gone, same rule the carried task makes.
+      const cell = medLogFor(d);
+      if(cell.am.includes(m.k) || cell.pm.includes(m.k)) return;  // taken on the day
+      if(medTakenSince(m, d, dateStr)) return;                    // taken late already
+      out.push({m, from: d, slot});
+      return;
+    }
+  });
+  return out;
+}
+// Was it taken on any day from `from` up to and including `upto`? That is what
+// settles a debt, and it is why taking Saturday's pill on Wednesday does not
+// leave it owed on Thursday.
+function medTakenSince(m, from, upto){
+  for(let d = from; d <= upto; d = addDays(d, 1)){
+    const cell = medLogFor(d);
+    if(cell.am.includes(m.k) || cell.pm.includes(m.k)) return true;
+  }
+  return false;
+}
+
 function medLogFor(dateStr){
   const raw = (getMeds().log[dateStr.slice(0,7)] || {})[String(Number(dateStr.slice(8,10)))] || '';
   // The original format was 'a', 'p' or 'ap' — one character per dose, no
@@ -6222,8 +6299,13 @@ function medsRowHtml(date){
   const slots = MED_SLOTS.map(([slot, label]) => ({slot, label, due: medsDueOn(date, slot)}))
                          .filter(s => s.due.length);
   if(!slots.length){
-    // Nothing set up at all is worth an invitation; nothing due *today* is
-    // simply a quiet day and says nothing.
+    // Nothing due today is a quiet day and says nothing — unless something is
+    // still owed from an earlier one, which is exactly when she needs the row.
+    const only = medOutstandingOn(date);
+    if(only.length) return `<div class="cyc-row">${icoCls('pill')}<div class="cyc-chips">${only.map(o =>
+        `<button class="sk-chip part" onclick="toggleMedItem('${esc(o.m.k)}','${o.slot}','${esc(date)}',true);syncMedLinkedTasks('${esc(date)}');renderStripGrid()"
+           title="Was due ${esc(fmtLong(o.from))}"><span class="sk-ring"></span>${esc(o.m.name)}<span class="med-from">from ${esc(fmtShort(o.from))}</span></button>`
+      ).join('')}</div></div>`;
     return medItems().length ? '' : `<div class="cyc-row">${icoCls('pill')}<div class="cyc-chips">
       <button class="sk-add" onclick="openMedsSubmodal()">+ add your medications</button></div></div>`;
   }
@@ -6246,7 +6328,15 @@ function medsRowHtml(date){
     }).join('');
     return `<div class="med-legend"><b>${esc(s.label)}</b>${items}</div>`;
   }).join('');
-  return `<div class="cyc-row">${icoCls('pill')}<div class="cyc-chips">${chips}</div></div>${legend}`;
+  // A dose still owed from an earlier day gets its own line rather than joining
+  // a slot's count: a weekly pill is not part of today's morning, and folding
+  // it in would make an ordinary morning read 0/4 on the days it is overdue.
+  const owed = medOutstandingOn(date).map(o =>
+    `<button class="med-item owed" onclick="toggleMedItem('${esc(o.m.k)}','${o.slot}','${esc(date)}',true);syncMedLinkedTasks('${esc(date)}');renderStripGrid()"
+       title="Was due ${esc(fmtLong(o.from))} — tap to log it as taken today">${esc(o.m.name)}${o.m.dose?` ${esc(o.m.dose)}`:''} <span class="med-from">from ${esc(fmtShort(o.from))}</span></button>`
+  ).join('');
+  const owedLine = owed ? `<div class="med-legend med-owed"><b>Still owed</b>${owed}</div>` : '';
+  return `<div class="cyc-row">${icoCls('pill')}<div class="cyc-chips">${chips}</div></div>${legend}${owedLine}`;
 }
 
 /* ---- tying a recurring task to a dose or a medication ----
@@ -6285,38 +6375,54 @@ function medItemSlot(m, dateStr){
   return cell.am.includes(m.k) ? 'pm' : 'am';
 }
 // Called when a template instance is ticked. Marking only — see above.
-function applyMedLinkFromTask(tpl, dateStr){
+/* `dueOn` is the occurrence being ticked off — Saturday's, even on Wednesday.
+   `takenOn` is the day it actually went down. They are the same for an ordinary
+   tick and differ for a carried one, and keeping them separate is the whole
+   fix: the task's completion belongs to the day it was *for*, the medication
+   record belongs to the day it was *taken*. */
+function applyMedLinkFromTask(tpl, dueOn, takenOn){
   const l = medLinkOf(tpl);
   if(!l) return;
+  const taken = takenOn || dueOn;
   if(l.slot){
-    const cell = medLogFor(dateStr);
-    const due = medsDueOn(dateStr, l.slot).map(m => m.k);
+    // The dose is whatever was due on the occurrence, logged on the day taken.
+    const due = medsDueOn(dueOn, l.slot).map(m => m.k);
     if(!due.length) return;
+    const cell = medLogFor(taken);
     cell[l.slot] = cell[l.slot].concat(due.filter(k => !cell[l.slot].includes(k)));
-    writeMedLog(dateStr, cell);
+    writeMedLog(taken, cell);
     touchMeds();
   }else{
-    // Nothing is logged for a day the medication is not due — a Saturday pill
-    // ticked on a Tuesday would be a false entry in a medication record.
-    const slot = medItemSlot(l.item, dateStr);
-    if(!medsDueOn(dateStr, slot).some(m => m.k === l.item.k)) return;
-    toggleMedItem(l.item.k, slot, dateStr, true);
+    // The weekday check is against the occurrence, not against `taken` — a
+    // Saturday pill really was due, and the carry is exactly the app agreeing
+    // it is still owed. Checking `taken` would refuse to log the late dose,
+    // which is the case this whole path exists for. A tick on a day the
+    // medication was never due still logs nothing.
+    if(!medDueAnySlot(l.item, dueOn)) return;
+    toggleMedItem(l.item.k, medItemSlot(l.item, taken), taken, true);
   }
 }
 // The other direction: logging in Health ticks any recurring task pointing at
 // what was just satisfied.
 function syncMedLinkedTasks(dateStr){
   let changed = false;
+  const cell = medLogFor(dateStr);
+  const loggedHere = m => cell.am.includes(m.k) || cell.pm.includes(m.k);
   TEMPLATES.forEach(tpl => {
     const l = medLinkOf(tpl);
-    if(!l || !templateOccursOn(tpl, dateStr)) return;
-    if(hasException(tpl.id, dateStr) || instanceDone(tpl.id, dateStr)) return;
-    const satisfied = l.slot
-      ? medSlotState(dateStr, l.slot).all
-      : medLogFor(dateStr)[medItemSlot(l.item, dateStr)].includes(l.item.k)
-        || medLogFor(dateStr).am.includes(l.item.k) || medLogFor(dateStr).pm.includes(l.item.k);
+    if(!l) return;
+    const satisfied = l.slot ? medSlotState(dateStr, l.slot).all : loggedHere(l.item);
     if(!satisfied) return;
-    COMPLETIONS.push({template_id: tpl.id, date: dateStr});
+    // Which occurrence this settles. Normally today's; but a carried task is
+    // owed from an earlier day, and its completion belongs to *that* day — the
+    // same date `toggleDoneVirtual` would have been handed. Without this,
+    // taking Saturday's pill on Wednesday logged the dose and left the task
+    // still asking for it.
+    let occ = templateOccursOn(tpl, dateStr) ? dateStr
+            : (missRule(tpl) !== 'drop' ? outstandingOccurrence(tpl, dateStr) : null);
+    if(!occ) return;
+    if(hasException(tpl.id, occ) || instanceDone(tpl.id, occ)) return;
+    COMPLETIONS.push({template_id: tpl.id, date: occ});
     changed = true;
   });
   if(changed){ saveToStorage(); renderAll(); }
