@@ -877,6 +877,34 @@ a.meal-title:hover .meal-link-ico { opacity: 1; }
 .act-prod-row select { font: inherit; font-size: var(--fs-sm); padding: 3px 5px; border-radius: 6px; border: 1px solid var(--border); background: var(--page); color: var(--ink); flex: none; }
 .act-prod-row.retired .r-title { opacity: var(--done-op); }
 
+/* ---- journal ----
+   A page to write on, not a form to fill in: the box is the largest thing here
+   and carries no chrome until it has focus. Everything below it is reading. */
+.jr-compose { margin-bottom: 16px; }
+.jr-compose textarea { width: 100%; font: inherit; font-size: var(--fs-md); line-height: 1.55; padding: 11px 13px; border: 1px solid var(--border); border-radius: 11px; background: var(--surface); color: var(--ink); resize: none; overflow: hidden; min-height: 92px; transition: border-color 120ms ease, box-shadow 120ms ease; }
+.jr-compose textarea:focus { outline: none; border-color: var(--accent); box-shadow: var(--shadow); }
+.jr-compose-foot { display: flex; align-items: center; gap: 10px; margin-top: 7px; }
+.jr-hint { flex: 1; font-size: var(--fs-sm); color: var(--muted); }
+
+/* One day of entries. The date is the heading; each entry keeps the clock time
+   it was written at, which is the "marks the date and time" she asked for. */
+.jr-day { margin-bottom: 18px; }
+.jr-date { font-size: var(--fs-micro); text-transform: uppercase; letter-spacing: var(--tracking-caps); color: var(--muted); font-weight: 600; padding-bottom: 5px; border-bottom: 1px solid var(--hairline); margin-bottom: 8px; }
+.jr-entry { display: flex; gap: 12px; padding: 7px 0; }
+.jr-time { flex: none; width: 62px; font-size: var(--fs-xs); color: var(--muted); font-variant-numeric: tabular-nums; padding-top: 2px; }
+/* white-space: pre-wrap so her paragraph breaks survive — she is writing prose,
+   and collapsing it into one block would be the app editing her. */
+.jr-body { flex: 1; min-width: 0; font-size: var(--fs-base); line-height: 1.55; white-space: pre-wrap; overflow-wrap: anywhere; }
+.jr-del { flex: none; border: none; background: none; color: var(--muted); cursor: pointer; padding: 2px; opacity: 0; transition: opacity 120ms ease, color 120ms ease; }
+.jr-entry:hover .jr-del, .jr-entry:focus-within .jr-del { opacity: 1; }
+.jr-del:hover { color: var(--critical); }
+.jr-del .icon { width: 13px; height: 13px; }
+.jr-del.confirm { opacity: 1; color: var(--critical); font-size: var(--fs-xs); }
+/* The day-view tile's panel: a smaller box, same behaviour. */
+.jr-panel-box { width: 100%; font: inherit; font-size: var(--fs-base); line-height: 1.5; padding: 8px 10px; border: 1px solid var(--border); border-radius: 9px; background: var(--page); color: var(--ink); resize: none; overflow: hidden; min-height: 62px; }
+.jr-panel-box:focus { outline: none; border-color: var(--accent); }
+.jr-earlier { margin-top: 10px; padding-top: 8px; border-top: 1px solid var(--hairline); }
+
 /* ---- absences ----
    A record, not a scoreboard. The count only turns warm when she is actually
    near the limit she set, because a red 1/3 in week two would be a nag about a
@@ -1216,6 +1244,7 @@ footer button { font: inherit; font-size: var(--fs-sm); border: none; background
     <button data-view="routines" onclick="switchView('routines')">Routines</button>
     <button data-view="assign" onclick="switchView('assign')">Assignments</button>
     <button data-view="time" onclick="switchView('time')">Time</button>
+    <button data-view="journal" onclick="switchView('journal')">Journal</button>
   </nav>
 </header>
 
@@ -1328,6 +1357,30 @@ footer button { font: inherit; font-size: var(--fs-sm); border: none; background
           <button class="ghost" onclick="addRoutine()">+ New routine</button>
         </div>
         <div id="routines-list"></div>
+      </section>
+
+      <!-- ============ JOURNAL VIEW ============
+           The running document: write at the top, read back below. The entries
+           are rows, not a document — see the migration for why — so this view
+           is the document, assembled on read.
+
+           Nothing here is cached, and it is fetched only when this tab or the
+           day-view tile is opened. Same structural privacy as the cycle log:
+           a signed-out phone in someone else's hand has nothing to show. -->
+      <section class="view" id="view-journal">
+        <div class="day-toolbar">
+          <span class="day-title">Journal</span>
+          <button class="ghost" onclick="exportJournal()">Download as .md</button>
+        </div>
+        <div class="jr-compose">
+          <textarea id="jr-new" rows="4" placeholder="Write something about today…"
+            oninput="autoGrow(this)" onkeydown="if((event.metaKey||event.ctrlKey)&&event.key==='Enter')saveJournalEntry('tab')"></textarea>
+          <div class="jr-compose-foot">
+            <span class="jr-hint" id="jr-tab-when"></span>
+            <button class="primary" onclick="saveJournalEntry('tab')">Save entry</button>
+          </div>
+        </div>
+        <div id="journal-list"></div>
       </section>
 
       <!-- ============ ASSIGNMENTS VIEW ============
@@ -1478,6 +1531,11 @@ footer button { font: inherit; font-size: var(--fs-sm); border: none; background
         <span class="sm-title"><strong>Exercises</strong><span class="sm-sub" id="activity-count-label"></span></span>
         <span class="sm-chevron" data-ico="chevron-right"></span>
       </button>
+      <!-- Same fixed-string reasoning as the cycle row below. -->
+      <button class="settings-menu-row" onclick="openJournalSubmodal()">
+        <span class="sm-title"><strong>Journal</strong><span class="sm-sub">Only ever shown here and on its tab</span></span>
+        <span class="sm-chevron" data-ico="chevron-right"></span>
+      </button>
       <!-- The sub-label is a fixed string, not a count. Every other row here
            summarises its data; this one deliberately doesn't, because the
            summary would be the private part. -->
@@ -1570,6 +1628,23 @@ footer button { font: inherit; font-size: var(--fs-sm); border: none; background
       <div class="routine-row" style="border-bottom:none;margin-top:14px">
         <span class="r-title">Show the Skincare tile<div class="r-recur">The AM/PM tile on the day view, which is the only thing the morning/evening setting above affects — routine steps ignore it. Turning this off hides the tile completely; your products and their history stay put, and routines go on using them.</div></span>
         <button class="toggle" id="skin-show-toggle" onclick="toggleSkinVisible()"></button>
+      </div>
+    </div>
+  </div>
+</div>
+
+<div class="modal-bg" id="journal-submodal">
+  <div class="modal" style="max-width:460px">
+    <div class="modal-head"><strong>Journal</strong><button class="modal-x" data-ico="x" onclick="closeModal('journal-submodal')"></button></div>
+    <div class="modal-body">
+      <p style="font-size: var(--fs-sm);color:var(--muted);margin-bottom:6px">Entries live in the cloud only — never saved to this device, never included in the data export, and never sent to the assistant. Use <strong>Download as .md</strong> on the Journal tab to keep your own copy.</p>
+      <div class="routine-row">
+        <span class="r-title">Download everything<div class="r-recur">One markdown file, oldest first, with the date and time on every entry.</div></span>
+        <button onclick="exportJournal()">Download</button>
+      </div>
+      <div class="routine-row" style="border-bottom:none;margin-top:14px">
+        <span class="r-title">Show on the day view<div class="r-recur">The Journal tile beside your other trackers. It shows a count and never a preview. Turning this off hides the tile; the Journal tab and your entries stay.</div></span>
+        <button class="toggle" id="jr-show-toggle" onclick="toggleJournalVisible()"></button>
       </div>
     </div>
   </div>
@@ -4720,6 +4795,7 @@ function switchView(v){
   document.getElementById('view-week').classList.toggle('active', v==='week');
   document.getElementById('view-month').classList.toggle('active', v==='month');
   document.getElementById('view-routines').classList.toggle('active', v==='routines');
+  document.getElementById('view-journal').classList.toggle('active', v==='journal');
   // Remembered so the tab returns to the period she was last using rather than
   // silently resetting to Day every time she comes back from Assignments.
   if(isCal && SETTINGS && SETTINGS.calendarPeriod !== v){ SETTINGS.calendarPeriod = v; touch(SETTINGS); saveToStorage(); }
@@ -4730,8 +4806,15 @@ function switchView(v){
   // The sidebar is this-week/this-month agenda tasks and the meal plan; on the
   // coursework list it is someone else's column of unrelated things.
   document.body.classList.toggle('assign-view', v==='assign');
-  // The sidebar is agenda tasks and meals; the routine library is neither.
-  document.body.classList.toggle('routines-view', v==='routines');
+  // The sidebar is agenda tasks and meals; the routine library is neither, and
+  // neither is a page she is writing on.
+  document.body.classList.toggle('routines-view', v==='routines' || v==='journal');
+  if(v === 'journal'){
+    // Re-read on open, and paint the loading state first. Never cached, so this
+    // is the only way it is ever on screen.
+    renderJournal();
+    loadJournal(true).then(() => { renderJournal(); renderStripGrid(); });
+  }
   if(v === 'routines'){
     // Re-read on open, same as the other tabs: she may have ticked a step on
     // her phone, and progress has to be right for *today* specifically.
@@ -5926,6 +6009,249 @@ function healthPanelHtml(){
 }
 
 /* =====================================================================
+   JOURNAL — short entries, kept as rows, read as a document.
+
+   The "master document" is assembled on read. Storing it *as* a document
+   (a Google Doc, a file) would mean fetching it, finding its end and writing
+   there on every entry: two calls that can each fail, no offline story, and a
+   merge problem the first time she edits it by hand. An entry that silently
+   did not save is the worst outcome this feature has, so the write is one
+   insert that either lands or visibly did not.
+
+   Privacy follows the cycle log exactly, and deliberately:
+     - never cached — no localStorage, re-read on every open, never held
+     - not in exportJson() — the .md export is a separate, explicit action
+     - not in the assistant's prompt, which takes named arguments rather than
+       sweeping state, so this stays out by construction unless someone adds it
+     - rendered only where she opens it
+
+   `entry_date` is the day the entry is *about*; `created_at` is when she wrote
+   it. Writing tonight about yesterday files under yesterday, the same bargain
+   the skincare panel makes, and the clock time shown is always the real one.
+   ===================================================================== */
+let JOURNAL = null;         // rows, newest first. null = not loaded.
+let _jrError = null;
+let _jrDelArmed = null;     // entry id whose delete is awaiting confirmation
+
+async function loadJournal(force){
+  if(JOURNAL && !force) return;
+  _jrError = null;
+  if(_guestMode || !_currentUser){ JOURNAL = []; return; }
+  const {data, error} = await sb.from('journal_entries')
+    .select('id, entry_date, body, created_at')
+    .eq('user_id', _currentUser.id)
+    .order('entry_date', {ascending: false})
+    .order('created_at', {ascending: false});
+  if(error){ _jrError = error.message || String(error); return; }
+  JOURNAL = data || [];
+}
+function journalOn(dateStr){
+  return JOURNAL ? JOURNAL.filter(e => e.entry_date === dateStr) : [];
+}
+function jrTime(iso){
+  const d = new Date(iso);
+  return isNaN(d) ? '' : d.toLocaleTimeString(undefined, {hour: 'numeric', minute: '2-digit'});
+}
+// The textarea grows with what she writes rather than scrolling inside itself —
+// a box that hides the top of your own paragraph is a box you stop writing in.
+function autoGrow(el){
+  if(!el) return;
+  el.style.height = 'auto';
+  el.style.height = el.scrollHeight + 'px';
+}
+
+/* Optimistic like every other write here, and for the same reason: a journal
+   that pauses on the network before acknowledging what you typed feels like it
+   lost it. The row goes in with a temporary id and the insert swaps in the
+   real one. A failure puts the text back in the box rather than only warning —
+   the words are the thing that must not be lost. */
+async function saveJournalEntry(where){
+  const box = document.getElementById(where === 'tab' ? 'jr-new' : 'jr-panel-input');
+  if(!box) return;
+  const body = box.value.trim();
+  if(!body) return;
+  if(_guestMode || !_currentUser){ showNotice('Sign in to keep a journal.', 'warn'); return; }
+  // The tab writes to today; the day-view tile writes to the day on screen.
+  const date = where === 'tab' ? todayStr() : currentDate;
+  if(!JOURNAL) JOURNAL = [];
+
+  const temp = {id: 'tmp-' + newId(), entry_date: date, body, created_at: new Date().toISOString()};
+  JOURNAL.unshift(temp);
+  box.value = '';
+  autoGrow(box);
+  renderJournal(); renderStripGrid();
+
+  try{
+    const {data, error} = await sb.from('journal_entries')
+      .insert({user_id: _currentUser.id, entry_date: date, body})
+      .select('id, created_at').single();
+    if(error) throw error;
+    temp.id = data.id;
+    temp.created_at = data.created_at;
+    renderJournal();
+  }catch(e){
+    const i = JOURNAL.indexOf(temp);
+    if(i >= 0) JOURNAL.splice(i, 1);
+    // Handed back, not just apologised for.
+    box.value = body;
+    autoGrow(box);
+    renderJournal(); renderStripGrid();
+    showNotice("Couldn't save that entry — it's still in the box.", 'warn');
+  }
+}
+
+// Two taps, because there is no undo for a deleted entry and the words are not
+// recoverable from anywhere else.
+async function deleteJournalEntry(id){
+  if(_jrDelArmed !== String(id)){
+    _jrDelArmed = String(id);
+    renderJournal();
+    setTimeout(() => { if(_jrDelArmed === String(id)){ _jrDelArmed = null; renderJournal(); } }, 4000);
+    return;
+  }
+  _jrDelArmed = null;
+  const i = JOURNAL.findIndex(e => String(e.id) === String(id));
+  if(i < 0) return;
+  const [row] = JOURNAL.splice(i, 1);
+  renderJournal(); renderStripGrid();
+  if(String(row.id).startsWith('tmp-')) return;   // never reached the server
+  try{
+    const {error} = await sb.from('journal_entries').delete().eq('id', row.id);
+    if(error) throw error;
+  }catch(e){
+    JOURNAL.splice(i, 0, row);
+    renderJournal(); renderStripGrid();
+    showNotice("Couldn't delete that one.", 'warn');
+  }
+}
+
+function jrEntryHtml(e){
+  const armed = _jrDelArmed === String(e.id);
+  return `<div class="jr-entry">
+      <span class="jr-time">${esc(jrTime(e.created_at))}</span>
+      <span class="jr-body">${esc(e.body)}</span>
+      <button class="jr-del ${armed?'confirm':''}" onclick="deleteJournalEntry('${esc(e.id)}')" title="Delete this entry">${armed ? 'Delete?' : ico('trash')}</button>
+    </div>`;
+}
+
+function renderJournal(){
+  const box = document.getElementById('journal-list');
+  if(!box) return;
+  const when = document.getElementById('jr-tab-when');
+  if(when) when.textContent = _currentUser && !_guestMode ? 'Saves to today · ⌘↵' : '';
+  if(_guestMode || !_currentUser){
+    box.innerHTML = '<p class="empty-note">Sign in to keep a journal — it lives in the cloud only, never on this device.</p>';
+    return;
+  }
+  if(_jrError){ box.innerHTML = `<p class="empty-note">Couldn't load: ${esc(_jrError)}</p>`; return; }
+  if(!JOURNAL){ box.innerHTML = '<p class="empty-note">Loading…</p>'; return; }
+  if(!JOURNAL.length){ box.innerHTML = '<p class="empty-note">Nothing written yet. Whatever you type above lands under today.</p>'; return; }
+
+  // Grouped by the day the entry is about, newest day first. The rows arrive in
+  // that order already, so this only has to notice where the date changes.
+  const days = [];
+  JOURNAL.forEach(e => {
+    const last = days[days.length - 1];
+    if(last && last.date === e.entry_date) last.entries.push(e);
+    else days.push({date: e.entry_date, entries: [e]});
+  });
+  box.innerHTML = days.map(d => `<div class="jr-day">
+      <div class="jr-date">${esc(fmtLong(d.date))}${d.date === todayStr() ? ' · today' : ''}</div>
+      ${d.entries.map(jrEntryHtml).join('')}
+    </div>`).join('');
+  paintIcons(box);
+}
+
+/* ---- the day-view tile ---- */
+function jrVisible(){
+  const s = SETTINGS.journal;
+  return !s || typeof s !== 'object' || s.show !== false;
+}
+function toggleJournalVisible(){
+  if(!SETTINGS.journal || typeof SETTINGS.journal !== 'object') SETTINGS.journal = {};
+  SETTINGS.journal.show = !jrVisible();
+  touch(SETTINGS.journal);
+  saveToStorage();
+  renderStripGrid();
+}
+function journalTileHtml(){
+  if(!jrVisible() || _guestMode || !_currentUser) return '';
+  const open = _openStrip === 'journal';
+  const n = JOURNAL ? journalOn(currentDate).length : 0;
+  // A count, never a preview. The tile sits on the main screen and the words
+  // are the private part — the same reasoning that keeps the Health tile mute,
+  // one step softer because knowing you wrote something is not itself telling.
+  const marks = !JOURNAL ? '' : (n ? `<span>${n} ${n === 1 ? 'entry' : 'entries'}</span>` : '<span>nothing yet</span>');
+  return `<button class="sg-tile ${open?'open':''}" onclick="toggleStrip('journal')" title="Journal">
+      <span class="sg-tile-head">
+        <span data-ico="pencil"></span>
+        <span class="sg-name">Journal</span>
+        <span class="sk-chevron ${open?'open':''}" data-ico="chevron-right"></span>
+      </span>
+      <span class="sg-marks">${marks}</span>
+    </button>`;
+}
+function journalPanelHtml(){
+  let body;
+  if(_jrError){
+    body = `<p class="empty-note" style="padding:2px 0 6px">Couldn't load: ${esc(_jrError)}</p>`;
+  }else if(!JOURNAL){
+    body = `<p class="empty-note" style="padding:2px 0 6px">Loading…</p>`;
+  }else{
+    const todays = journalOn(currentDate);
+    body = `<textarea class="jr-panel-box" id="jr-panel-input" rows="3" placeholder="A few lines…"
+        oninput="autoGrow(this)" onkeydown="if((event.metaKey||event.ctrlKey)&&event.key==='Enter')saveJournalEntry('panel')"></textarea>
+      <div class="jr-compose-foot">
+        <span class="jr-hint">⌘↵ to save</span>
+        <button class="act-save" onclick="saveJournalEntry('panel')">Save entry</button>
+      </div>`
+      + (todays.length ? `<div class="jr-earlier">${todays.map(jrEntryHtml).join('')}</div>` : '');
+  }
+  const when = currentDate === todayStr() ? 'Writing about today' : `Writing about ${fmtLong(currentDate)}`;
+  return `<div class="skin-panel">
+      <div class="skin-panel-head"><span class="sk-when">${esc(when)}</span></div>
+      ${body}
+      <div class="skin-panel-foot"><button class="sk-manage" onclick="switchView('journal')">Read the whole journal</button></div>
+    </div>`;
+}
+async function ensureJournalLoaded(){
+  if(JOURNAL || _guestMode || !_currentUser) return;
+  await loadJournal();
+  renderStripGrid();
+}
+
+/* The export. One markdown file, oldest first — a journal reads forward even
+   though the app shows it backward. This is the answer to "what if I want it
+   outside the app": the rows are the store, this is the portable copy, and it
+   is a deliberate action rather than something that rides along in the JSON
+   export beside her tasks. */
+function openJournalSubmodal(){
+  openModal('journal-submodal');
+  const t = document.getElementById('jr-show-toggle');
+  if(t) t.classList.toggle('on', jrVisible());
+  // The export needs the rows, and this modal is a place she might reach for it
+  // without having opened the tab.
+  loadJournal();
+}
+function exportJournal(){
+  if(!JOURNAL || !JOURNAL.length){ showNotice('Nothing to export yet.', 'warn'); return; }
+  const byDay = {};
+  JOURNAL.forEach(e => { (byDay[e.entry_date] = byDay[e.entry_date] || []).push(e); });
+  const lines = ['# Journal', ''];
+  Object.keys(byDay).sort().forEach(date => {
+    lines.push(`## ${fmtLong(date)}`, '');
+    byDay[date].slice().sort((a, b) => String(a.created_at).localeCompare(String(b.created_at)))
+      .forEach(e => { lines.push(`**${jrTime(e.created_at)}**`, '', e.body, ''); });
+  });
+  const blob = new Blob([lines.join('\n')], {type: 'text/markdown'});
+  const a = document.createElement('a');
+  a.href = URL.createObjectURL(blob);
+  a.download = `journal-${todayStr()}.md`;
+  a.click();
+  URL.revokeObjectURL(a.href);
+}
+
+/* =====================================================================
    ACTIVITY — lifting and cardio.
 
    Split across the two stores the app already uses, along the line it already
@@ -6337,6 +6663,7 @@ function toggleStrip(name){
   // showing its own loading state while the rows are on the way.
   if(_openStrip === 'health') ensureCycleLoaded();
   if(_openStrip === 'activity') ensureActivityLoaded();
+  if(_openStrip === 'journal') ensureJournalLoaded();
 }
 
 function renderStripGrid(){
@@ -6350,6 +6677,7 @@ function renderStripGrid(){
   const tiles = [
     ['skin', skinTileHtml()],
     ['activity', actTileHtml()],
+    ['journal', journalTileHtml()],
     ['health', healthTileHtml()]
   ].filter(([, html]) => html);
 
@@ -6363,7 +6691,8 @@ function renderStripGrid(){
 
   const panel = _openStrip === 'skin' ? skinPanelHtml()
               : _openStrip === 'health' ? healthPanelHtml()
-              : _openStrip === 'activity' ? actPanelHtml() : '';
+              : _openStrip === 'activity' ? actPanelHtml()
+              : _openStrip === 'journal' ? journalPanelHtml() : '';
 
   el.innerHTML = `<div class="sg-tiles">${tiles.map(([, html]) => html).join('')}</div>`
                + `<div class="sg-panel">${panel}</div>`;
