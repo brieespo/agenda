@@ -905,6 +905,10 @@ a.meal-title:hover .meal-link-ico { opacity: 1; }
 .jr-panel-box:focus { outline: none; border-color: var(--accent); }
 .jr-earlier { margin-top: 10px; padding-top: 8px; border-top: 1px solid var(--hairline); }
 
+/* ---- perfume ---- */
+.pf-search { width: 100%; font: inherit; font-size: var(--fs-base); padding: 7px 10px; border: 1px solid var(--border); border-radius: 9px; background: var(--page); color: var(--ink); margin-bottom: 8px; }
+.pf-search:focus { outline: none; border-color: var(--accent); }
+
 /* ---- absences ----
    A record, not a scoreboard. The count only turns warm when she is actually
    near the limit she set, because a red 1/3 in week two would be a nag about a
@@ -1846,6 +1850,9 @@ const ICONS = {
   // A pulse trace rather than a running figure — a runner is unreadable at this
   // size, and cardio is the thing being labelled, not running specifically.
   "pulse": '<polyline points="3 12 7 12 9.5 6.5 14.5 17.5 17 12 21 12"/>',
+  // A bottle with a shoulder and a cap. Skincare already owns the droplet, and
+  // two tiles sharing a glyph is the one thing a row of tiles cannot afford.
+  "bottle": '<path d="M10 2h4v3h-4z"/><path d="M9 8.5A2 2 0 0 1 10.4 6.6L10.6 5h2.8l.2 1.6A2 2 0 0 1 15 8.5V19a2 2 0 0 1-2 2h-2a2 2 0 0 1-2-2z"/><line x1="9" y1="12" x2="15" y2="12"/>',
   "external": '<path d="M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6"/><polyline points="15 3 21 3 21 9"/><line x1="10" y1="14" x2="21" y2="3"/>',
   "eye": '<path d="M2 12s3.5-7 10-7 10 7 10 7-3.5 7-10 7-10-7-10-7z"/><circle cx="12" cy="12" r="3"/>',
   "eye-off": '<path d="M17.9 17.9A10.4 10.4 0 0 1 12 19c-6.5 0-10-7-10-7a18.6 18.6 0 0 1 5.1-5.9"/><path d="M9.9 4.2A10.6 10.6 0 0 1 12 4c6.5 0 10 7 10 7a18.7 18.7 0 0 1-2.2 3.2"/><path d="M9.9 9.9a3 3 0 0 0 4.2 4.2"/><line x1="2" y1="2" x2="22" y2="22"/>',
@@ -6009,6 +6016,227 @@ function healthPanelHtml(){
 }
 
 /* =====================================================================
+   PERFUME — a cross-app tile writing into the perfume tracker's row.
+
+   It owns nothing. `perfume_data.perfumes` is her library and
+   `perfume_data.wear_log` is the record; this is a second surface onto both,
+   exactly as the Assignments tab is a second surface onto the law tracker's
+   coursework. Nothing is duplicated here, so nothing can disagree.
+
+   Which means it follows the same cross-app rule, for the same reason:
+   **re-read the row immediately before writing, and send back only the columns
+   this touched.** The perfume app may be open in another tab holding its own
+   `note_map` and `settings`; writing the whole row from a stale read would undo
+   whatever she just did there.
+
+   Known hazard, and it is the tracker's to fix, not this app's: the perfume app
+   saves with a whole-row upsert from its in-memory copy and does not re-read
+   first. A perfume tab left open in the background with a stale `wear_log` will
+   carry that array back up and delete anything logged here in the meantime.
+   Same documented whole-row last-write-wins hole the time tracker has. Logging
+   from here and then reloading the perfume tab before touching it is safe;
+   logging here while an untouched stale perfume tab is open is not.
+   ===================================================================== */
+let PERFUMES = null;        // her library. null = not loaded.
+let PERFUME_WEAR = null;    // [{id, perfume_id, date}]
+let _pfError = null, _pfQuery = '', _pfBusy = false;
+
+async function loadPerfumes(force){
+  if((PERFUMES && !force) || _guestMode || !_currentUser) return;
+  _pfError = null;
+  const {data, error} = await sb.from('perfume_data')
+    .select('perfumes, wear_log').eq('user_id', _currentUser.id).maybeSingle();
+  if(error){ _pfError = error.message || String(error); return; }
+  PERFUMES = (data && Array.isArray(data.perfumes)) ? data.perfumes : [];
+  PERFUME_WEAR = (data && Array.isArray(data.wear_log)) ? data.wear_log : [];
+}
+async function ensurePerfumesLoaded(){
+  if(PERFUMES || _guestMode || !_currentUser) return;
+  await loadPerfumes();
+  renderStripGrid();
+}
+function perfumeById(id){ return (PERFUMES || []).find(p => String(p.id) === String(id)) || null; }
+function wornOn(dateStr){
+  return (PERFUME_WEAR || []).filter(w => w.date === dateStr);
+}
+// Owned first, then sampled, then everything else, and alphabetical inside each
+// — what she is most likely to have reached for should be the shortest scroll.
+const PF_RANK = {owned: 0, finished: 1, sampled: 2, to_try: 3, sold: 4};
+function perfumeMatches(q){
+  const needle = q.trim().toLowerCase();
+  const list = (PERFUMES || []).filter(p => {
+    if(!needle) return p.status === 'owned' || p.status === 'finished';
+    return `${p.name || ''} ${p.house || ''}`.toLowerCase().includes(needle);
+  });
+  return list.sort((a, b) =>
+    (PF_RANK[a.status] ?? 9) - (PF_RANK[b.status] ?? 9) ||
+    String(a.name || '').localeCompare(String(b.name || ''))
+  ).slice(0, needle ? 12 : 8);
+}
+function pfLabel(p){ return p.house ? `${p.name} · ${p.house}` : (p.name || 'Untitled'); }
+
+/* The cross-app write. Described as an edit and applied to the freshly re-read
+   row rather than to the copy held here, the same shape commitLawEdit uses —
+   and serialized, because two quick taps would otherwise both re-read the same
+   row and the second would carry the first's entry away. */
+let _pfQueue = Promise.resolve();
+function commitPerfumeEdit(edit){
+  if(_guestMode || !_currentUser){ showNotice('Sign in to log perfume.', 'warn'); return; }
+  applyPerfumeEdit({perfumes: PERFUMES, wear: PERFUME_WEAR}, edit);   // optimistic
+  _pfQuery = '';
+  renderStripGrid();
+  _pfQueue = _pfQueue.then(async () => {
+    try{
+      const {data, error} = await sb.from('perfume_data')
+        .select('perfumes, wear_log').eq('user_id', _currentUser.id).maybeSingle();
+      if(error) throw error;
+      const fresh = {
+        perfumes: (data && Array.isArray(data.perfumes)) ? data.perfumes : [],
+        wear: (data && Array.isArray(data.wear_log)) ? data.wear_log : []
+      };
+      if(!applyPerfumeEdit(fresh, edit)) throw new Error('that perfume is no longer in your tracker');
+      // Only the two columns this touched. note_map and settings are the
+      // perfume app's and are not ours to round-trip.
+      const patch = {wear_log: fresh.wear, updated_at: new Date().toISOString()};
+      if(edit.kind === 'add-and-wear') patch.perfumes = fresh.perfumes;
+      const {error: wErr} = await sb.from('perfume_data')
+        .update(patch).eq('user_id', _currentUser.id).select('user_id');
+      if(wErr) throw wErr;
+      PERFUMES = fresh.perfumes; PERFUME_WEAR = fresh.wear;
+      renderStripGrid();
+    }catch(err){
+      console.error('perfume write error:', err);
+      showNotice("Couldn't save that to your perfume tracker — reloading what's there.", 'warn');
+      await loadPerfumes(true);
+      renderStripGrid();
+    }
+  });
+}
+/* Applied twice — once to what is on screen, once to the re-read row — so it
+   carries the values it sets rather than saying "toggle", which would land back
+   where it started on the second application. */
+function applyPerfumeEdit(state, e){
+  const already = (p, d) => state.wear.some(w => String(w.perfume_id) === String(p) && w.date === d);
+  if(e.kind === 'wear'){
+    if(!perfumeInList(state.perfumes, e.perfumeId)) return false;
+    if(already(e.perfumeId, e.date)) return true;    // logging twice is a no-op, not a failure
+    state.wear.push({id: nextWearId(state), perfume_id: e.perfumeId, date: e.date});
+    return true;
+  }
+  if(e.kind === 'unwear'){
+    const i = state.wear.findIndex(w => String(w.perfume_id) === String(e.perfumeId) && w.date === e.date);
+    if(i >= 0) state.wear.splice(i, 1);
+    return true;
+  }
+  if(e.kind === 'add-and-wear'){
+    // A write-in becomes a real perfume marked `sampled` — she wore it, so
+    // that is true — carrying the fields the tracker expects so its own screens
+    // never meet a half-built record. She fills in notes and a rating there.
+    if(!perfumeInList(state.perfumes, e.perfume.id)) state.perfumes.push(e.perfume);
+    if(!already(e.perfume.id, e.date))
+      state.wear.push({id: nextWearId(state), perfume_id: e.perfume.id, date: e.date});
+    return true;
+  }
+  return false;
+}
+function perfumeInList(list, id){ return (list || []).some(p => String(p.id) === String(id)); }
+// The tracker mints ids as max+1 across *both* perfumes and wear entries, and
+// this matches that rather than using the suite's newId(): a clock-seeded id
+// here would push its counter to ~1.8e15 and every perfume she added there
+// afterwards would carry a sixteen-digit id. Computed from the freshly re-read
+// row, so the collision window is the length of one write.
+function nextWearId(state){
+  return Math.max(0, ...(state.perfumes || []).map(p => Number(p.id) || 0),
+                     ...(state.wear || []).map(w => Number(w.id) || 0)) + 1;
+}
+
+function wearPerfume(id){ commitPerfumeEdit({kind: 'wear', perfumeId: id, date: currentDate}); }
+function unwearPerfume(id){ commitPerfumeEdit({kind: 'unwear', perfumeId: id, date: currentDate}); }
+function onPerfumeSearch(v){
+  _pfQuery = v;
+  renderPerfumeResults();   // only the list, so the box keeps focus and caret
+}
+function addPerfumeWriteIn(){
+  const box = document.getElementById('pf-search');
+  const name = (box ? box.value : '').trim();
+  if(!name) return;
+  const hit = (PERFUMES || []).find(p => String(p.name || '').toLowerCase() === name.toLowerCase());
+  if(hit) return wearPerfume(hit.id);
+  const id = Math.max(0, ...(PERFUMES || []).map(p => Number(p.id) || 0),
+                         ...(PERFUME_WEAR || []).map(w => Number(w.id) || 0)) + 1;
+  commitPerfumeEdit({kind: 'add-and-wear', date: currentDate, perfume: {
+    id, name, house: '', status: 'sampled', price: null, size_ml: null,
+    acquired: '', rating: null, notes_raw: '', notes: [], notes_reviewed: true,
+    description: '', thoughts: '', all_natural: null,
+    history: [{status: 'sampled', date: todayStr()}]
+  }});
+}
+
+function perfumeTileHtml(){
+  if(_guestMode || !_currentUser) return '';
+  const open = _openStrip === 'perfume';
+  const worn = PERFUME_WEAR ? wornOn(currentDate) : [];
+  // Names, not a count: what she wore is the interesting fact and it is not
+  // private the way the journal or the cycle log are.
+  const marks = !PERFUME_WEAR ? ''
+    : worn.length
+      ? `<span>${esc(worn.map(w => (perfumeById(w.perfume_id) || {}).name || '—').join(', '))}</span>`
+      : '<span>nothing yet</span>';
+  return `<button class="sg-tile ${open?'open':''}" onclick="toggleStrip('perfume')" title="Perfume">
+      <span class="sg-tile-head">
+        <span data-ico="bottle"></span>
+        <span class="sg-name">Perfume</span>
+        <span class="sk-chevron ${open?'open':''}" data-ico="chevron-right"></span>
+      </span>
+      <span class="sg-marks">${marks}</span>
+    </button>`;
+}
+function renderPerfumeResults(){
+  const el = document.getElementById('pf-results');
+  if(!el) return;
+  el.innerHTML = perfumeResultsHtml();
+  paintIcons(el);
+}
+function perfumeResultsHtml(){
+  const worn = wornOn(currentDate).map(w => String(w.perfume_id));
+  const list = perfumeMatches(_pfQuery);
+  const chips = list.map(p => {
+    const on = worn.includes(String(p.id));
+    return `<button class="sk-chip ${on?'on':''} ${p.status !== 'owned' && p.status !== 'finished' ? 'sample' : ''}"
+        onclick="${on ? `unwearPerfume('${esc(p.id)}')` : `wearPerfume('${esc(p.id)}')`}" title="${esc(p.status || '')}">
+      <span class="sk-ring">${on?ico('check'):''}</span>${esc(pfLabel(p))}</button>`;
+  }).join('');
+  const q = _pfQuery.trim();
+  const exact = q && (PERFUMES || []).some(p => String(p.name || '').toLowerCase() === q.toLowerCase());
+  // Offered only when nothing in the library already answers to that name, so
+  // the way to log something she owns is never "type it in again".
+  const writeIn = (q && !exact)
+    ? `<button class="sk-add" onclick="addPerfumeWriteIn()">+ Add “${esc(q)}” as a sample</button>` : '';
+  if(!chips && !writeIn) return `<p class="empty-note" style="padding:2px 0">${q ? 'Nothing matches.' : 'Nothing owned in your tracker yet.'}</p>`;
+  return `<div class="sk-chips">${chips}${writeIn}</div>`;
+}
+function perfumePanelHtml(){
+  let body;
+  if(_pfError){
+    body = `<p class="empty-note" style="padding:2px 0 6px">Couldn't reach your perfume tracker: ${esc(_pfError)}</p>`;
+  }else if(!PERFUMES){
+    body = `<p class="empty-note" style="padding:2px 0 6px">Loading…</p>`;
+  }else{
+    body = `<input type="text" class="pf-search" id="pf-search" placeholder="Search your perfumes, or type a new one…"
+        autocomplete="off" value="${esc(_pfQuery)}"
+        oninput="onPerfumeSearch(this.value)"
+        onkeydown="if(event.key==='Enter')addPerfumeWriteIn()">
+      <div id="pf-results">${perfumeResultsHtml()}</div>`;
+  }
+  const when = currentDate === todayStr() ? 'Logging today' : `Logging ${fmtLong(currentDate)}`;
+  return `<div class="skin-panel">
+      <div class="skin-panel-head"><span class="sk-when">${esc(when)}</span></div>
+      ${body}
+      <div class="skin-panel-foot"><button class="sk-manage" onclick="window.open('https://brieespo.github.io/perfume-tracker/','_blank','noopener')">Open your perfume tracker</button></div>
+    </div>`;
+}
+
+/* =====================================================================
    JOURNAL — short entries, kept as rows, read as a document.
 
    The "master document" is assembled on read. Storing it *as* a document
@@ -6664,6 +6892,10 @@ function toggleStrip(name){
   if(_openStrip === 'health') ensureCycleLoaded();
   if(_openStrip === 'activity') ensureActivityLoaded();
   if(_openStrip === 'journal') ensureJournalLoaded();
+  if(_openStrip === 'perfume'){
+    _pfQuery = '';
+    ensurePerfumesLoaded().then(() => { const b = document.getElementById('pf-search'); if(b) b.focus(); });
+  }
 }
 
 function renderStripGrid(){
@@ -6677,6 +6909,7 @@ function renderStripGrid(){
   const tiles = [
     ['skin', skinTileHtml()],
     ['activity', actTileHtml()],
+    ['perfume', perfumeTileHtml()],
     ['journal', journalTileHtml()],
     ['health', healthTileHtml()]
   ].filter(([, html]) => html);
@@ -6692,7 +6925,8 @@ function renderStripGrid(){
   const panel = _openStrip === 'skin' ? skinPanelHtml()
               : _openStrip === 'health' ? healthPanelHtml()
               : _openStrip === 'activity' ? actPanelHtml()
-              : _openStrip === 'journal' ? journalPanelHtml() : '';
+              : _openStrip === 'journal' ? journalPanelHtml()
+              : _openStrip === 'perfume' ? perfumePanelHtml() : '';
 
   el.innerHTML = `<div class="sg-tiles">${tiles.map(([, html]) => html).join('')}</div>`
                + `<div class="sg-panel">${panel}</div>`;
