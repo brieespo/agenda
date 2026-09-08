@@ -118,6 +118,17 @@
     --accent-strong: #eba36e;
     --accent-light: #3a2716;
     --bleed: #e2647a;
+    /* The status colours were defined once, for light, and never overridden
+       here — so `--good-text` (#006300) rendered as near-black on a near-black
+       page wherever something was finished, and `--critical` sat well under the
+       contrast a warning needs. Lightened to carry the same meanings against a
+       dark ground; `--good` keeps its saturation because it fills a checkbox
+       rather than setting text. */
+    --good: #4fbf5a;
+    --good-text: #7ed88a;
+    --warning: #f2b542;
+    --serious: #f0956c;
+    --critical: #ef7a72;
     /* Was `none`, which silently broke the hover language: cards still ran
        translateY(-1px) with nothing to show for it, so the lift read as a
        twitch. A dark surface can't cast a visible shadow onto an already-dark
@@ -137,7 +148,11 @@
     --accent: #3987e5;
     --accent-strong: #6da7ec;
     --accent-light: #16233a;
-    --good-text: #0ca30c;
+    --good: #3ecf4a;
+    --good-text: #5fdc6b;
+    --warning: #f2b542;
+    --serious: #f0956c;
+    --critical: #ef7a72;
     --shadow: 0 2px 10px rgba(0,0,0,0.5), inset 0 1px 0 rgba(255,255,255,0.05);
     --hover: rgba(255,255,255,0.05);
   }
@@ -146,7 +161,13 @@
 .icon { width: 1em; height: 1em; display: inline-block; vertical-align: -0.125em; flex: none; }
 .icon-lg { width: 1.6em; height: 1.6em; vertical-align: -0.35em; }
 body { font-family: var(--font); background: var(--page); color: var(--ink); line-height: var(--lh); font-variant-numeric: lining-nums; padding-bottom: 40px; }
-button, input, select, textarea { font-family: inherit; }
+/* `color: inherit` is load-bearing, not tidiness. A <button> that sets no color
+   of its own falls back to the UA's `buttontext`, which is **black regardless
+   of the page** — invisible on a dark background. It went unnoticed for as long
+   as it did because black on cream looks deliberate; the settings menu, the
+   month cells and the meal picker were all rendering in it. Any button added
+   from here on inherits the right colour without having to remember. */
+button, input, select, textarea { font-family: inherit; color: inherit; }
 a { color: var(--accent); }
 
 /* One focus ring for the whole app. There wasn't one, so tabbing through fell
@@ -914,6 +935,23 @@ a.meal-title:hover .meal-link-ico { opacity: 1; }
    the legend is there so she is not opening settings to remember what is in it. */
 .med-n { margin-left: 6px; font-size: var(--fs-micro); color: var(--muted); font-variant-numeric: tabular-nums; }
 .sk-chip.on .med-n { color: var(--ink-2); }
+/* One chip per medication, grouped by dose. The slot label carries the count,
+   which is where the "did I miss one" answer lives now that the chips are
+   per item. */
+.cyc-med { align-items: flex-start; }
+.cyc-med > .icon { margin-top: 5px; }
+.med-slots { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 8px; }
+.med-slot-label { display: flex; align-items: baseline; gap: 6px; font-size: var(--fs-micro); text-transform: uppercase; letter-spacing: var(--tracking-caps); color: var(--muted); margin-bottom: 4px; }
+.med-dose-inline { margin-left: 5px; font-size: var(--fs-xs); color: var(--muted); font-variant-numeric: tabular-nums; }
+.sk-chip.on .med-dose-inline { color: var(--ink-2); }
+.sk-chip.owed { border-style: dashed; border-color: var(--warning); }
+.sk-chip.owed:hover { border-color: var(--accent); }
+/* The day picker, opened per row in the settings list. */
+.med-days { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; padding: 0 0 10px 2px; }
+.med-day-all { font: inherit; font-size: var(--fs-xs); padding: 4px 10px; border-radius: 7px; border: 1px solid var(--border); background: var(--surface); color: var(--ink-2); cursor: pointer; }
+.med-day-all.on { border-color: var(--accent); background: var(--accent-light); color: var(--ink); font-weight: 600; }
+.med-retire { font: inherit; font-size: var(--fs-xs); padding: 4px 9px; border-radius: 7px; border: 1px solid var(--border); background: var(--surface); color: var(--ink-2); cursor: pointer; flex: none; }
+.med-retire:hover { border-color: var(--accent); color: var(--accent); }
 .med-legend { display: flex; flex-wrap: wrap; align-items: baseline; gap: 4px; font-size: var(--fs-xs); color: var(--muted); padding: 2px 0 0 28px; }
 .med-legend b { font-weight: 600; text-transform: uppercase; font-size: var(--fs-micro); letter-spacing: var(--tracking-caps); margin-right: 3px; }
 /* Each item tappable on its own — what a linked task marks, and what lets a
@@ -5693,7 +5731,7 @@ function renderSkincareList(){
       </select>
       <button onclick="moveSkinProduct(${p.id},-1)" title="Move up" ${i===0?'disabled style="opacity:.25"':''}>&uarr;</button>
       <button onclick="moveSkinProduct(${p.id},1)" title="Move down" ${i===prods.length-1?'disabled style="opacity:.25"':''}>&darr;</button>
-      <button onclick="toggleSkinRetired(${p.id})" title="${p.active===false?'Bring it back':'Retire — keeps the history, hides the chip'}" data-ico="${p.active===false?'eye':'eye-off'}"></button>
+      <button onclick="toggleSkinRetired(${p.id})" title="${p.active===false?'Bring it back':'Retire — keeps the history, hides the chip'}" data-ico="${p.active===false?'eye-off':'eye'}"></button>
       <button class="danger" onclick="deleteSkinProduct(${p.id})" title="Delete" data-ico="trash"></button>
     </div>`).join('')
     : `<p class="empty-note">No products yet. Add them below, or <button class="sk-manage" onclick="seedSkinStarter()">start from a common list</button> and rename from there.</p>`;
@@ -6190,7 +6228,7 @@ function medCarries(m){ return medCarryFloor(m) !== null; }
 function medOutstandingOn(dateStr){
   const out = [];
   medItems().forEach(m => {
-    if(m.active === false) return;
+    if(m.active === false || m.hidden) return;
     const floor = medCarryFloor(m);
     if(floor === null) return;
     const slot = m.when === 'both' ? 'am' : m.when;
@@ -6219,6 +6257,23 @@ function medTakenSince(m, from, upto){
     if(cell.am.includes(m.k) || cell.pm.includes(m.k)) return true;
   }
   return false;
+}
+
+/* What the panel offers, as opposed to what is due. `hidden` is a third state
+   alongside active and retired, and the three answer different questions:
+   retired is "I have stopped taking this", hidden is "I still take it, but I
+   do not want it listed on my day view", and active is neither. A hidden
+   medication is still due, still logged by any task linked to it, and still in
+   its history — it simply is not on screen. */
+function medsShownOn(dateStr, slot){
+  return medsDueOn(dateStr, slot).filter(m => !m.hidden);
+}
+function toggleMedHidden(id){
+  const m = medById(id);
+  if(!m) return;
+  m.hidden = !m.hidden;
+  if(!m.hidden) delete m.hidden;
+  touch(m); afterMedEdit();
 }
 
 function medLogFor(dateStr){
@@ -6254,7 +6309,7 @@ function writeMedLog(dateStr, cell){
 // How much of a dose is done. `all` is what the chip lights on; `some` is what
 // stops it claiming a partly-taken dose is untouched.
 function medSlotState(dateStr, slot){
-  const due = medsDueOn(dateStr, slot);
+  const due = medsShownOn(dateStr, slot);
   if(!due.length) return {due: 0, taken: 0, all: false, some: false};
   const cell = medLogFor(dateStr);
   const taken = due.filter(m => cell[slot].includes(m.k)).length;
@@ -6266,7 +6321,7 @@ function medSlotState(dateStr, slot){
 function toggleMedSlot(slot, date){
   const d = date || currentDate;
   const cell = medLogFor(d);
-  const due = medsDueOn(d, slot).map(m => m.k);
+  const due = medsShownOn(d, slot).map(m => m.k);
   cell[slot] = medSlotState(d, slot).all
     ? cell[slot].filter(k => !due.includes(k))
     : cell[slot].concat(due.filter(k => !cell[slot].includes(k)));
@@ -6296,47 +6351,44 @@ function toggleMedItem(key, slot, date, want){
 function medsRowHtml(date){
   if(!medVisible()) return '';
   const cell = medLogFor(date);
-  const slots = MED_SLOTS.map(([slot, label]) => ({slot, label, due: medsDueOn(date, slot)}))
+  const slots = MED_SLOTS.map(([slot, label]) => ({slot, label, due: medsShownOn(date, slot)}))
                          .filter(s => s.due.length);
+  const owed = medOutstandingOn(date).map(o =>
+    `<button class="sk-chip owed" onclick="toggleMedItem('${esc(o.m.k)}','${o.slot}','${esc(date)}',true);syncMedLinkedTasks('${esc(date)}');renderStripGrid()"
+       title="Was due ${esc(fmtLong(o.from))} — tap to log it as taken today">
+      <span class="sk-ring"></span>${esc(o.m.name)}<span class="med-from">from ${esc(fmtShort(o.from))}</span></button>`).join('');
+  const owedRow = owed
+    ? `<div class="med-slot"><div class="med-slot-label">Still owed</div><div class="sk-chips">${owed}</div></div>` : '';
+
   if(!slots.length){
-    // Nothing due today is a quiet day and says nothing — unless something is
-    // still owed from an earlier one, which is exactly when she needs the row.
-    const only = medOutstandingOn(date);
-    if(only.length) return `<div class="cyc-row">${icoCls('pill')}<div class="cyc-chips">${only.map(o =>
-        `<button class="sk-chip part" onclick="toggleMedItem('${esc(o.m.k)}','${o.slot}','${esc(date)}',true);syncMedLinkedTasks('${esc(date)}');renderStripGrid()"
-           title="Was due ${esc(fmtLong(o.from))}"><span class="sk-ring"></span>${esc(o.m.name)}<span class="med-from">from ${esc(fmtShort(o.from))}</span></button>`
-      ).join('')}</div></div>`;
+    if(owedRow) return `<div class="cyc-row cyc-med">${icoCls('pill')}<div class="med-slots">${owedRow}</div></div>`;
+    // Nothing due today is a quiet day and says nothing; nothing set up at all
+    // is worth an invitation.
     return medItems().length ? '' : `<div class="cyc-row">${icoCls('pill')}<div class="cyc-chips">
       <button class="sk-add" onclick="openMedsSubmodal()">+ add your medications</button></div></div>`;
   }
-  const chips = slots.map(s => {
+
+  /* One chip per medication, which is what she actually taps. It began as a
+     single chip per dose — the pill case having already done the per-item work
+     — but a dose is not always taken as a unit, and a control that can only say
+     "all of it" cannot record the ordinary morning where one of them is
+     skipped. The dose is still one action: "all" at the end of each row. */
+  const rows = slots.map(s => {
     const st = medSlotState(date, s.slot);
-    const names = s.due.map(m => m.name + (m.dose ? ` ${m.dose}` : '')).join(' · ');
-    // A part-done dose says so rather than rounding to yes or no — that is the
-    // whole reason the marks are per item underneath.
-    const count = st.all ? s.due.length : `${st.taken}/${s.due.length}`;
-    return `<button class="sk-chip ${st.all?'on':''} ${st.some && !st.all ? 'part':''}" onclick="toggleMedSlot('${s.slot}','${esc(date)}')" title="${esc(names)}">
-      <span class="sk-ring">${st.all?ico('check'):''}</span>${esc(s.label)}<span class="med-n">${count}</span></button>`;
-  }).join('');
-  // What is in each dose, so she is not opening settings to find out — each one
-  // tappable on its own, which is what a linked task marks too.
-  const legend = slots.map(s => {
-    const cell = medLogFor(date);
-    const items = s.due.map(m => {
+    const chips = s.due.map(m => {
       const on = cell[s.slot].includes(m.k);
-      return `<button class="med-item ${on?'on':''}" onclick="toggleMedItem('${esc(m.k)}','${s.slot}','${esc(date)}');syncMedLinkedTasks('${esc(date)}');renderStripGrid()">${esc(m.name)}${m.dose?` ${esc(m.dose)}`:''}</button>`;
+      return `<button class="sk-chip ${on?'on':''}" onclick="toggleMedItem('${esc(m.k)}','${s.slot}','${esc(date)}');syncMedLinkedTasks('${esc(date)}');renderStripGrid()">
+        <span class="sk-ring">${on?ico('check'):''}</span>${esc(m.name)}${m.dose?`<span class="med-dose-inline">${esc(m.dose)}</span>`:''}</button>`;
     }).join('');
-    return `<div class="med-legend"><b>${esc(s.label)}</b>${items}</div>`;
+    const all = s.due.length > 1
+      ? `<button class="sk-add" onclick="toggleMedSlot('${s.slot}','${esc(date)}')">${st.all ? 'clear' : 'all'}</button>` : '';
+    return `<div class="med-slot">
+        <div class="med-slot-label">${esc(s.label)}<span class="med-n">${st.taken}/${st.due}</span></div>
+        <div class="sk-chips">${chips}${all}</div>
+      </div>`;
   }).join('');
-  // A dose still owed from an earlier day gets its own line rather than joining
-  // a slot's count: a weekly pill is not part of today's morning, and folding
-  // it in would make an ordinary morning read 0/4 on the days it is overdue.
-  const owed = medOutstandingOn(date).map(o =>
-    `<button class="med-item owed" onclick="toggleMedItem('${esc(o.m.k)}','${o.slot}','${esc(date)}',true);syncMedLinkedTasks('${esc(date)}');renderStripGrid()"
-       title="Was due ${esc(fmtLong(o.from))} — tap to log it as taken today">${esc(o.m.name)}${o.m.dose?` ${esc(o.m.dose)}`:''} <span class="med-from">from ${esc(fmtShort(o.from))}</span></button>`
-  ).join('');
-  const owedLine = owed ? `<div class="med-legend med-owed"><b>Still owed</b>${owed}</div>` : '';
-  return `<div class="cyc-row">${icoCls('pill')}<div class="cyc-chips">${chips}</div></div>${legend}${owedLine}`;
+
+  return `<div class="cyc-row cyc-med">${icoCls('pill')}<div class="med-slots">${rows}${owedRow}</div></div>`;
 }
 
 /* ---- tying a recurring task to a dose or a medication ----
@@ -6442,18 +6494,20 @@ function renderMedsList(){
   el.innerHTML = list.length ? list.map((m, i) => `
     <div class="routine-row med-row ${m.active===false?'retired':''}">
       <span class="r-title">${esc(m.name)}${m.dose?` <span class="med-dose">${esc(m.dose)}</span>`:''}${m.active===false?'<span class="sk-badge">retired</span>':''}
-        <div class="r-recur">${medWhenLabel(m.when)} · ${esc(medDaysLabel(m))}</div></span>
+        <div class="r-recur">${medWhenLabel(m.when)} · ${esc(medDaysLabel(m))}${m.hidden?' · hidden from the day view':''}</div></span>
       <select onchange="setMedWhen(${m.id}, this.value)" title="Which dose it belongs to">
         <option value="both" ${m.when==='both'?'selected':''}>AM+PM</option>
         <option value="am" ${m.when==='am'?'selected':''}>AM</option>
         <option value="pm" ${m.when==='pm'?'selected':''}>PM</option>
       </select>
-      <button onclick="promptMedDays(${m.id})" title="Which days">${esc(medDaysLabel(m) === 'every day' ? 'daily' : medDaysLabel(m))}</button>
+      <button onclick="toggleMedDaysEditor(${m.id})" title="Which days it's taken">${esc(medDaysLabel(m) === 'every day' ? 'daily' : medDaysLabel(m))}</button>
       <button onclick="moveMed(${m.id},-1)" title="Move up" ${i===0?'disabled style="opacity:.25"':''}>&uarr;</button>
       <button onclick="moveMed(${m.id},1)" title="Move down" ${i===list.length-1?'disabled style="opacity:.25"':''}>&darr;</button>
-      <button onclick="toggleMedRetired(${m.id})" title="${m.active===false?'Bring it back':'Retire — keeps the history, takes it out of the dose'}" data-ico="${m.active===false?'eye':'eye-off'}"></button>
+      <button onclick="toggleMedHidden(${m.id})" title="${m.hidden?'Show it on the day view again':'Hide from the day view — still taken, still logged, just not listed'}" data-ico="${m.hidden?'eye-off':'eye'}"></button>
+      <button class="med-retire ${m.active===false?'on':''}" onclick="toggleMedRetired(${m.id})" title="${m.active===false?'Start taking it again':'Retire — keeps the history, takes it out of the dose'}">${m.active===false?'Restore':'Retire'}</button>
       <button class="danger" onclick="deleteMed(${m.id})" title="Delete" data-ico="trash"></button>
-    </div>`).join('')
+    </div>
+    ${medDaysEditorHtml(m)}`).join('')
     : `<p class="empty-note">Nothing here yet. Add what you take below — the app asks you once per dose, not once per pill.</p>`;
   paintIcons(el);
   const t = document.getElementById('med-show-toggle');
@@ -6481,17 +6535,47 @@ function addMedFromSettings(){
   name.focus();
 }
 function setMedWhen(id, when){ const m = medById(id); if(!m) return; m.when = when; touch(m); afterMedEdit(); }
-// A prompt rather than a seven-checkbox row per item: most of these are daily,
-// and the list would be four times taller to serve the exception.
-function promptMedDays(id){
+/* The days a medication is taken. This was a `window.prompt` asking her to type
+   comma-separated day names, which was the wrong control twice over — a text
+   box for a fixed set of seven, and a modal dialog that some browsers suppress
+   outright. It is now the same day picker the recurring-task editor uses, so
+   the two places that ask this question ask it the same way.
+
+   Opened per row rather than always shown: most medications are daily, and
+   seven toggles on every row would make the list four times taller to serve the
+   exception. */
+let _medDaysOpen = null;
+function toggleMedDaysEditor(id){
+  _medDaysOpen = _medDaysOpen === id ? null : id;
+  renderMedsList();
+}
+function setMedDay(id, day, on){
   const m = medById(id);
   if(!m) return;
-  const cur = Array.isArray(m.days) && m.days.length ? m.days.join(',') : '';
-  const raw = window.prompt('Which days? Leave blank for every day.\nUse short names separated by commas — e.g. sat  or  mon,wed,fri', cur);
-  if(raw === null) return;
-  const days = raw.split(',').map(s => s.trim().toLowerCase()).filter(d => DOW_LONG.includes(d));
-  m.days = days.length ? days : null;
+  const days = Array.isArray(m.days) ? m.days.slice() : [];
+  const i = days.indexOf(day);
+  if(on && i < 0) days.push(day);
+  if(!on && i >= 0) days.splice(i, 1);
+  // Every day is the absence of a list, not all seven ticked — the two mean the
+  // same thing and storing one shape keeps `medsDueOn` simple.
+  m.days = (days.length && days.length < 7) ? DOW_LONG.filter(d => days.includes(d)) : null;
   touch(m); afterMedEdit();
+}
+function setMedEveryDay(id){
+  const m = medById(id);
+  if(!m) return;
+  m.days = null; touch(m); afterMedEdit();
+}
+function medDaysEditorHtml(m){
+  if(_medDaysOpen !== m.id) return '';
+  const on = Array.isArray(m.days) ? m.days : [];
+  return `<div class="med-days">
+      <button class="med-day-all ${on.length?'':'on'}" onclick="setMedEveryDay(${m.id})">Every day</button>
+      <div class="dow-picker">${DOW_LONG.map((d, i) =>
+        `<label><input type="checkbox" value="${d}" ${on.includes(d)?'checked':''}
+           onchange="setMedDay(${m.id},'${d}',this.checked)"><span>${DOW_SHORT[i]}</span></label>`).join('')}</div>
+      <button class="sk-manage" onclick="toggleMedDaysEditor(${m.id})">Done</button>
+    </div>`;
 }
 function moveMed(id, dir){
   const list = medItems();
@@ -7401,7 +7485,7 @@ function renderActivityList(){
       </select>
       <button onclick="moveActExercise(${e.id},-1)" title="Move up" ${i===0?'disabled style="opacity:.25"':''}>&uarr;</button>
       <button onclick="moveActExercise(${e.id},1)" title="Move down" ${i===list.length-1?'disabled style="opacity:.25"':''}>&darr;</button>
-      <button onclick="toggleActRetired(${e.id})" title="${e.active===false?'Bring it back':'Retire — keeps the history, hides the chip'}" data-ico="${e.active===false?'eye':'eye-off'}"></button>
+      <button onclick="toggleActRetired(${e.id})" title="${e.active===false?'Bring it back':'Retire — keeps the history, hides the chip'}" data-ico="${e.active===false?'eye-off':'eye'}"></button>
       <button class="danger" onclick="deleteActExercise(${e.id})" title="Delete" data-ico="trash"></button>
     </div>`).join('')
     : `<p class="empty-note">No exercises yet. Add them below, or <button class="sk-manage" onclick="seedActStarter()">start from a common list</button> and rename from there.</p>`;
