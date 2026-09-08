@@ -6219,8 +6219,15 @@ function medDueAnySlot(m, dateStr){
 function medCarryFloor(m){
   const floors = TEMPLATES.filter(t => t.active && t.medLink === 'key:' + m.k && missRule(t) !== 'drop')
                           .map(t => t.miss_since || '');
-  if(!floors.length) return null;
-  return floors.includes('') ? '' : floors.sort()[0];
+  if(floors.length) return floors.includes('') ? '' : floors.sort()[0];
+  // A medication on specific days carries on its own, with or without a task
+  // pointing at it. A missed weekly injection is still owed on Sunday — that is
+  // just true of the medication, and the first version could only learn it from
+  // a linked task, so a weekly dose with no task simply vanished the day after
+  // and had nowhere left to be logged. A daily medication does not carry:
+  // yesterday's dose is gone, and offering it would invite a false entry.
+  if(Array.isArray(m.days) && m.days.length && m.days.length < 7) return '';
+  return null;
 }
 function medCarries(m){ return medCarryFloor(m) !== null; }
 // Medications owed from an earlier day and not yet taken. Returns the day each
@@ -6361,9 +6368,8 @@ function medsRowHtml(date){
     ? `<div class="med-slot"><div class="med-slot-label">Still owed</div><div class="sk-chips">${owed}</div></div>` : '';
 
   if(!slots.length){
-    if(owedRow) return `<div class="cyc-row cyc-med">${icoCls('pill')}<div class="med-slots">${owedRow}</div></div>`;
-    // Nothing due today is a quiet day and says nothing; nothing set up at all
-    // is worth an invitation.
+    const other = medOtherHtml(date);
+    if(owedRow || other) return `<div class="cyc-row cyc-med">${icoCls('pill')}<div class="med-slots">${owedRow}${other}</div></div>`;
     return medItems().length ? '' : `<div class="cyc-row">${icoCls('pill')}<div class="cyc-chips">
       <button class="sk-add" onclick="openMedsSubmodal()">+ add your medications</button></div></div>`;
   }
@@ -6388,7 +6394,40 @@ function medsRowHtml(date){
       </div>`;
   }).join('');
 
-  return `<div class="cyc-row cyc-med">${icoCls('pill')}<div class="med-slots">${rows}${owedRow}</div></div>`;
+  return `<div class="cyc-row cyc-med">${icoCls('pill')}<div class="med-slots">${rows}${owedRow}${medOtherHtml(date)}</div></div>`;
+}
+
+/* Anything not on today's schedule, logged anyway.
+
+   Without this there was no path at all: a medication set to Saturdays did not
+   appear on a Monday — correctly, it was not due — and unless a carrying task
+   happened to point at it, it was not in "still owed" either. The record had no
+   way to say she took it early, or late, or once off-schedule, which for a
+   medication log is a worse failure than a cluttered panel.
+
+   Folded away behind one word, because on an ordinary day the answer is that
+   there is nothing else. */
+let _medOtherOpen = false;
+function toggleMedOther(){ _medOtherOpen = !_medOtherOpen; renderStripGrid(); }
+function medOtherHtml(date){
+  const shown = new Set([].concat(...MED_SLOTS.map(([slot]) => medsShownOn(date, slot).map(m => m.k)),
+                                  medOutstandingOn(date).map(o => o.m.k)));
+  const rest = medItems().filter(m => m.active !== false && !m.hidden && !shown.has(m.k));
+  if(!rest.length) return '';
+  if(!_medOtherOpen)
+    return `<div class="med-slot"><button class="sk-add" onclick="toggleMedOther()">+ something not scheduled today</button></div>`;
+  const cell = medLogFor(date);
+  const chips = rest.map(m => {
+    const slot = medItemSlot(m, date);
+    const on = cell.am.includes(m.k) || cell.pm.includes(m.k);
+    return `<button class="sk-chip ${on?'on':''} sample" onclick="toggleMedItem('${esc(m.k)}','${on ? (cell.am.includes(m.k)?'am':'pm') : slot}','${esc(date)}');syncMedLinkedTasks('${esc(date)}');renderStripGrid()"
+        title="Not scheduled for ${esc(fmtLong(date))} — logging it here records it anyway">
+      <span class="sk-ring">${on?ico('check'):''}</span>${esc(m.name)}${m.dose?`<span class="med-dose-inline">${esc(m.dose)}</span>`:''}</button>`;
+  }).join('');
+  return `<div class="med-slot">
+      <div class="med-slot-label">Not scheduled today<button class="sk-manage" style="margin-left:8px" onclick="toggleMedOther()">hide</button></div>
+      <div class="sk-chips">${chips}</div>
+    </div>`;
 }
 
 /* ---- tying a recurring task to a dose or a medication ----
