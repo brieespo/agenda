@@ -748,7 +748,16 @@ a.meal-title:hover .meal-link-ico { opacity: 1; }
 /* The mark line keeps its height whether or not it has marks, so tapping a tile
    never shifts the two beside it. Health's is empty by design and stays that
    way — see the Health strip's own note. */
-.sg-marks { display: flex; align-items: center; gap: 8px; min-height: 10px; font-size: var(--fs-micro); overflow: hidden; white-space: nowrap; }
+/* `min-width: 0` on the child is what actually clips. A flex item defaults to
+   min-width:auto and so refuses to shrink below its own text, which pushed the
+   overflow out past the tile instead of hiding it — `overflow: hidden` on the
+   parent could never win that argument on its own. One long name now ellipses
+   rather than stretching the row. */
+.sg-marks { display: flex; align-items: center; gap: 8px; min-height: 10px; font-size: var(--fs-micro); overflow: hidden; white-space: nowrap; min-width: 0; max-width: 100%; }
+.sg-marks > span { min-width: 0; overflow: hidden; text-overflow: ellipsis; }
+/* The count must survive the ellipsis — it is the part that says there is more,
+   so it sits outside the truncating span rather than inside it. */
+.sg-more { flex: none; margin-left: 4px; opacity: .7; }
 .sg-panel:not(:empty) { margin-top: 6px; }
 
 /* ---- skincare ----
@@ -6960,9 +6969,13 @@ function perfumeTileHtml(){
   const worn = PERFUME_WEAR ? wornOn(currentDate) : [];
   // Names, not a count: what she wore is the interesting fact and it is not
   // private the way the journal or the cycle log are.
+  // One name and a count, not every name joined. Two perfumes already ran past
+  // the tile, and a tile is a glance — the second name is not what she is
+  // looking for there, and the panel below has the full list.
+  const names = worn.map(w => (perfumeById(w.perfume_id) || {}).name || '—');
   const marks = !PERFUME_WEAR ? ''
-    : worn.length
-      ? `<span>${esc(worn.map(w => (perfumeById(w.perfume_id) || {}).name || '—').join(', '))}</span>`
+    : names.length
+      ? `<span>${esc(names[0])}</span>${names.length > 1 ? `<span class="sg-more">+${names.length - 1}</span>` : ''}`
       : '<span>nothing yet</span>';
   return `<button class="sg-tile ${open?'open':''}" onclick="toggleStrip('perfume')" title="Perfume">
       <span class="sg-tile-head">
