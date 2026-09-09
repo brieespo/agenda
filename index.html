@@ -657,6 +657,12 @@ textarea.ae-input { resize: vertical; line-height: 1.4; min-height: 2.4em; }
 /* ---- sidebar ---- */
 .sidebar-head { display: flex; justify-content: space-between; align-items: baseline; margin-bottom: 4px; }
 .sidebar-sub { font-size: var(--fs-sm); color: var(--muted); margin-bottom: 10px; }
+/* Quiet until reached for: paging months is occasional, and two arrows at full
+   strength would outweigh the heading they sit beside. */
+.mo-step { display: flex; gap: 2px; flex: none; align-self: center; opacity: .5; transition: opacity 120ms ease; }
+.card:hover .mo-step, .mo-step:focus-within { opacity: 1; }
+.mo-step .icon-btn { padding: 2px 4px; }
+.mo-step .icon-btn .icon { width: 14px; height: 14px; }
 .sidebar-task { display: flex; align-items: center; gap: 6px; padding: 7px 6px; border-radius: 8px; cursor: grab; transition: background 120ms ease, transform 120ms ease; touch-action: none; user-select: none; }
 .sidebar-task:hover { background: var(--hover); }
 .sidebar-task.dragging { opacity: 0.35; }
@@ -1517,7 +1523,15 @@ footer button { font: inherit; font-size: var(--fs-sm); border: none; background
         </div>
       </div>
       <div class="card" style="margin-bottom:16px">
-        <div class="sidebar-head"><h2 style="margin-bottom:0">This month</h2></div>
+        <!-- The month card pages on its own, so something can be put in
+             October without leaving September. -->
+        <div class="sidebar-head">
+          <h2 style="margin-bottom:0" id="month-sidebar-head">This month</h2>
+          <span class="mo-step">
+            <button class="icon-btn" onclick="stepMonthSidebar(-1)" title="Previous month" data-ico="chevron-left"></button>
+            <button class="icon-btn" onclick="stepMonthSidebar(1)" title="Next month" data-ico="chevron-right"></button>
+          </span>
+        </div>
         <div class="sidebar-sub" id="month-sidebar-label"></div>
         <div class="sidebar-drop" id="month-sidebar-list" data-drop="month-sidebar"></div>
         <div class="quick-add-row">
@@ -2376,7 +2390,7 @@ function quickAddMonthSidebar(){
   const el = document.getElementById('month-sidebar-quick-add');
   const title = el.value.trim();
   if(!title) return;
-  addTask({title, month: monthKeyForDate(currentView==='week'?weekAnchor:currentDate)});
+  addTask({title, month: monthSidebarKey()});
   el.value = '';
   renderAll();
 }
@@ -4898,9 +4912,40 @@ function renderSidebar(){
 // Broader triage tier above the weekly sidebar: tasks with no day and no
 // week yet, just "sometime this month" — drag down into the week sidebar
 // to promote, or straight onto a day to skip the week step entirely.
+/* Which month the card is showing. `null` means "whatever the calendar is on",
+   which is what it always did; stepping sets an explicit month.
+
+   Paging is an excursion, not a mode. Navigating the calendar into a different
+   month ends it — otherwise the card and the date above it would silently
+   disagree about which month "this" means, and a task added from here would
+   land somewhere she was no longer looking. */
+let _monthSidebarKey = null, _monthSidebarFrom = null;
+function calendarMonthKey(){ return monthKeyForDate(currentView==='week' ? weekAnchor : currentDate); }
+function monthSidebarKey(){
+  const cal = calendarMonthKey();
+  if(_monthSidebarKey && _monthSidebarFrom !== cal){ _monthSidebarKey = null; _monthSidebarFrom = null; }
+  return _monthSidebarKey || cal;
+}
+function stepMonthSidebar(n){
+  const [y, m] = monthSidebarKey().split('-').map(Number);
+  const d = new Date(y, m - 1 + n, 1);
+  const key = `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}`;
+  const cal = calendarMonthKey();
+  // Stepping back onto the calendar's own month drops the excursion rather
+  // than pinning it, so the card resumes following as it did before.
+  _monthSidebarKey = key === cal ? null : key;
+  _monthSidebarFrom = _monthSidebarKey ? cal : null;
+  renderMonthSidebar();
+}
 function renderMonthSidebar(){
-  const mk = monthKeyForDate(currentView==='week' ? weekAnchor : currentDate);
+  const mk = monthSidebarKey();
+  const away = mk !== calendarMonthKey();
+  document.getElementById('month-sidebar-head').textContent = away ? 'Another month' : 'This month';
   document.getElementById('month-sidebar-label').textContent = fmtMonthLabel(mk);
+  const qa = document.getElementById('month-sidebar-quick-add');
+  // The placeholder names the month once she has paged away, because "Add for
+  // this month" would then be a lie about where it lands.
+  if(qa) qa.placeholder = away ? `Add for ${fmtMonthLabel(mk)}…` : 'Add for this month…';
   const items = TASKS.filter(t => t.date===null && !t.week && t.month===mk).sort((a,b) => (a.done===b.done)?0:(a.done?1:-1));
   const listEl = document.getElementById('month-sidebar-list');
   listEl.dataset.month = mk;
