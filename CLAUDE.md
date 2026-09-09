@@ -36,6 +36,26 @@ Sanctioned additions (this app only):
   so the app has no hardcoded user. It lives in `settings`, not a new column,
   for the `_tomb` reason: older builds round-trip that column untouched.
 - Emoji allowed in user content. Warmth via accent colors, rounded cards, micro-copy.
+- **Every colour comes from a variable, and every variable is defined in every
+  theme.** Two ways this broke, both found on 2026-09-07 and both worth knowing
+  because neither is visible in light mode:
+  - The global reset set `font-family: inherit` and **not `color`**. A `<button>`
+    that sets no colour of its own falls back to the UA's `buttontext`, which is
+    **black regardless of the page** — fine on cream, invisible on dark. The
+    settings menu, the month cells and the meal picker were all rendering in it.
+    The reset now carries `color: inherit`, which fixes every such button at once
+    and every one added later.
+  - The status colours (`--good`, `--good-text`, `--warning`, `--serious`,
+    `--critical`) were defined once, for light, and never overridden in the dark
+    blocks — so `--good-text` (#006300) was near-black on a near-black page
+    wherever something was finished. Both dark palettes now carry the full set.
+    **Adding a colour variable means adding it to all four blocks**: `:root`,
+    `[data-theme="minimal"]`, and each inside `prefers-color-scheme: dark`.
+- **A new affordance is visible at rest.** The month arrows shipped at 0.5
+  opacity, brightening on card hover, on the reasoning that paging months is
+  occasional — and went unfound, because a control nobody knows about cannot be
+  discovered by hovering the thing that hides it. Quiet is earned once a control
+  is known, not granted at birth.
 - **Optional serif typeface (2026-08-24)** — *Routines & settings → Typeface*,
   `settings.font` = `sans` (default) | `serif`. Deliberately **separate from the
   colour theme**, not a third theme value: they are orthogonal, and folding them
@@ -78,7 +98,7 @@ If a task appears to exceed your ability — a fix has failed twice, architectur
 | tasks | array of task objects |
 | templates | array of recurring-template objects |
 | completions | array of {template_id, date} — done-marks for template instances |
-| settings | selected Google calendars, week start day, theme, `displayName`, `ghosted`, `skincare`, `activity`, `journal.show` (see below) |
+| settings | selected Google calendars, week start day, theme, `displayName`, `ghosted`, `skincare`, `activity`, `meds`, `journal.show` (see below) |
 
 **Tables this app owns beyond `agenda_data`:** `cycle_events`, `cycle_spans`,
 `class_absences`, `routines`, `routine_progress`, `activity_events`,
@@ -151,7 +171,8 @@ curl -s -o /dev/null -w '%{http_code}\n' \
                                                 //   interval: 4, since: "2026-09-06"}
   time: null,               // optional fixed time
   active: true,
-  routine_id: null          // a walkthrough to run for this task (see Routines)
+  routine_id: null,         // a walkthrough to run for this task (see Routines)
+  medLink: null             // 'slot:am' | 'slot:pm' | 'key:ab12' (see Medications)
 }
 ```
 
@@ -223,6 +244,22 @@ Every task/instance/event row has a circle checkbox. Checking it **grays the ite
    - Header: date navigation + the headline line ("4 tasks · 2 events · bank day").
 2. **Week view:** 7 columns of compact day cards (untimed list + timed items in order); drag tasks between days; tap a day to open day view.
 3. **Weekly sidebar** (persistent on desktop, drawer on mobile): "This week" tasks with no day. **Drag onto a day column (assigns date) or onto a grid slot (assigns date + time)** — the signature interaction. Unfinished sidebar tasks at week's end roll to next week with a chip.
+
+   **The month card pages on its own** (2026-09-09). Its bucket was derived from
+   whatever date the calendar was on, so putting something in October meant
+   navigating there and back — and this sidebar exists for work with no day yet,
+   which is the work least likely to be worth the trip. Two arrows on the card,
+   rather than a month picker beside the add box, because it also shows what is
+   *already* in that month and seeing October before adding to it is most of the
+   value. Drag-and-drop already read the card's own month, so dropping onto a
+   paged card needed no change.
+
+   **Paging is an excursion, not a mode.** Navigating the calendar into a
+   different month ends it, and stepping back onto the calendar's own month drops
+   the pin rather than holding it. Otherwise the card and the date above it would
+   disagree about which month "this" means, and a task added from here would land
+   somewhere she was no longer looking. The heading and the placeholder both name
+   the month once she has paged away.
 4. **Chat drawer:** slide-out panel, conversation UI (below).
 5. **Routines settings:** template CRUD list.
 
@@ -642,6 +679,98 @@ whole row from its in-memory copy without re-reading first, so a stale perfume
 tab left open in the background can carry its old `wear_log` back up and delete
 anything logged here. Same documented whole-row last-write-wins hole the time
 tracker had before Phase B/C. Porting `mergeRow` there is the real fix.
+
+## Medications & supplements (built 2026-09-07) — a row in the Health panel
+
+Lives in `settings` beside skincare, and borrows that log's exact shape: a month
+bucket → day → AM keys, `|`, PM keys, four characters each. A year costs a few
+hundred bytes and needs no table.
+
+```js
+settings.meds = {
+  items: [{id, k, name, dose, when:'am'|'pm'|'both', days: null|['sat'],
+           active, hidden, _u}],
+  log: {"2026-09": {"7": "ab12cd34|ef56"}},
+  show: true
+}
+```
+
+**A denominator is right here where the skincare tracker forbids one.** "2 of 3
+today" announces failure for a skincare step; for a medication it is the whole
+question, and a tracker that would not say a dose was missed would be useless.
+This is the one place that rule is deliberately inverted — do not "fix" it for
+consistency.
+
+**It renders outside the CYCLE fetch.** Doses are in `settings` and are there the
+moment the panel opens. They are unrelated facts that happen to share a panel,
+and making a dose wait on a network call is the wrong dependency for the one
+thing in here she may be standing at the sink to tap.
+
+### Three states, not two
+
+`active`, `hidden` and retired answer different questions and all three are
+needed. **Retired** (`active: false`) is "I stopped taking this" — out of the
+dose, history kept. **Hidden** is "I still take it, but I don't want it listed
+on my day view" — still due, still logged by any task linked to it, still in its
+history, simply not on screen. Neither is the other.
+
+The eye icon shows the **state** (visible = open eye), not the action. It
+originally showed the action, which reads as the state, so an open eye meant
+retired — exactly backwards. Retiring is a labelled text button, because it was
+never a visibility question. The same inversion was fixed in skincare products
+and exercises, which had it too.
+
+### One chip per medication
+
+It first shipped as one chip per *dose*, reasoning that the pill case filled on
+Sunday had already done the per-item work. That argument holds for the
+**preparation** and not for the taking: a control that can only say "all of it"
+cannot record the ordinary morning where one is skipped. Each item is its own
+chip; the dose is still one action via "all" at the end of the row, and the slot
+label carries the count.
+
+The log records *which items* went down for the same reason a task can point at
+one. The original `'a'`/`'p'` format reads as "everything due was taken", which
+is what it meant; a key is four characters so nothing new can be mistaken for it.
+
+### Tying a recurring task to a dose or one medication
+
+`tpl.medLink` is `'slot:am'`, `'slot:pm'` or `'key:ab12'` — one string, because
+the two are mutually exclusive and a pair invites the state where both are set.
+
+It runs both ways and **deliberately asymmetrically**, the same rule the routines
+make: ticking the task logs it, logging it ticks the task, and un-ticking either
+never un-ticks the other. She may have said done and moved on, and un-logging a
+medication is a correction to a medical record rather than a statement about her
+to-do list.
+
+### A dose taken late
+
+The case is a weekly medication on a task set to carry, and three things were
+wrong about it before 2026-09-07: the medication was not offered on a later day,
+so there was nowhere to tap it; ticking the carried task logged it against the
+**original** date, because that is the date a carried instance keeps — right for
+the task, false for a medication record; and logging it later did not settle the
+carried task.
+
+**The occurrence and the day taken are separate arguments.** The task's
+completion belongs to the day it was *for*; the medication belongs to the day it
+was *taken*. The weekday check runs against the occurrence, so a carry is the app
+agreeing the dose is still owed rather than refusing to log it — while a tick on
+a day the medication was never due still writes nothing.
+
+**A medication on specific days carries on its own**, with or without a task.
+Deriving this only from a linked task meant a weekly injection with no task
+vanished the day after its slot with no path to log it at all. A daily
+medication does not carry: yesterday's dose is gone, and offering it would invite
+a false entry. Where a task *does* link, its `miss_since` floor applies, or this
+row would surface misses the task list refuses to.
+
+An owed dose gets its own line rather than joining a slot's count — a weekly pill
+is not part of today's morning, and folding it in would make an ordinary morning
+read 0/4 on the days it is overdue. And **anything can be logged on any day**
+behind one folded line: for a medication record, no way to say "I took it early"
+is a worse failure than a busier panel.
 
 ## Calendar: day / week / month (reworked 2026-08-31)
 
