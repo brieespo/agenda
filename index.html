@@ -657,12 +657,14 @@ textarea.ae-input { resize: vertical; line-height: 1.4; min-height: 2.4em; }
 /* ---- sidebar ---- */
 .sidebar-head { display: flex; justify-content: space-between; align-items: baseline; margin-bottom: 4px; }
 .sidebar-sub { font-size: var(--fs-sm); color: var(--muted); margin-bottom: 10px; }
-/* Quiet until reached for: paging months is occasional, and two arrows at full
-   strength would outweigh the heading they sit beside. */
-.mo-step { display: flex; gap: 2px; flex: none; align-self: center; opacity: .5; transition: opacity 120ms ease; }
-.card:hover .mo-step, .mo-step:focus-within { opacity: 1; }
-.mo-step .icon-btn { padding: 2px 4px; }
-.mo-step .icon-btn .icon { width: 14px; height: 14px; }
+/* Visible at rest. These were faded to 0.5 and only brightened on card hover,
+   on the reasoning that paging months is occasional — but a control nobody
+   knows exists cannot be discovered by hovering the thing that hides it, and it
+   went unfound. An affordance is allowed to be quiet only once it is known. */
+.mo-step { display: flex; gap: 2px; flex: none; align-self: center; }
+.mo-step .icon-btn { padding: 3px 5px; color: var(--ink-2); }
+.mo-step .icon-btn:hover { color: var(--accent); border-color: var(--accent); }
+.mo-step .icon-btn .icon { width: 15px; height: 15px; }
 .sidebar-task { display: flex; align-items: center; gap: 6px; padding: 7px 6px; border-radius: 8px; cursor: grab; transition: background 120ms ease, transform 120ms ease; touch-action: none; user-select: none; }
 .sidebar-task:hover { background: var(--hover); }
 .sidebar-task.dragging { opacity: 0.35; }
