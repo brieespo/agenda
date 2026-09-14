@@ -6822,13 +6822,13 @@ function healthPanelHtml(){
    `note_map` and `settings`; writing the whole row from a stale read would undo
    whatever she just did there.
 
-   Known hazard, and it is the tracker's to fix, not this app's: the perfume app
-   saves with a whole-row upsert from its in-memory copy and does not re-read
-   first. A perfume tab left open in the background with a stale `wear_log` will
-   carry that array back up and delete anything logged here in the meantime.
-   Same documented whole-row last-write-wins hole the time tracker has. Logging
-   from here and then reloading the perfume tab before touching it is safe;
-   logging here while an untouched stale perfume tab is open is not.
+   That hazard used to run the other way too, and no longer does: the perfume
+   app saved with a whole-row upsert from its in-memory copy without re-reading,
+   so a tab left open there would carry a stale `wear_log` back up and delete
+   anything logged here meanwhile. It now re-reads before writing and three-way
+   merges `wear_log` and `perfumes` against what it read at load, so entries
+   added here survive its saves and entries removed here stay removed. The time
+   tracker still has the same whole-row last-write-wins hole, unfixed.
    ===================================================================== */
 let PERFUMES = null;        // her library. null = not loaded.
 let PERFUME_WEAR = null;    // [{id, perfume_id, date}]
@@ -6911,9 +6911,15 @@ function commitPerfumeEdit(edit){
 function applyPerfumeEdit(state, e){
   const already = (p, d) => state.wear.some(w => String(w.perfume_id) === String(p) && w.date === d);
   if(e.kind === 'wear'){
-    if(!perfumeInList(state.perfumes, e.perfumeId)) return false;
+    // Write the id back exactly as the library holds it, rather than whatever
+    // the caller handed in: the grid button passes it through an onclick as a
+    // string, and the tracker resolves wear entries with a strict ===, so a
+    // string lands there as "(deleted perfume)" with the perfume sitting right
+    // in the list. This app compares with String() throughout and never saw it.
+    const target = perfumeInList(state.perfumes, e.perfumeId);
+    if(!target) return false;
     if(already(e.perfumeId, e.date)) return true;    // logging twice is a no-op, not a failure
-    state.wear.push({id: nextWearId(state), perfume_id: e.perfumeId, date: e.date});
+    state.wear.push({id: nextWearId(state), perfume_id: target.id, date: e.date});
     return true;
   }
   if(e.kind === 'unwear'){
@@ -6932,7 +6938,7 @@ function applyPerfumeEdit(state, e){
   }
   return false;
 }
-function perfumeInList(list, id){ return (list || []).some(p => String(p.id) === String(id)); }
+function perfumeInList(list, id){ return (list || []).find(p => String(p.id) === String(id)); }
 // The tracker mints ids as max+1 across *both* perfumes and wear entries, and
 // this matches that rather than using the suite's newId(): a clock-seeded id
 // here would push its counter to ~1.8e15 and every perfume she added there
