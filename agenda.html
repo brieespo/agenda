@@ -279,18 +279,25 @@ h3 { font-size: var(--fs-md); font-weight: 600; margin-bottom: 6px; }
 .lv-day:hover { border-color: var(--accent); }
 .lv-day.on { background: var(--accent); border-color: var(--accent); color: #fff; font-weight: 600; }
 .day-toolbar .day-title { font-size: var(--fs-title); font-weight: 650; letter-spacing: var(--tracking-title); min-width: 170px; font-variant-numeric: lining-nums tabular-nums; }
-/* --day-title-w is measured once by reserveDayTitleWidth() and holds the widest
-   date this locale can render, so stepping days cannot move the ▸ button or
-   anything after it. It sits on :root because renderDay() rewrites the title's
-   innerHTML on every paint; 170px is the floor until it is measured.
+/* Each dated title reserves the widest string its own view can render, so
+   stepping through days, weeks or months cannot move the ▸ button or anything
+   after it. Measured once by reserveTitleOnce(); 170px is the floor until then.
 
-   Wide screens only. The toolbar wraps below ~430px, and reserving there makes
-   every short date take the tall two-row layout that only the longest dates
-   need — a row of space traded for a steadiness that a touch screen cannot use
-   anyway, since a tap is aimed fresh each time and there is no cursor resting
-   on the button between days. */
+   Addressed by id, not by .day-title: Routines, Journal and Assignments are
+   .day-title too, and a reservation sized for a date would push their buttons
+   sideways for nothing — those headings never change width.
+
+   The variables live on :root because each render rewrites its title's
+   innerHTML, so an inline width would survive exactly one paint.
+
+   Wide screens only. The toolbar wraps below ~430px, where reserving gives
+   every short title the tall two-row layout that only the longest ones need —
+   a row of space traded for a steadiness a touch screen cannot use, since a tap
+   is aimed fresh each time and no cursor rests on the button between days. */
 @media (min-width: 560px) {
-  .day-toolbar .day-title { min-width: var(--day-title-w, 170px); }
+  #day-title   { min-width: var(--day-title-w, 170px); }
+  #week-title  { min-width: var(--week-title-w, 170px); }
+  #month-title { min-width: var(--month-title-w, 170px); }
 }
 
 .list-drop { min-height: 12px; }
@@ -3501,28 +3508,45 @@ function attachRowDrag(container, items){
     handle.addEventListener('pointerdown', e => startItemDrag(e, item, row));
   });
 }
-/* The day title is the only variable-width thing in the toolbar — "Friday,
-   Sep 5" against "Wednesday, Sep 28" — so every step moved the ▸ button and
-   everything after it. Paging through several days meant re-aiming the cursor
-   each time, which is the opposite of what a next/previous button is for.
-   Reserving the widest title the locale can produce pins the whole row.
+/* A dated title is the only variable-width thing in its toolbar — "Friday,
+   Sep 5" against "Wednesday, Sep 28", "May 2026" against "September 2026" — so
+   every step moved the ▸ button and everything after it. Paging meant re-aiming
+   the cursor after each click, which is the opposite of what a next/previous
+   button is for. Reserving the widest string the view can render pins the row.
 
-   The reservation goes on the button, not on a box around the date: the button
-   is already an inline-flex whose content sits at the start, so the caret stays
-   hugging the date and the slack falls after it. Reserving an inner box instead
-   strands the caret out at the wide edge on every short date.
+   The reservation lands on the button, not on a box around the text: the button
+   is an inline-flex whose content sits at the start, so the caret keeps hugging
+   the text and the slack falls after it. Reserving an inner box instead strands
+   the caret out at the wide edge on every short title.
 
-   Measured rather than estimated in `ch`: the string comes from
-   toLocaleDateString, so which weekday and month names are longest depends on
-   her locale, not on English. Digits need no candidates of their own — the
-   title is tabular-nums, so every two-digit day is exactly as wide as any
-   other, and collapsing digits to one shape keeps the candidate set small.
-   A leap year walks every weekday against every month, and the candidates are
-   stacked in a single offscreen grid cell so the browser sizes the cell to the
-   widest of them: one layout pass, not one per candidate. */
-let _dayTitleSized = false;
-function reserveDayTitleWidth(){
-  const title = document.getElementById('day-title');
+   Candidates come from the same formatters the views render with, so they
+   cannot drift from what actually appears. Measured rather than estimated in
+   `ch`, because these strings come from toLocaleDateString and which weekday
+   and month names are longest depends on her locale, not on English. Digits
+   need no candidates of their own — the titles are tabular-nums — so
+   collapsing them to one shape keeps each set small. Walking a leap year
+   covers every weekday against every month, and every week-start against both
+   the one- and two-digit days it can span. */
+let _titleCands = null, _titleSized = {};
+function titleCandidates(){
+  if(_titleCands) return _titleCands;
+  const day = new Set(), week = new Set(), month = new Set(), flat = t => t.replace(/\d/g, '0');
+  const d = new Date(2024, 0, 1);
+  for(let i = 0; i < 366; i++){
+    const s = fmtDate(d);
+    day.add(flat(fmtLong(s)));
+    week.add(flat(`${fmtShort(s)} – ${fmtShort(addDays(s, 6))}`));
+    month.add(flat(parseLocalDate(s).toLocaleDateString(undefined, {month: 'long', year: 'numeric'})));
+    d.setDate(d.getDate() + 1);
+  }
+  _titleCands = {day: [...day], week: [...week], month: [...month]};
+  return _titleCands;
+}
+/* All candidates are stacked in one offscreen grid cell, so the browser sizes
+   the cell to the widest of them: one layout pass, not one per candidate. */
+function reserveTitleOnce(id, cssVar, key){
+  if(_titleSized[id]) return;
+  const title = document.getElementById(id);
   if(!title) return;
   const cs = getComputedStyle(title);
   const probe = document.createElement('div');
@@ -3530,12 +3554,7 @@ function reserveDayTitleWidth(){
   probe.style.cssText = 'position:absolute;left:-9999px;top:0;visibility:hidden;white-space:nowrap;display:grid';
   ['fontFamily','fontSize','fontWeight','fontStyle','letterSpacing','fontVariantNumeric','textTransform']
     .forEach(k => { probe.style[k] = cs[k]; });
-  const seen = new Set(), d = new Date(2024, 0, 1);
-  for(let i = 0; i < 366; i++){
-    seen.add(fmtLong(fmtDate(d)).replace(/\d/g, '0'));
-    d.setDate(d.getDate() + 1);
-  }
-  seen.forEach(t => {
+  titleCandidates()[key].forEach(t => {
     const span = document.createElement('span');
     span.textContent = t;
     span.style.gridArea = '1 / 1';
@@ -3551,13 +3570,13 @@ function reserveDayTitleWidth(){
   const extra = caret ? caret.getBoundingClientRect().width + (parseFloat(cs.columnGap) || 0) : 0;
   const w = Math.ceil(textW + extra);
   if(w > 0){
-    document.documentElement.style.setProperty('--day-title-w', w + 'px');
-    _dayTitleSized = true;
+    document.documentElement.style.setProperty(cssVar, w + 'px');
+    _titleSized[id] = true;
   }
 }
 function renderDay(){
   document.getElementById('day-title').innerHTML = esc(fmtLong(currentDate)) + '<span class="pb-caret">▾</span>';
-  if(!_dayTitleSized) reserveDayTitleWidth();
+  reserveTitleOnce('day-title', '--day-title-w', 'day');
   const items = itemsForDate(currentDate);
   // Paging to a day whose routine progress has never been fetched. Fires at most
   // once per day and repaints when it lands, so a chip that would have read 0/6
@@ -4798,6 +4817,7 @@ function renderMonth(){
   const anchor = parseLocalDate(currentDate);
   document.getElementById('month-title').innerHTML =
     esc(anchor.toLocaleDateString(undefined, {month: 'long', year: 'numeric'})) + '<span class="pb-caret">▾</span>';
+  reserveTitleOnce('month-title', '--month-title-w', 'month');
 
   const first = new Date(anchor.getFullYear(), anchor.getMonth(), 1);
   const weekStart = weekStartSetting() === 'mon' ? 1 : 0;
@@ -4836,6 +4856,7 @@ function renderWeek(){
   const dates = weekDates(weekAnchor);
   document.getElementById('week-title').innerHTML =
     `${esc(fmtShort(dates[0]))} – ${esc(fmtShort(dates[6]))}<span class="pb-caret">▾</span>`;
+  reserveTitleOnce('week-title', '--week-title-w', 'week');
   const grid = document.getElementById('week-grid');
 
   // One hour range for the whole week, so a column's height means the same
