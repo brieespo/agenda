@@ -169,6 +169,8 @@ curl -s -o /dev/null -w '%{http_code}\n' \
                                                 //   ignores `day` — the presence of dow is the mode.
                                                 // every N weeks: {freq:"weekly", days:["sun"],
                                                 //   interval: 4, since: "2026-09-06"}
+                                                // with an end:   {..., until: "2026-10-22"}
+                                                //   inclusive last day, any freq. Absent = forever.
   time: null,               // optional fixed time
   active: true,
   routine_id: null,         // a walkthrough to run for this task (see Routines)
@@ -202,6 +204,54 @@ Friday.
 Two things that must stay in a fixed order need **the same interval with
 different anchors**. Different intervals always drift — every 3 vs every 4 weeks
 realign only every 12 — and no amount of phase-setting fixes that.
+
+### An end date (built 2026-09-13)
+
+"Every Sunday and Wednesday **until October 22**" — `recurrence.until`, a
+`"YYYY-MM-DD"` **inclusive** last day. Only a template that has one carries the
+key, so nothing already saved needed migrating and an older build reads the rest
+of it unchanged — the same rule `interval`/`since` follow.
+
+**A ceiling over every frequency, not a fourth frequency and not a per-frequency
+field.** "Until October 22" means the same thing whether the task is daily,
+weekly or monthly, so it is one guard at the top of `templateOccursOn`
+(`if(r.until && dateStr > r.until) return false`) rather than three. That is also
+why the field sits *outside* `tpm-freq-fields` in the editor: that div is rebuilt
+whenever the frequency changes, and an end date should survive switching from
+weekly to monthly.
+
+**The carry rule ends with it.** `outstandingOccurrence` returns null past
+`until`, so a task set to "keep it on today until it's done" still disappears
+after its end date. Otherwise the one thing she set an end date to *stop* would
+be the one thing left sitting on today. (`carriedWeekInstances` needed nothing —
+it walks days through `templateOccursOn`, which is already bounded.)
+
+**The editor names the last real occurrence**, because the date she picks and
+the day it actually lands on are usually not the same: "until October 22" on a
+Sunday/Wednesday rhythm really ends Wednesday the 21st, and the alternative is
+finding that out three weeks later. Same reasoning as the every-N-weeks hint
+naming the first actual date.
+
+**Never / On a date, not a bare date box.** An empty date input reads as
+unfilled, not as a decision, and going back to forever should be one obvious
+choice rather than a delete-the-text gesture. Switching to "On a date" seeds
+today + 30 so the field is never silently empty.
+
+Past its end date the routines list says **"· ended Aug 1"** rather than
+"· until Aug 1" — a row that has silently stopped producing days should not look
+identical to one that hasn't. It stays in the list either way: she may want it
+back next term, and deleting it would take the completions with it.
+
+The hints now read the **live form** (`formDays()`, `readRecurrenceFromForm()`)
+rather than `editingTemplate`. Two hints in one form describing different sets of
+ticked days is a visible lie; `readRecurrenceFromForm` is shared with Save, so
+what a hint promises and what Save writes cannot drift.
+
+**Both brief Edge Functions carry their own copy of the guard** (they bundle
+standalone) and must be redeployed for it to take effect — otherwise the morning
+brief keeps announcing a task the app has stopped showing. The `assistant`
+function knows the field too, so "every Sunday and Wednesday until October 22"
+works from chat.
 
 **Instances are virtual:** views materialize template occurrences for the visible date range on render — they are not stored as tasks. Completing an instance writes `{template_id, date}` to `completions`. Editing/moving a single instance creates a real task (`source: 'template_exception'`) for that date and suppresses the virtual one. Templates are managed in a simple settings list ("Routines").
 

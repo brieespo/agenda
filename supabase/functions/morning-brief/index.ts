@@ -33,6 +33,10 @@ function templateOccursOn(tpl: any, dateStr: string): boolean {
   const r = tpl.recurrence || {};
   const [y, m, d] = dateStr.split('-').map(Number);
   const date = new Date(Date.UTC(y, m - 1, d));
+  // An end date is a ceiling over every frequency, so it is checked before any
+  // of them. Absent means forever, which is every template saved before the
+  // field existed. String compare is safe on YYYY-MM-DD and needs no parsing.
+  if (r.until && dateStr > r.until) return false;
   if (r.freq === 'daily') return true;
   if (r.freq === 'weekly') return (r.days || []).includes(DOW[date.getUTCDay()]);
   if (r.freq === 'monthly') return date.getUTCDate() === r.day;

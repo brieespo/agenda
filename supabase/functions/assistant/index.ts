@@ -39,7 +39,8 @@ const ACTIONS_TOOL = {
               properties: {
                 freq: { type: 'string', enum: ['daily', 'weekly', 'monthly'] },
                 days: { type: 'array', items: { type: 'string', enum: ['sun','mon','tue','wed','thu','fri','sat'] }, description: 'weekly only' },
-                day: { type: 'number', description: 'monthly only, 1-31' }
+                day: { type: 'number', description: 'monthly only, 1-31' },
+                until: { type: 'string', description: 'YYYY-MM-DD last day the task can land on, inclusive. Set only when she gave an end ("until October 22", "through finals", "for the next three weeks"). Omit for an open-ended routine.' }
               }
             },
             task_id: { type: ['string', 'number'], description: 'complete_task/move_task only: id of an existing task from the provided context.' },
@@ -132,6 +133,7 @@ ${JSON.stringify(scheduleContext)}
 Rules for write requests:
 - Resolve relative dates ("tomorrow", "Friday", "next week") against today's date.
 - "Every Saturday I take my medication" -> add_template with recurrence {freq:"weekly", days:["sat"]}.
+- An end on a recurring task is recurrence.until, resolved to a date against today: "every Sunday and Wednesday until October 22" -> {freq:"weekly", days:["sun","wed"], until:"2026-10-22"}; "every day for the next two weeks" -> {freq:"daily", until:<today + 14 days>}. No end mentioned means no until — never invent one.
 - If a write request is genuinely ambiguous (e.g. "move the bank thing to Friday" but two tasks could match, or "this Wednesday or next?"), return an empty actions array and ask a short clarifying question in reply instead of guessing.
 - A task with no date goes to the weekly sidebar (add_task with date omitted/null) rather than being invented a date.
 

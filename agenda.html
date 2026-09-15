@@ -300,6 +300,7 @@ h3 { font-size: var(--fs-md); font-weight: 600; margin-bottom: 6px; }
   #month-title { min-width: var(--month-title-w, 170px); }
 }
 
+
 .list-drop { min-height: 12px; }
 .task-row { display: flex; align-items: center; gap: 8px; padding: 8px 6px; border-radius: 8px; transition: transform 120ms ease, box-shadow 120ms ease, background 120ms ease; cursor: default; user-select: none; }
 .task-row:hover { background: var(--hover); }
@@ -1930,6 +1931,20 @@ footer button { font: inherit; font-size: var(--fs-sm); border: none; background
         </select>
       </div>
       <div id="tpm-freq-fields"></div>
+      <!-- Outside tpm-freq-fields on purpose: that div is rebuilt whenever the
+           frequency changes, and an end date survives switching from weekly to
+           monthly because it means the same thing either way. -->
+      <div class="field">
+        <label>Ends</label>
+        <select id="tpm-until-mode" onchange="renderTemplateUntil()">
+          <option value="never">Never</option>
+          <option value="on">On a date</option>
+        </select>
+        <div id="tpm-until-wrap" style="margin-top:6px;display:none">
+          <input type="date" id="tpm-until" onchange="renderTemplateUntilHint()">
+          <div class="r-recur" id="tpm-until-hint" style="margin-top:4px"></div>
+        </div>
+      </div>
       <div class="field"><label>Time (optional — blank = untimed)</label><input type="time" id="tpm-time"></div>
       <div class="field"><label>Category</label><select id="tpm-category"></select></div>
       <!-- A select, not the title bar's @ menu. That one exists because a task
@@ -2126,6 +2141,13 @@ let weekAnchor = todayStr();    // any date within the viewed week
 function templateOccursOn(tpl, dateStr){
   if(!tpl.active) return false;
   const r = tpl.recurrence || {};
+  // An end date is a ceiling over every frequency, not a per-frequency field:
+  // "until October 22" means the same thing whether the task is daily, weekly
+  // or monthly, so it is checked once here rather than three times below.
+  // Inclusive — a task that runs "until October 22" runs ON the 22nd if that
+  // is one of its days. Absent means forever, which is every template saved
+  // before this existed.
+  if(r.until && dateStr > r.until) return false;
   if(r.freq === 'daily') return true;
   if(r.freq === 'weekly'){
     if(!(r.days||[]).includes(DOW_LONG[parseLocalDate(dateStr).getDay()])) return false;
@@ -2205,6 +2227,12 @@ function missLabel(tpl){
 // stops a routine untouched since spring from being walked day by day.
 const MISS_LOOKBACK_DAYS = 60;
 function outstandingOccurrence(tpl, beforeDate){
+  // Past its end date a task stops following her forward too. "Until October
+  // 22" has to mean gone after October 22 — a carry rule that outlived the
+  // schedule would leave the one thing she set an end date to stop still
+  // sitting on today, which is the whole complaint the end date answers.
+  const until = (tpl.recurrence || {}).until;
+  if(until && beforeDate > until) return null;
   const floor = tpl.miss_since || '';
   for(let i = 1; i <= MISS_LOOKBACK_DAYS; i++){
     const d = addDays(beforeDate, -i);
@@ -2535,19 +2563,28 @@ function deleteTaskFromModal(){
    ===================================================================== */
 function recurLabel(tpl){
   const r = tpl.recurrence||{};
-  if(r.freq==='daily') return 'Every day' + (tpl.time?` at ${fmtTime(tpl.time)}`:'');
+  if(r.freq==='daily') return 'Every day' + (tpl.time?` at ${fmtTime(tpl.time)}`:'') + untilLabel(r);
   if(r.freq==='weekly'){
     const every = Math.max(1, r.interval || 1);
     const lead = every === 1 ? 'Weekly' : every === 2 ? 'Every other week' : `Every ${every} weeks`;
-    return lead + ': ' + (r.days||[]).map(d=>DOW_SHORT[DOW_LONG.indexOf(d)]).join(', ') + (tpl.time?` at ${fmtTime(tpl.time)}`:'');
+    return lead + ': ' + (r.days||[]).map(d=>DOW_SHORT[DOW_LONG.indexOf(d)]).join(', ') + (tpl.time?` at ${fmtTime(tpl.time)}`:'') + untilLabel(r);
   }
   if(r.freq==='monthly'){
     const when = r.dow
       ? `${r.nth === -1 ? 'Last' : ['','1st','2nd','3rd','4th'][r.nth]} ${DOW_FULL[DOW_LONG.indexOf(r.dow)]} of the month`
       : `Monthly on day ${r.day}`;
-    return when + (tpl.time?` at ${fmtTime(tpl.time)}`:'');
+    return when + (tpl.time?` at ${fmtTime(tpl.time)}`:'') + untilLabel(r);
   }
   return '';
+}
+// Past its end date the task is finished, not broken and not paused — the list
+// says so rather than leaving a row that has silently stopped producing days
+// looking identical to one that hasn't. It stays in the list either way: she
+// may want it back next term, and deleting it would take the completions with
+// it.
+function untilLabel(r){
+  if(!r.until) return '';
+  return (r.until < todayStr() ? ' · ended ' : ' · until ') + fmtShort(r.until);
 }
 let editingTemplate = null;
 function renderTemplateFreqFields(){
@@ -2566,8 +2603,7 @@ function renderTemplateFreqFields(){
         </div>
         <div class="r-recur" id="tpm-week-hint" style="margin-top:4px"></div>
       </div>
-      <div class="field"><label>Days</label><div class="dow-picker">${DOW_LONG.map((d,i)=>`<label><input type="checkbox" value="${d}" ${sel.includes(d)?'checked':''}><span>${DOW_SHORT[i]}</span></label>`).join('')}</div></div>`;
-    renderTemplateWeekHint();
+      <div class="field"><label>Days</label><div class="dow-picker">${DOW_LONG.map((d,i)=>`<label><input type="checkbox" value="${d}" ${sel.includes(d)?'checked':''} onchange="renderTemplateHints()"><span>${DOW_SHORT[i]}</span></label>`).join('')}</div></div>`;
   } else if(freq==='monthly'){
     const r = (editingTemplate && editingTemplate.recurrence) || {};
     const byDow = !!r.dow;
@@ -2579,18 +2615,34 @@ function renderTemplateFreqFields(){
           <option value="dow" ${byDow?'selected':''}>a weekday each month</option>
         </select></div>
       <div class="field" id="tpm-month-date" style="${byDow?'display:none':''}">
-        <label>Day of month</label><input type="number" id="tpm-monthday" min="1" max="31" value="${day}">
+        <label>Day of month</label><input type="number" id="tpm-monthday" min="1" max="31" value="${day}" onchange="renderTemplateHints()">
       </div>
       <div class="field" id="tpm-month-dow" style="${byDow?'':'display:none'}">
         <label>Which one</label>
         <div class="nth-picker">
-          <select id="tpm-nth">${NTH.map(([v,l])=>`<option value="${v}" ${v===nth?'selected':''}>${l}</option>`).join('')}</select>
-          <select id="tpm-dow">${DOW_LONG.map((d,i)=>`<option value="${d}" ${d===dow?'selected':''}>${DOW_FULL[i]}</option>`).join('')}</select>
+          <select id="tpm-nth" onchange="renderTemplateHints()">${NTH.map(([v,l])=>`<option value="${v}" ${v===nth?'selected':''}>${l}</option>`).join('')}</select>
+          <select id="tpm-dow" onchange="renderTemplateHints()">${DOW_LONG.map((d,i)=>`<option value="${d}" ${d===dow?'selected':''}>${DOW_FULL[i]}</option>`).join('')}</select>
         </div>
       </div>`;
   } else {
     el.innerHTML = '';
   }
+  // Both hints live outside the branches: the end-date hint belongs to every
+  // frequency, and switching frequency has to restate it.
+  renderTemplateHints();
+}
+// One entry point, so a change to the ticked days can never leave the two
+// hints disagreeing about which days they are describing.
+function renderTemplateHints(){
+  renderTemplateWeekHint();
+  renderTemplateUntilHint();
+}
+// Read from the form, not from editingTemplate: the hints describe what Save
+// would write, and she may have ticked Wednesday a second ago.
+function formDays(){
+  const boxes = document.querySelectorAll('#tpm-freq-fields input[type=checkbox]');
+  if(!boxes.length) return (editingTemplate && editingTemplate.recurrence && editingTemplate.recurrence.days) || [];
+  return Array.from(boxes).filter(b => b.checked).map(b => b.value);
 }
 /* The week an "every N weeks" template counts from. Held steady while the
    rhythm is unchanged: re-anchoring on every save would mean renaming a
@@ -2618,8 +2670,7 @@ function renderTemplateWeekHint(){
   // week and could only ever collide or drift.
   if(from && !from.value) from.value = weekAnchorFor(editingTemplate && editingTemplate.recurrence, every);
   const anchor = tplWeekFromValue(every);
-  const days = (editingTemplate && editingTemplate.recurrence && editingTemplate.recurrence.days) || [];
-  const first = firstOccurrenceOnOrAfter(anchor, days, every);
+  const first = firstOccurrenceOnOrAfter(anchor, formDays(), every);
   hint.textContent = first
     ? `Counting from the week of ${fmtShort(anchor)} — first one lands ${fmtLong(first)}, then every ${every} weeks.`
     : `Counting from the week of ${fmtShort(anchor)} — the weeks in between are skipped.`;
@@ -2646,6 +2697,59 @@ function renderTemplateMonthMode(){
   const dow = document.getElementById('tpm-monthmode').value === 'dow';
   document.getElementById('tpm-month-date').style.display = dow ? 'none' : '';
   document.getElementById('tpm-month-dow').style.display = dow ? '' : 'none';
+  renderTemplateHints();
+}
+/* ---- an end date ("every Sunday and Wednesday until October 22") ----
+   A ceiling on the recurrence, stored as recurrence.until and checked in one
+   place in templateOccursOn. Only a template that has one carries the key, so
+   nothing already saved needed migrating and an older build reads the rest of
+   it unchanged — the same shape the every-N-weeks fields took.
+
+   Two-step (a Never/On-a-date select, then the date) rather than a bare date
+   box that means "forever" when empty: an empty date input reads as unfilled,
+   not as a decision, and clearing it back to forever should be one obvious
+   choice instead of a delete-the-text gesture. */
+function renderTemplateUntil(){
+  const mode = document.getElementById('tpm-until-mode');
+  const wrap = document.getElementById('tpm-until-wrap');
+  const box = document.getElementById('tpm-until');
+  if(!mode || !wrap || !box) return;
+  const on = mode.value === 'on';
+  wrap.style.display = on ? '' : 'none';
+  // Seeded a month out rather than left blank, so switching to "On a date"
+  // lands on a usable date she edits instead of an empty field that silently
+  // saves as no end date at all.
+  if(on && !box.value) box.value = addDays(todayStr(), 30);
+  renderTemplateUntilHint();
+}
+// The date she picks and the last day the task actually lands on are usually
+// not the same day — "until October 22" on a Sunday/Wednesday rhythm really
+// ends on the 21st. Saying which one it is here is the whole point of the
+// hint; the alternative is finding out three weeks later.
+function renderTemplateUntilHint(){
+  const mode = document.getElementById('tpm-until-mode');
+  const hint = document.getElementById('tpm-until-hint');
+  const box = document.getElementById('tpm-until');
+  if(!mode || !hint || !box) return;
+  if(mode.value !== 'on' || !box.value){ hint.textContent = ''; return; }
+  const r = readRecurrenceFromForm();
+  if(!r){ hint.textContent = 'Pick at least one day.'; return; }
+  const last = lastOccurrenceOnOrBefore({active: true, recurrence: r}, box.value);
+  hint.textContent = last
+    ? (last === box.value
+        ? `Last one lands ${fmtLong(last)} — the end date itself.`
+        : `Last one lands ${fmtLong(last)}; nothing after that.`)
+    : 'It never comes round before that date — nothing would be scheduled.';
+}
+// Walked backwards a day at a time from the end date. The window is a year
+// because that is past the longest gap this app can express (a monthly task
+// missing a 31st), and a year of date maths in a modal is imperceptible.
+function lastOccurrenceOnOrBefore(tpl, endStr){
+  for(let i = 0; i < 366; i++){
+    const d = addDays(endStr, -i);
+    if(templateOccursOn(tpl, d)) return d;
+  }
+  return null;
 }
 function openTemplateModal(tpl){
   editingTemplate = tpl || null;
@@ -2664,6 +2768,13 @@ function openTemplateModal(tpl){
   // than leaving the previous one's start week in the box.
   const wf = document.getElementById('tpm-week-from');
   if(wf) wf.value = '';
+  // The end date is read straight off the template rather than left over from
+  // whichever one was open last — this field lives outside tpm-freq-fields, so
+  // nothing else clears it.
+  const until = (tpl && tpl.recurrence && tpl.recurrence.until) || '';
+  document.getElementById('tpm-until-mode').value = until ? 'on' : 'never';
+  document.getElementById('tpm-until').value = until;
+  renderTemplateUntil();
   renderTemplateFreqFields();
   openModal('template-modal');
 }
@@ -2694,20 +2805,17 @@ function populateRoutineSelect(sel, current){
   sel.innerHTML = opts.join('');
   sel.value = current ? String(current) : '';
 }
-function saveTemplateFromModal(){
-  const title = document.getElementById('tpm-name').value.trim();
-  if(!title) return;
+/* The recurrence the form currently describes, or null if it describes nothing
+   savable (weekly with no days ticked). Shared by Save and by the hints, so
+   what the hints promise and what Save writes cannot drift apart — they did
+   before this existed, the day hint reading the stored days while the
+   checkboxes said something else. */
+function readRecurrenceFromForm(){
   const freq = document.getElementById('tpm-freq').value;
-  const time = document.getElementById('tpm-time').value || null;
-  const category = document.getElementById('tpm-category').value || null;
-  const includeInBrief = document.getElementById('tpm-include-brief').checked;
-  const miss = document.getElementById('tpm-miss').value;
-  const routineId = document.getElementById('tpm-routine').value || null;
-  const medLink = document.getElementById('tpm-med').value || null;
-  let recurrence = {freq};
+  const recurrence = {freq};
   if(freq==='weekly'){
-    recurrence.days = Array.from(document.querySelectorAll('#tpm-freq-fields input[type=checkbox]:checked')).map(el=>el.value);
-    if(!recurrence.days.length) return;
+    recurrence.days = formDays();
+    if(!recurrence.days.length) return null;
     const every = parseInt((document.getElementById('tpm-weeks')||{}).value, 10) || 1;
     // Only an every-other-week-or-longer template carries these. A plain weekly
     // one stays exactly the shape it has always been, so nothing already saved
@@ -2727,6 +2835,25 @@ function saveTemplateFromModal(){
       recurrence.day = parseInt(document.getElementById('tpm-monthday').value,10) || 1;
     }
   }
+  // Same rule as interval/since: the key exists only when she asked for one, so
+  // "Never" is indistinguishable from every template saved before today.
+  const untilMode = document.getElementById('tpm-until-mode');
+  const until = document.getElementById('tpm-until');
+  if(untilMode && untilMode.value === 'on' && until && until.value) recurrence.until = until.value;
+  return recurrence;
+}
+function saveTemplateFromModal(){
+  const title = document.getElementById('tpm-name').value.trim();
+  if(!title) return;
+  const freq = document.getElementById('tpm-freq').value;
+  const time = document.getElementById('tpm-time').value || null;
+  const category = document.getElementById('tpm-category').value || null;
+  const includeInBrief = document.getElementById('tpm-include-brief').checked;
+  const miss = document.getElementById('tpm-miss').value;
+  const routineId = document.getElementById('tpm-routine').value || null;
+  const medLink = document.getElementById('tpm-med').value || null;
+  const recurrence = readRecurrenceFromForm();
+  if(!recurrence) return;
   // Stamped the first time a carry rule is chosen, so turning one on cannot
   // dredge up months of "misses" from before she asked for any. Backdated to
   // the start of the week, which is far enough to catch the day she is
