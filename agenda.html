@@ -279,6 +279,19 @@ h3 { font-size: var(--fs-md); font-weight: 600; margin-bottom: 6px; }
 .lv-day:hover { border-color: var(--accent); }
 .lv-day.on { background: var(--accent); border-color: var(--accent); color: #fff; font-weight: 600; }
 .day-toolbar .day-title { font-size: var(--fs-title); font-weight: 650; letter-spacing: var(--tracking-title); min-width: 170px; font-variant-numeric: lining-nums tabular-nums; }
+/* --day-title-w is measured once by reserveDayTitleWidth() and holds the widest
+   date this locale can render, so stepping days cannot move the ▸ button or
+   anything after it. It sits on :root because renderDay() rewrites the title's
+   innerHTML on every paint; 170px is the floor until it is measured.
+
+   Wide screens only. The toolbar wraps below ~430px, and reserving there makes
+   every short date take the tall two-row layout that only the longest dates
+   need — a row of space traded for a steadiness that a touch screen cannot use
+   anyway, since a tap is aimed fresh each time and there is no cursor resting
+   on the button between days. */
+@media (min-width: 560px) {
+  .day-toolbar .day-title { min-width: var(--day-title-w, 170px); }
+}
 
 .list-drop { min-height: 12px; }
 .task-row { display: flex; align-items: center; gap: 8px; padding: 8px 6px; border-radius: 8px; transition: transform 120ms ease, box-shadow 120ms ease, background 120ms ease; cursor: default; user-select: none; }
@@ -3488,8 +3501,63 @@ function attachRowDrag(container, items){
     handle.addEventListener('pointerdown', e => startItemDrag(e, item, row));
   });
 }
+/* The day title is the only variable-width thing in the toolbar — "Friday,
+   Sep 5" against "Wednesday, Sep 28" — so every step moved the ▸ button and
+   everything after it. Paging through several days meant re-aiming the cursor
+   each time, which is the opposite of what a next/previous button is for.
+   Reserving the widest title the locale can produce pins the whole row.
+
+   The reservation goes on the button, not on a box around the date: the button
+   is already an inline-flex whose content sits at the start, so the caret stays
+   hugging the date and the slack falls after it. Reserving an inner box instead
+   strands the caret out at the wide edge on every short date.
+
+   Measured rather than estimated in `ch`: the string comes from
+   toLocaleDateString, so which weekday and month names are longest depends on
+   her locale, not on English. Digits need no candidates of their own — the
+   title is tabular-nums, so every two-digit day is exactly as wide as any
+   other, and collapsing digits to one shape keeps the candidate set small.
+   A leap year walks every weekday against every month, and the candidates are
+   stacked in a single offscreen grid cell so the browser sizes the cell to the
+   widest of them: one layout pass, not one per candidate. */
+let _dayTitleSized = false;
+function reserveDayTitleWidth(){
+  const title = document.getElementById('day-title');
+  if(!title) return;
+  const cs = getComputedStyle(title);
+  const probe = document.createElement('div');
+  probe.setAttribute('aria-hidden', 'true');
+  probe.style.cssText = 'position:absolute;left:-9999px;top:0;visibility:hidden;white-space:nowrap;display:grid';
+  ['fontFamily','fontSize','fontWeight','fontStyle','letterSpacing','fontVariantNumeric','textTransform']
+    .forEach(k => { probe.style[k] = cs[k]; });
+  const seen = new Set(), d = new Date(2024, 0, 1);
+  for(let i = 0; i < 366; i++){
+    seen.add(fmtLong(fmtDate(d)).replace(/\d/g, '0'));
+    d.setDate(d.getDate() + 1);
+  }
+  seen.forEach(t => {
+    const span = document.createElement('span');
+    span.textContent = t;
+    span.style.gridArea = '1 / 1';
+    probe.appendChild(span);
+  });
+  document.body.appendChild(probe);
+  const textW = probe.getBoundingClientRect().width;
+  probe.remove();
+  // The caret rides inside the button, so its width and the flex gap are part
+  // of what has to be reserved. Both are read from the live one rather than
+  // assumed, so restyling the caret cannot quietly reintroduce the drift.
+  const caret = title.querySelector('.pb-caret');
+  const extra = caret ? caret.getBoundingClientRect().width + (parseFloat(cs.columnGap) || 0) : 0;
+  const w = Math.ceil(textW + extra);
+  if(w > 0){
+    document.documentElement.style.setProperty('--day-title-w', w + 'px');
+    _dayTitleSized = true;
+  }
+}
 function renderDay(){
   document.getElementById('day-title').innerHTML = esc(fmtLong(currentDate)) + '<span class="pb-caret">▾</span>';
+  if(!_dayTitleSized) reserveDayTitleWidth();
   const items = itemsForDate(currentDate);
   // Paging to a day whose routine progress has never been fetched. Fires at most
   // once per day and repaints when it lands, so a chip that would have read 0/6
