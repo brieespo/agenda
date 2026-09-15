@@ -8404,6 +8404,13 @@ function renderAppsMenu(){
     + SUITE_APPS.map(a => `<a class="apps-menu-row" href="${esc(a.url)}" target="_blank" rel="noopener">${esc(a.name)}<span class="amr-ico">${ico('external')}</span></a>`).join('');
 }
 document.addEventListener('click', (e) => {
+  // Same guard the leave panel and the period menu already carry, and for the
+  // same reason: a menu row that re-renders its own menu detaches the node that
+  // was clicked, so by the time the event reaches document `closest()` walks a
+  // tree no longer attached to it and wrongly reports "outside". Without this,
+  // every row that switches the timer menu's mode renders the new form and then
+  // immediately closes the menu over the top of it.
+  if(!e.target.isConnected) return;
   const menu = document.getElementById('apps-menu');
   if(menu && menu.classList.contains('open') && !e.target.closest('#apps-menu') && !e.target.closest('#apps-menu-btn')) toggleAppsMenu(false);
   const tmenu = document.getElementById('timer-menu');
@@ -8650,19 +8657,32 @@ function toggleTimerMenu(open){
   // can set the mode first and then open straight into that form.
   if(!show) _timerMode = null;
   if(show){
-    renderTimerMenu();
+    renderTimerMenu(true);
+    // Unforced on purpose: this one lands a moment later and must not wipe out
+    // whatever she has started typing in the meantime.
     loadTimeData(true).then(() => { if(menu.classList.contains('open')) renderTimerMenu(); });
   }
   menu.classList.toggle('open', show);
 }
-function renderTimerMenu(){
+// `force` separates a render a press asked for from a background one.
+//
+// The guard below exists for the background kind: the lazy reload re-renders
+// shortly after open, and anything she is typing into the menu — the running
+// description, either form — has to survive that. But it was cancelling every
+// render, and Chrome focuses a button when you click it, so the button she had
+// just pressed was always inside the menu: the guard swallowed the very render
+// that press existed to cause. "Log a finished block" and "Stop and log a
+// different length" set their mode and then showed the previous menu; both
+// Back buttons did nothing; and the discard row armed itself silently, so the
+// two-step confirmation gave no sign it was waiting for the second tap.
+//
+// Only the two renders nobody asked for — the lazy reload and the disarm
+// timeout — are still allowed to be cancelled by a focused field.
+function renderTimerMenu(force){
   const menu = document.getElementById('timer-menu');
   if(!menu) return;
-  // The lazy reload re-renders shortly after open; anything she is typing into
-  // the menu — the running description, either form — must survive that, so a
-  // focused field anywhere inside it cancels the re-render outright.
   const active = document.activeElement;
-  if(active && menu.contains(active)) return;
+  if(!force && active && menu.contains(active)) return;
   menu.classList.toggle('wide', _timerMode === 'block');
   if(RUNNING_TIMER && _timerMode === 'adjust'){
     // Prefilled with the elapsed time, which is both the honest starting point
@@ -8671,7 +8691,7 @@ function renderTimerMenu(){
       + `<p class="timer-menu-note">Ran ${esc(fmtMins(elapsedMinutes()))} since ${esc(fmtTime(hhmmOf(new Date(Date.parse(RUNNING_TIMER.started_at)))))}. How long was it really?</p>`
       + `<input type="text" id="timer-adjust-input" class="timer-desc" value="${esc(String(elapsedMinutes()))}" placeholder="90, 1h30, 1:30" autocomplete="off" onfocus="this.select()" onkeydown="if(event.key==='Enter'){event.preventDefault();stopTrackingAdjusted();}">`
       + `<button class="apps-menu-row" onclick="stopTrackingAdjusted()">Stop and log it<span class="amr-ico">${ico('check')}</span></button>`
-      + `<button class="apps-menu-row quiet" onclick="_timerMode=null;renderTimerMenu()">Back<span class="amr-ico">${ico('x')}</span></button>`;
+      + `<button class="apps-menu-row quiet" onclick="_timerMode=null;renderTimerMenu(true)">Back<span class="amr-ico">${ico('x')}</span></button>`;
   } else if(RUNNING_TIMER){
     const cat = TIME_CATS.find(c => c.id === RUNNING_TIMER.category_id);
     menu.innerHTML = `<div class="apps-menu-label">Tracking ${esc(elapsedLabel())}</div>`
@@ -8703,7 +8723,7 @@ function renderTimerMenu(){
       + `</div>`
       + (dayNote ? `<p class="timer-menu-note">${dayNote}</p>` : '')
       + `<button class="apps-menu-row" onclick="logManualBlock()">Log it<span class="amr-ico">${ico('check')}</span></button>`
-      + `<button class="apps-menu-row quiet" onclick="_timerMode=null;renderTimerMenu()">Back<span class="amr-ico">${ico('x')}</span></button>`;
+      + `<button class="apps-menu-row quiet" onclick="_timerMode=null;renderTimerMenu(true)">Back<span class="amr-ico">${ico('x')}</span></button>`;
   } else {
     // The description is captured before the category, because picking the
     // category is the action that starts the timer — asking afterwards would
@@ -8912,7 +8932,7 @@ async function discardTracking(){
       _discardArmed = false;
       if(document.getElementById('timer-menu')?.classList.contains('open')) renderTimerMenu();
     }, DISCARD_ARM_MS);
-    renderTimerMenu();
+    renderTimerMenu(true);
     return;
   }
   clearTimeout(_discardArmTimer); _discardArmTimer = null;
