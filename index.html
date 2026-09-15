@@ -6163,7 +6163,10 @@ async function setCycle(date, kind, value){
   const prev = CYCLE.get(key) || null;
   if(value === prev) value = null;          // tapping the lit chip clears the day
   if(value) CYCLE.set(key, value); else CYCLE.delete(key);
-  paintCycle();
+  // The paint is cosmetic; the write is the point. This used to sit outside the
+  // try, so anything that threw in here skipped the upsert entirely and lost
+  // the tap silently — which is exactly what happened.
+  try{ paintCycle(); }catch(e){ console.error('paintCycle failed', e); }
   try{
     const {error} = value
       ? await sb.from('cycle_events')
@@ -6241,6 +6244,16 @@ function cyclePeriods(){
 function renderCycle(){
   const el = document.getElementById('cycle-body');
   if(!el) return;
+  // The grid and the editor below read _cycSel/_cycMonth, and openCycleSubmodal
+  // is what normally sets them. But paintCycle() calls this on every chip tap
+  // in the Health panel, which is reachable without that modal ever being
+  // opened — so _cycMonth was null and renderCycleGrid threw on `.split`. That
+  // took the strip repaint down with it *and*, because paintCycle sat ahead of
+  // the try in setCycle, the write itself: the tap lived in memory, surfaced
+  // only when something unrelated repainted the strip, and was gone on reload.
+  // Default them here so this function never depends on that one entry point.
+  if(!_cycSel) _cycSel = todayStr();
+  if(!_cycMonth) _cycMonth = _cycSel.slice(0, 7);
   if(_guestMode || !_currentUser){
     el.innerHTML = `<p class="cyc-empty">Sign in to use the cycle log — it lives in the cloud only, never on this device.</p>`;
     return;
@@ -11212,6 +11225,13 @@ function afterLoad(){
   // have its data at rest.
   if(_currentUser && !_guestMode && !ACTIVITY){
     loadActivity().then(() => renderStripGrid());
+  }
+  // And the perfume tile, for the same reason and with the same history: it
+  // names what she wore, so that name has to be there at rest rather than
+  // appearing only once the panel has been opened. Unlike the Health tile,
+  // which says nothing on purpose, this one is meant to report.
+  if(_currentUser && !_guestMode && !PERFUME_WEAR){
+    loadPerfumes().then(() => renderStripGrid());
   }
   applyTheme();
   applyFont();
