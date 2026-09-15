@@ -6828,7 +6828,8 @@ function healthPanelHtml(){
    anything logged here meanwhile. It now re-reads before writing and three-way
    merges `wear_log` and `perfumes` against what it read at load, so entries
    added here survive its saves and entries removed here stay removed. The time
-   tracker still has the same whole-row last-write-wins hole, unfixed.
+   tracker closed its own version of this in 2026-08, with a per-item merge
+   (`mergeRow`, tombstones, `_u` stamps) rather than this coarser one.
    ===================================================================== */
 let PERFUMES = null;        // her library. null = not loaded.
 let PERFUME_WEAR = null;    // [{id, perfume_id, date}]
@@ -8366,11 +8367,23 @@ async function ackRunningTimer(){
 // carrying a stale row would resurrect a timer she'd already stopped.
 // Phase A writes it; nothing reads it yet.
 async function timeSettingsWithSlot(){
-  let settings = {};
-  try{
-    const {data} = await sb.from('time_data').select('settings').eq('user_id', _currentUser.id).maybeSingle();
-    if(data && data.settings && typeof data.settings === 'object') settings = data.settings;
-  }catch(e){ /* a failed read just means we write a settings object holding only the stamp */ }
+  // The tracker keeps its merge protocol marker (`settings._sync`) and every
+  // deletion tombstone (`settings._tomb`) in this column, so a settings object
+  // built from a failed read is not a smaller write — it is a destructive one.
+  // Dropping `_sync` makes the tracker's `mergeRow` refuse and fall back to
+  // last-write-wins, which is exactly the whole-row clobbering it fixed;
+  // dropping `_tomb` lets deleted entries come back. Both silently, and on the
+  // flaky connection that makes a merge necessary in the first place.
+  //
+  // So refuse rather than write a stripped one: every caller already handles a
+  // rejection by reporting it, and a timer that fails to start loudly is worth
+  // more than a time log that quietly stops merging. An absent row or a null
+  // `settings` is not a failed read — there is nothing to preserve, so a fresh
+  // object is honest there.
+  const {data, error} = await sb.from('time_data').select('settings')
+    .eq('user_id', _currentUser.id).maybeSingle();
+  if(error) throw error;
+  const settings = (data && data.settings && typeof data.settings === 'object') ? data.settings : {};
   settings.timerAt = nowStamp();
   return settings;
 }
