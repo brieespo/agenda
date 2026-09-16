@@ -105,6 +105,43 @@
   --shadow: 0 1px 2px rgba(11,11,11,0.04), 0 4px 12px rgba(11,11,11,0.05);
   --hover: rgba(11,11,11,0.04);
 }
+/* ---------------------------------------------------------------------
+   BLUSH THEME (optional, `data-theme="blush"`)
+
+   Mostly white with a warm pink cast: the page carries the tint, the cards
+   sit a shade above it at near-white, and the pink does its real work on the
+   accents — buttons, dots, the underline on the active nav tab.
+
+   Warm rather than cool: --page, --ink and the neutrals all keep red above
+   green above blue, so the greys read as warm stone rather than lilac. A
+   cool pink over cool greys is the combination that turns sugary.
+
+   The cycle dot is the one colour that needed thought. --bleed has to stay
+   distinct from --accent, and in the warm theme it manages that on hue alone
+   (~29 degrees between its crimson and that terracotta). Here the accent is
+   itself pink, so there is no hue left to spend — the separation is bought
+   with lightness instead: a deep oxblood against a mid rose, 1.9x apart in
+   luminance where warm's pair is 1.3x.
+
+   Measured, not eyeballed. White on --accent is 4.75:1, ahead of both warm
+   (3.97) and minimal (4.42); body text is 15:1 and every dot and rule clears
+   3:1 against both --page and --surface.
+   --------------------------------------------------------------------- */
+:root[data-theme="blush"] {
+  --page: #fcf1ef;
+  --surface: #fffaf9;
+  --ink: #2b1a1d;
+  --ink-2: #6b5158;
+  --muted: #9a7f85;
+  --hairline: #f2dfdc;
+  --border: rgba(43,26,29,0.10);
+  --accent: #b85070;
+  --accent-strong: #973e5a;
+  --accent-light: #fbe6ea;
+  --bleed: #8c1f2f;
+  --shadow: 0 1px 2px rgba(43,26,29,0.04), 0 4px 12px rgba(43,26,29,0.06);
+  --hover: rgba(43,26,29,0.045);
+}
 @media (prefers-color-scheme: dark) {
   :root {
     --page: #17100a;
@@ -155,6 +192,26 @@
     --critical: #ef7a72;
     --shadow: 0 2px 10px rgba(0,0,0,0.5), inset 0 1px 0 rgba(255,255,255,0.05);
     --hover: rgba(255,255,255,0.05);
+  }
+  /* Every property the light blush block sets has to be set again here, not
+     just the ones that change. `:root[data-theme="blush"]` outscores the plain
+     `:root` above it on specificity and a media query adds none, so any value
+     left out would keep its *light* value on a dark screen — which is why the
+     minimal block above restates its palette in full too. */
+  :root[data-theme="blush"] {
+    --page: #1a1013;
+    --surface: #271a1e;
+    --ink: #f7e9ea;
+    --ink-2: #d3b7bc;
+    --muted: #a08289;
+    --hairline: #3b2a2f;
+    --border: rgba(247,233,234,0.10);
+    --accent: #e08aa3;
+    --accent-strong: #eda6ba;
+    --accent-light: #3a2029;
+    --bleed: #dd4460;
+    --shadow: 0 2px 10px rgba(0,0,0,0.45), inset 0 1px 0 rgba(247,233,234,0.06);
+    --hover: rgba(247,233,234,0.055);
   }
 }
 * { box-sizing: border-box; margin: 0; padding: 0; }
@@ -1682,6 +1739,7 @@ footer button { font: inherit; font-size: var(--fs-sm); border: none; background
         <select id="setting-theme" onchange="changeTheme()">
           <option value="warm">Warm</option>
           <option value="minimal">Minimal</option>
+          <option value="blush">Blush</option>
         </select>
       </div>
       <div class="field">
