@@ -471,6 +471,30 @@ textarea.ae-input { resize: vertical; line-height: 1.4; min-height: 2.4em; }
 .asg-week.clear .asg-week-sum { color: var(--good); }
 .asg-week.open > .asg-week-head { margin-bottom: 8px; }
 .asg-week .asg-group { margin-left: 10px; }
+
+/* ---- the same rows, digested into the sidebar's week ----
+   A read-and-tick strip of the week's coursework beside the week's tasks. The
+   Assignments tab is where work is edited, so this row drops the pencil, the
+   delete, the split and the detail line and keeps only what answers "what is
+   due and have I done it" — the course, the title, a box. Tapping the title
+   opens the day it is due, which is where the rest of that row lives. */
+.wasg-day { margin-bottom: 2px; }
+.wasg-day-label { font-size: var(--fs-xs); letter-spacing: 0.04em; text-transform: uppercase; color: var(--muted); padding: 7px 4px 2px; font-variant-numeric: lining-nums tabular-nums; }
+.wasg-day.today .wasg-day-label { color: var(--accent-strong); }
+.wasg-carry .wasg-day-label { color: var(--serious); }
+.wasg { display: flex; align-items: flex-start; gap: 6px; padding: 6px; border-radius: 8px; transition: background 120ms ease; }
+.wasg:hover { background: var(--hover); }
+.wasg.done { opacity: var(--done-op); }
+.wasg .chk { margin-top: 1px; }
+.wasg-text { font-size: var(--fs-base); overflow-wrap: anywhere; cursor: pointer; }
+.wasg-text:hover { text-decoration: underline dotted var(--muted); }
+.wasg.done .wasg-text { font-style: italic; color: var(--muted); text-decoration: line-through; }
+.wasg-course { font-size: var(--fs-sm); font-weight: 650; color: var(--accent-strong); }
+.wasg-sum { font-size: var(--fs-xs); color: var(--muted); font-variant-numeric: lining-nums tabular-nums; }
+.wasg-sum.clear { color: var(--good); }
+/* The date it was actually set for. Same chip as a rolled-over task, because
+   it means the same thing: this is late, and here is how late. */
+.wasg-from { font-size: var(--fs-xs); color: var(--serious); border: 1px solid var(--serious); border-radius: 6px; padding: 1px 5px; margin-left: 4px; white-space: nowrap; }
 /* An empty day is a quiet line that opens to an add row. */
 .asg-group.empty { padding: 2px 12px; box-shadow: none; background: none; border-style: dashed; }
 .asg-group.empty.open { background: var(--surface); border-style: solid; }
@@ -1610,6 +1634,21 @@ footer button { font: inherit; font-size: var(--fs-sm); border: none; background
           <input type="text" id="sidebar-quick-add" placeholder="Add for this week…" onkeydown="if(event.key==='Enter')quickAddSidebar()">
           <button onclick="quickAddSidebar()">Add</button>
         </div>
+      </div>
+      <!-- Coursework for the same week as the card above it, following the
+           same anchor so the two can never disagree about which week "this"
+           is. It sits between the week and month cards because that is where
+           it falls in the funnel: work that already has a day, above the pile
+           that has not been given one. Hidden outright when there is no
+           coursework at all — signed out, or no syllabus imported yet — since
+           then it is not an empty card, it is a card that does not apply. -->
+      <div class="card" id="week-asg-card" style="margin-bottom:16px; display:none">
+        <div class="sidebar-head">
+          <h2 style="margin-bottom:0">Assignments</h2>
+          <span class="wasg-sum" id="week-asg-sum"></span>
+        </div>
+        <div class="sidebar-sub" id="week-asg-label"></div>
+        <div id="week-asg-list"></div>
       </div>
       <div class="card" style="margin-bottom:16px">
         <!-- The month card pages on its own, so something can be put in
@@ -5156,8 +5195,12 @@ function attachDoneCollapseHandlers(container){
     btn.addEventListener('click', () => toggleDoneCollapse(btn.dataset.doneScope));
   });
 }
+// Which week both sidebar cards are showing. Shared, rather than the same
+// expression written twice, so the assignment card cannot drift a week away
+// from the task card it sits under.
+function sidebarWeekKey(){ return weekKeyForDate(currentView==='week' ? weekAnchor : currentDate); }
 function renderSidebar(){
-  const wk = weekKeyForDate(currentView==='week' ? weekAnchor : currentDate);
+  const wk = sidebarWeekKey();
   document.getElementById('sidebar-week-label').textContent = `Week of ${fmtShort(wk)}`;
   const items = TASKS.filter(t => t.date===null && t.week===wk)
     .concat(carriedWeekInstances(wk))
@@ -5193,6 +5236,87 @@ function renderSidebar(){
     row.addEventListener('pointerdown', e => { if(!e.target.closest('.chk')) startItemDrag(e, item, row, () => openTaskModal(item)); });
   });
   attachDoneCollapseHandlers(listEl);
+}
+
+/* The week's coursework, beside the week's tasks. Same rows as the Assignments
+   tab — they live in the law school tracker, not in TASKS — so ticking here
+   goes through commitLawEdit like every other surface, and every surface
+   re-renders after it.
+
+   Unfinished work from before the week starts rides at the top under "Carried
+   over", for the reason the tab keeps a "Not done yet" group: 83 of her items
+   last year ended the semester unticked, and a reading skipped last Tuesday is
+   this week's problem, not last Tuesday's. It carries *visually* — nothing is
+   rewritten. `due_date` is the tracker's record of when the work was set, it
+   is what the syllabus round-trip and the calendar sync read, and moving it
+   would quietly falsify all three. The row wears the date it slipped from
+   instead, which is the thing worth seeing anyway. */
+let _weekAsgBound = false;
+function renderWeekAssignments(){
+  const card = document.getElementById('week-asg-card');
+  const box = document.getElementById('week-asg-list');
+  const sum = document.getElementById('week-asg-sum');
+  if(!card || !box) return;
+  const all = (_guestMode || !_currentUser) ? [] : assignmentRows();
+  if(!all.length){ card.style.display = 'none'; return; }
+  card.style.display = '';
+  bindAssignHandlers('week-asg-list');
+  // The title is the one part of the row that isn't an assignment action, so
+  // it gets its own listener rather than a data-act onAssignClick would have
+  // to learn about. Bound once — the list is re-rendered wholesale on a tick.
+  if(!_weekAsgBound){
+    _weekAsgBound = true;
+    box.addEventListener('click', e => {
+      const hit = e.target.closest('[data-day]');
+      if(hit) openDayFrom(hit.dataset.day);
+    });
+  }
+
+  const wk = sidebarWeekKey(), end = addDays(wk, 6), today = todayStr();
+  document.getElementById('week-asg-label').textContent = `${fmtShort(wk)} – ${fmtShort(end)}`;
+
+  const inWeek = all.filter(r => r.a.due_date >= wk && r.a.due_date <= end);
+  const carried = all.filter(r => r.a.due_date < wk && !r.a.done)
+                     .sort((x, y) => x.a.due_date.localeCompare(y.a.due_date));
+  const byCourse = (x, y) => (x.courseName || '').localeCompare(y.courseName || '');
+  const left = carried.length + inWeek.filter(r => !r.a.done).length;
+  sum.textContent = (inWeek.length || carried.length) ? (left ? `${left} to do` : 'all done') : '';
+  sum.classList.toggle('clear', !left);
+
+  const rowHtml = (r, late) => `
+    <div class="wasg ${r.a.done ? 'done' : ''}" data-course="${esc(r.courseId)}" data-asg="${esc(r.a.id)}">
+      <span class="chk small ${r.a.done ? 'done' : ''}" data-act="toggle-asg">${r.a.done ? ico('check') : ''}</span>
+      <span class="wasg-text" data-day="${esc(r.a.due_date)}" title="Open the day it's due">
+        <span class="wasg-course">${esc(r.courseName)}:</span> ${esc(r.a.title || '(untitled)')}${
+        late ? `<span class="wasg-from">was ${esc(fmtShort(r.a.due_date))}</span>` : ''}</span>
+    </div>`;
+
+  let html = '';
+  if(carried.length){
+    html += `<div class="wasg-day wasg-carry">
+      <div class="wasg-day-label">Carried over</div>
+      ${carried.map(r => rowHtml(r, true)).join('')}
+    </div>`;
+  }
+  // Only the days with something on them. Drawing all seven is the tab's job,
+  // where a blank Friday is a line you can open and add to; here it would be
+  // five empty headings wrapped around two readings.
+  let any = false;
+  for(let d = wk; d <= end; d = addDays(d, 1)){
+    const day = inWeek.filter(r => r.a.due_date === d).sort(byCourse);
+    if(!day.length) continue;
+    any = true;
+    // Ticked rows sink under the day they belong to rather than folding away:
+    // the card is short enough that watching it empty out costs nothing.
+    html += `<div class="wasg-day${d === today ? ' today' : ''}">
+      <div class="wasg-day-label">${esc(d === today ? 'Today' : `${dowShort(d)} · ${fmtShort(d)}`)}</div>
+      ${day.filter(r => !r.a.done).map(r => rowHtml(r)).join('')}
+      ${day.filter(r => r.a.done).map(r => rowHtml(r)).join('')}
+    </div>`;
+  }
+  if(!any && !carried.length) html = '<p class="empty-note">Nothing due this week.</p>';
+  box.innerHTML = html;
+  paintIcons(box);
 }
 // Broader triage tier above the weekly sidebar: tasks with no day and no
 // week yet, just "sometime this month" — drag down into the week sidebar
@@ -8291,6 +8415,7 @@ function renderAll(){
   else renderWeek();
   renderPeriodMenus();
   renderSidebar();
+  renderWeekAssignments();
   renderMonthSidebar();
   renderMealSidebar();
   if(currentView==='day'){ renderMealStrip(); renderStripGrid(); renderLeave(); }
@@ -9920,7 +10045,7 @@ function emptyDayHtml(dateStr, label){
 /* The same rows appear in two places — the Assignments tab and the day view's
    coursework card — so every edit has to refresh both. Each render is a no-op
    when its container isn't on screen. */
-function renderAssignmentViews(){ renderAssignments(); renderCoursework(); renderAbsencePanel(); }
+function renderAssignmentViews(){ renderAssignments(); renderCoursework(); renderWeekAssignments(); renderAbsencePanel(); }
 function renderCoursework(){
   const card = document.getElementById('coursework-card');
   const box = document.getElementById('coursework-list');

@@ -1184,6 +1184,17 @@ Writes are **serialized** through a promise chain. Two quick ticks would otherwi
 
 Rows created here are `source: 'manual'`, so the law tracker's import — which replaces what a previous import of that course wrote — never deletes them.
 
+### The sidebar's week card (built 2026-09-27)
+
+A third surface for the same rows, between **This week** and **This month** in the right rail: the week's coursework beside the week's tasks. `renderWeekAssignments()`, wired into `renderAll()` and into `renderAssignmentViews()` so a tick anywhere refreshes it.
+
+- **Read-and-tick only.** Course, title, a box — no pencil, no delete, no split, no detail line, no add row. The Assignments tab is the editing surface and stays that way; this card answers "what's due and have I done it". Tapping the title runs `openDayFrom()`, which is where the fuller row lives.
+- **It follows the calendar, not today.** Both sidebar cards now read `sidebarWeekKey()` rather than repeating the same expression, so the assignment card can't drift a week away from the task card above it.
+- **Unfinished work from before the week rides at the top under *Carried over*** — the same argument as the tab's *Not done yet* group. It carries **visually**; nothing is rewritten. `due_date` is the tracker's record of when the work was *set*, and the syllabus round-trip and calendar sync both read it, so moving it would quietly falsify three things at once. The row wears a `was Sep 22` chip instead — the same chip a rolled-over task gets, because it means the same thing. Paging the calendar forward therefore grows the carry list, which is honest: that work really is still owed.
+- **Only days with something on them get a heading.** Drawing all seven is the tab's job, where a blank Friday is a line you can open and add to; here it would be five empty headings around two readings.
+- **Hidden outright when there is no coursework at all** (signed out, or no syllabus imported). A signed-in week with nothing due still shows, with a one-line note — a clear week is worth seeing; a card for a feature you don't use is not.
+- No new colour variables: `--accent-strong`, `--serious`, `--good`, `--muted`, `--hover`, `--done-op`, all already themed.
+
 ## Time: three ways a block gets logged (2026-08-24)
 
 The timer was originally the only way in, which meant every hour had to be
