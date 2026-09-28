@@ -494,7 +494,12 @@ textarea.ae-input { resize: vertical; line-height: 1.4; min-height: 2.4em; }
 .wasg-sum.clear { color: var(--good); }
 /* The date it was actually set for. Same chip as a rolled-over task, because
    it means the same thing: this is late, and here is how late. */
-.wasg-from { font-size: var(--fs-xs); color: var(--serious); border: 1px solid var(--serious); border-radius: 6px; padding: 1px 5px; margin-left: 4px; white-space: nowrap; }
+/* inline-block, not inline: a strike-through propagates to inline descendants
+   and a descendant cannot refuse it, so in the Done fold the rule was drawn
+   straight through the chip. An atomic inline box is not decorated by its
+   ancestor, which is the only way to keep the label out of the sentence being
+   struck out. */
+.wasg-from { display: inline-block; font-size: var(--fs-xs); color: var(--serious); border: 1px solid var(--serious); border-radius: 6px; padding: 1px 5px; margin-left: 4px; white-space: nowrap; }
 /* An empty day is a quiet line that opens to an add row. */
 .asg-group.empty { padding: 2px 12px; box-shadow: none; background: none; border-style: dashed; }
 .asg-group.empty.open { background: var(--surface); border-style: solid; }
@@ -5252,6 +5257,14 @@ function renderSidebar(){
    would quietly falsify all three. The row wears the date it slipped from
    instead, which is the thing worth seeing anyway. */
 let _weekAsgBound = false;
+// Keys this card has shown as still owed, and the week it showed them for.
+// Ticking a carried item off takes it out of the card's scope — it is neither
+// due this week nor owed any more — so the row you just tapped would vanish,
+// which reads as a click that failed rather than as a click that worked. Once
+// the card has shown something as owed it keeps it, in the Done fold, until
+// the card moves to another week and the question stops being this week's.
+let _wasgWeek = null;
+const _wasgSeenOwed = new Set();
 function renderWeekAssignments(){
   const card = document.getElementById('week-asg-card');
   const box = document.getElementById('week-asg-list');
@@ -5273,51 +5286,77 @@ function renderWeekAssignments(){
   }
 
   const wk = sidebarWeekKey(), end = addDays(wk, 6), today = todayStr();
+  if(_wasgWeek !== wk){ _wasgWeek = wk; _wasgSeenOwed.clear(); }
   document.getElementById('week-asg-label').textContent = `${fmtShort(wk)} – ${fmtShort(end)}`;
 
   const inWeek = all.filter(r => r.a.due_date >= wk && r.a.due_date <= end);
-  const carried = all.filter(r => r.a.due_date < wk && !r.a.done)
-                     .sort((x, y) => x.a.due_date.localeCompare(y.a.due_date));
+  const before = all.filter(r => r.a.due_date < wk);
+  const carried = before.filter(r => !r.a.done)
+                        .sort((x, y) => x.a.due_date.localeCompare(y.a.due_date));
+  carried.forEach(r => _wasgSeenOwed.add(asgKey(r.courseId, r.a.id)));
   const byCourse = (x, y) => (x.courseName || '').localeCompare(y.courseName || '');
+  const byDate = (x, y) => x.a.due_date.localeCompare(y.a.due_date) || byCourse(x, y);
+  // Finished work, from the week or carried into it: one fold at the foot of
+  // the card, collapsed by default, exactly as the task cards above and below
+  // do it. Same argument as theirs — by Thursday the finished half of a week
+  // is most of what the card would otherwise show, and it would push the two
+  // readings still owed under the fold instead.
+  const done = inWeek.filter(r => r.a.done)
+                     .concat(before.filter(r => r.a.done && _wasgSeenOwed.has(asgKey(r.courseId, r.a.id))))
+                     .sort(byDate);
+
   const left = carried.length + inWeek.filter(r => !r.a.done).length;
-  sum.textContent = (inWeek.length || carried.length) ? (left ? `${left} to do` : 'all done') : '';
+  sum.textContent = (inWeek.length || carried.length || done.length) ? (left ? `${left} to do` : 'all done') : '';
   sum.classList.toggle('clear', !left);
 
-  const rowHtml = (r, late) => `
+  // A row late enough to have been carried says so wherever it sits, including
+  // inside the Done fold — "was Sep 22" is how you tell a reading you caught up
+  // on from one that was simply due today. Derived from the row rather than
+  // passed in, so the function is safe to hand straight to doneGroupHtml, which
+  // maps over it and would otherwise feed the array index in as a second
+  // argument — truthy from the second row on.
+  const rowHtml = r => `
     <div class="wasg ${r.a.done ? 'done' : ''}" data-course="${esc(r.courseId)}" data-asg="${esc(r.a.id)}">
       <span class="chk small ${r.a.done ? 'done' : ''}" data-act="toggle-asg">${r.a.done ? ico('check') : ''}</span>
       <span class="wasg-text" data-day="${esc(r.a.due_date)}" title="Open the day it's due">
         <span class="wasg-course">${esc(r.courseName)}:</span> ${esc(r.a.title || '(untitled)')}${
-        late ? `<span class="wasg-from">was ${esc(fmtShort(r.a.due_date))}</span>` : ''}</span>
+        r.a.due_date < wk ? `<span class="wasg-from">was ${esc(fmtShort(r.a.due_date))}</span>` : ''}</span>
     </div>`;
 
   let html = '';
   if(carried.length){
     html += `<div class="wasg-day wasg-carry">
       <div class="wasg-day-label">Carried over</div>
-      ${carried.map(r => rowHtml(r, true)).join('')}
+      ${carried.map(rowHtml).join('')}
     </div>`;
   }
-  // Only the days with something on them. Drawing all seven is the tab's job,
-  // where a blank Friday is a line you can open and add to; here it would be
-  // five empty headings wrapped around two readings.
-  let any = false;
+  // Only the days that still have something owed on them. Drawing all seven is
+  // the tab's job, where a blank Friday is a line you can open and add to; here
+  // it would be five empty headings around two readings — and a day whose work
+  // is finished has nothing left to say, since its rows are in the fold below.
+  let anyOpen = false;
   for(let d = wk; d <= end; d = addDays(d, 1)){
-    const day = inWeek.filter(r => r.a.due_date === d).sort(byCourse);
+    const day = inWeek.filter(r => r.a.due_date === d && !r.a.done).sort(byCourse);
     if(!day.length) continue;
-    any = true;
-    // Ticked rows sink under the day they belong to rather than folding away:
-    // the card is short enough that watching it empty out costs nothing.
+    anyOpen = true;
     html += `<div class="wasg-day${d === today ? ' today' : ''}">
       <div class="wasg-day-label">${esc(d === today ? 'Today' : `${dowShort(d)} · ${fmtShort(d)}`)}</div>
-      ${day.filter(r => !r.a.done).map(r => rowHtml(r)).join('')}
-      ${day.filter(r => r.a.done).map(r => rowHtml(r)).join('')}
+      ${day.map(rowHtml).join('')}
     </div>`;
   }
-  if(!any && !carried.length) html = '<p class="empty-note">Nothing due this week.</p>';
+  // Nothing owed and a Done fold below is not an empty card, and it does not
+  // need a line saying so: the fold's own count is the evidence, and the "all
+  // done" beside the heading has already said it in green. The empty note is
+  // for the genuinely bare week, which is the only one that reads as missing.
+  if(!anyOpen && !carried.length && !done.length){
+    html += '<p class="empty-note">Nothing due this week.</p>';
+  }
+  html += doneGroupHtml('week-asg', done, rowHtml);
   box.innerHTML = html;
+  attachDoneCollapseHandlers(box);
   paintIcons(box);
 }
+
 // Broader triage tier above the weekly sidebar: tasks with no day and no
 // week yet, just "sometime this month" — drag down into the week sidebar
 // to promote, or straight onto a day to skip the week step entirely.
