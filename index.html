@@ -3462,6 +3462,16 @@ function handleDrop(item, targetEl, e){
   } else if(kind === 'month-sidebar'){
     task = resolveDraggedTask(item);
     if(task){ task.date = null; task.week = null; task.month = targetEl.dataset.month; task.time = null; task.duration_min = null; }
+  // Same pairing as sidebar/sidebar-row above: file first, then take the
+  // position. The month the row belongs to comes off the row rather than off
+  // the card, so a drop still lands in the month being looked at while the
+  // card is paged away from the calendar's.
+  } else if(kind === 'month-sidebar-row'){
+    task = resolveDraggedTask(item);
+    if(task){
+      task.date = null; task.week = null; task.month = targetEl.dataset.month; task.time = null; task.duration_min = null;
+      reorderTaskAt(task, Number(targetEl.dataset.id), targetEl, e);
+    }
   } else if(kind === 'week-day'){
     task = resolveDraggedTask(item);
     if(task){ task.date = targetEl.dataset.date; }
@@ -5499,11 +5509,16 @@ function renderMonthSidebar(){
   // The placeholder names the month once she has paged away, because "Add for
   // this month" would then be a lie about where it lands.
   if(qa) qa.placeholder = away ? `Add for ${fmtMonthLabel(mk)}…` : 'Add for this month…';
+  // Rankable on the same terms as the week card: TASKS order is the order, and
+  // this sort only pushes finished items to the end (stably), so the open rows
+  // keep the sequence she dragged them into.
   const items = TASKS.filter(t => t.date===null && !t.week && t.month===mk).sort((a,b) => (a.done===b.done)?0:(a.done?1:-1));
   const listEl = document.getElementById('month-sidebar-list');
   listEl.dataset.month = mk;
+  // Every row here is a real task — the month card has no carried occurrences —
+  // so unlike the week card there is no row to exclude from being a target.
   const rowHtml = item => `
-    <div class="sidebar-task ${item.done?'done':''}" data-id="${item.id}">
+    <div class="sidebar-task reorder-target ${item.done?'done':''}" data-id="${item.id}" data-drop="month-sidebar-row" data-month="${mk}">
       <span class="chk ${item.done?'done':''}" onclick='toggleDoneReal(${item.id})'>${item.done?ico('check'):''}</span>
       <span class="t-title ${item.done?'done':''}" style="font-size: var(--fs-base)">${esc(item.title)}${item.recurMonthly?`<span class="t-recur-ico" title="Repeats every month">${ico('repeat')}</span>`:''}${item.rolled_from?`<span class="rolled-dot" title="Carried over — forgotten from ${esc(fmtMonthLabel(item.rolled_from))}"></span>`:''}</span>
     </div>`;
