@@ -780,6 +780,20 @@ textarea.ae-input { resize: vertical; line-height: 1.4; min-height: 2.4em; }
 .sidebar-task.done .t-title { font-style: italic; color: var(--muted); }
 .sidebar-drop { min-height: 40px; border-radius: 8px; }
 .sidebar-drop.dragover { background: var(--accent-light); outline: 2px dashed var(--accent); }
+/* Dropping a row onto another row reorders; dropping it on the space around
+   them files it. So the feedback has to answer "which position", and a
+   highlight on the row under the pointer answers "which row" — the wrong
+   question, and indistinguishable from the filing target behind it. A line on
+   the edge the row will be inserted against says it exactly. The day list has
+   reordered this way since it shipped and showed nothing at all while you
+   dragged; it is the same mechanism, so it gets the same line. */
+.reorder-target { position: relative; }
+.reorder-target.drop-above::before, .reorder-target.drop-below::after {
+  content: ''; position: absolute; left: 0; right: 0; height: 2px;
+  background: var(--accent); border-radius: 2px; pointer-events: none;
+}
+.reorder-target.drop-above::before { top: -1px; }
+.reorder-target.drop-below::after { bottom: -1px; }
 
 /* ---- meals (dinner integration) ---- */
 .meal-strip { margin-bottom: 14px; display: flex; flex-direction: column; gap: 5px; border-radius: 10px; padding: 2px; }
@@ -3319,13 +3333,16 @@ function startItemDrag(e, item, sourceEl, onTap){
       if(sourceEl) sourceEl.classList.add('dragging');
     }
     positionGhost(ev);
-    document.querySelectorAll('.dragover').forEach(el=>el.classList.remove('dragover'));
+    clearDropMarks();
     const target = currentDropTarget(ev.clientX, ev.clientY);
-    if(target) target.classList.add('dragover');
+    if(target){
+      target.classList.add('dragover');
+      markReorderSide(target, item, ev.clientY);
+    }
   }
   function onUp(ev){
     document.removeEventListener('pointermove', onMove);
-    document.querySelectorAll('.dragover').forEach(el=>el.classList.remove('dragover'));
+    clearDropMarks();
     if(dragging){
       if(ghost) ghost.remove();
       if(sourceEl) sourceEl.classList.remove('dragging');
@@ -3342,6 +3359,39 @@ function startItemDrag(e, item, sourceEl, onTap){
 function currentDropTarget(x,y){
   const el = document.elementFromPoint(x,y);
   return el ? el.closest('[data-drop]') : null;
+}
+function clearDropMarks(){
+  document.querySelectorAll('.dragover, .drop-above, .drop-below')
+    .forEach(el => el.classList.remove('dragover', 'drop-above', 'drop-below'));
+}
+// Which edge of a reorderable row the drop would insert against — the same
+// midpoint test handleDrop applies, so what is drawn is what happens. A row
+// dragged over itself is not marked: that drop is a no-op and a line promising
+// a move it will not make is worse than no line.
+function markReorderSide(target, item, clientY){
+  if(!target.classList.contains('reorder-target')) return;
+  if(String(target.dataset.id) === String(item && item.id)) return;
+  const rect = target.getBoundingClientRect();
+  target.classList.add(clientY < rect.top + rect.height/2 ? 'drop-above' : 'drop-below');
+}
+/* Ranking, for any list of tasks. Every list renders TASKS in array order and
+   filters down from it, so the relative order of whatever a list shows is just
+   the relative order of TASKS — which makes one splice the whole of reordering,
+   with nothing per-list to store and no rank field to keep dense. The day list
+   has done it this way since it shipped; the week sidebar now shares the code
+   rather than owning a second copy of the same eight lines. */
+function reorderTaskAt(task, targetId, targetEl, e){
+  const targetTask = targetId === task.id ? null : TASKS.find(t => t.id === targetId);
+  if(!targetTask) return;
+  // Above or below the target depending on which half of it the pointer let
+  // go over, so ranking is precise rather than only ever "last".
+  const rect = targetEl.getBoundingClientRect();
+  const dropBefore = e.clientY < rect.top + rect.height/2;
+  const fromIdx = TASKS.indexOf(task);
+  if(fromIdx >= 0) TASKS.splice(fromIdx, 1);
+  let toIdx = TASKS.indexOf(targetTask);
+  if(!dropBefore) toIdx += 1;
+  TASKS.splice(toIdx, 0, task);
 }
 function resolveDraggedTask(item){
   return item.virtual ? createExceptionFromInstance(item) : TASKS.find(t=>t.id===item.id);
@@ -3388,19 +3438,7 @@ function handleDrop(item, targetEl, e){
     task = resolveDraggedTask(item);
     if(task){
       task.date = targetEl.dataset.date; task.time = null; task.duration_min = null;
-      const targetId = Number(targetEl.dataset.id);
-      const targetTask = targetId !== task.id ? TASKS.find(t => t.id === targetId) : null;
-      if(targetTask){
-        // Drop above/below the target row depending on which half of it the
-        // pointer released over, so reordering feels precise, not just "last."
-        const rect = targetEl.getBoundingClientRect();
-        const dropBefore = e.clientY < rect.top + rect.height/2;
-        const fromIdx = TASKS.indexOf(task);
-        if(fromIdx >= 0) TASKS.splice(fromIdx, 1);
-        let toIdx = TASKS.indexOf(targetTask);
-        if(!dropBefore) toIdx += 1;
-        TASKS.splice(toIdx, 0, task);
-      }
+      reorderTaskAt(task, Number(targetEl.dataset.id), targetEl, e);
     }
   } else if(kind === 'hour-slot'){
     task = resolveDraggedTask(item);
@@ -3411,6 +3449,16 @@ function handleDrop(item, targetEl, e){
   } else if(kind === 'sidebar'){
     task = resolveDraggedTask(item);
     if(task){ task.date = null; task.week = targetEl.dataset.week; task.month = null; task.time = null; task.duration_min = null; }
+  // Dropped onto a row rather than the space around it: same filing as
+  // 'sidebar' above — a task dragged in from a day still loses its date — plus
+  // a position. The row target sits inside the list target, and
+  // currentDropTarget takes the nearest, so the two never contend.
+  } else if(kind === 'sidebar-row'){
+    task = resolveDraggedTask(item);
+    if(task){
+      task.date = null; task.week = targetEl.dataset.week; task.month = null; task.time = null; task.duration_min = null;
+      reorderTaskAt(task, Number(targetEl.dataset.id), targetEl, e);
+    }
   } else if(kind === 'month-sidebar'){
     task = resolveDraggedTask(item);
     if(task){ task.date = null; task.week = null; task.month = targetEl.dataset.month; task.time = null; task.duration_min = null; }
@@ -5256,6 +5304,10 @@ function sidebarWeekKey(){ return weekKeyForDate(currentView==='week' ? weekAnch
 function renderSidebar(){
   const wk = sidebarWeekKey();
   document.getElementById('sidebar-week-label').textContent = `Week of ${fmtShort(wk)}`;
+  // TASKS order is the order, which is what makes the card rankable: the sort
+  // below only pushes finished items to the end, and Array#sort is stable, so
+  // everything still waiting keeps the sequence she dragged it into. Nothing
+  // else may sort this list without taking that away.
   const items = TASKS.filter(t => t.date===null && t.week===wk)
     .concat(carriedWeekInstances(wk))
     .sort((a,b) => (a.done===b.done)?0:(a.done?1:-1));
@@ -5263,8 +5315,12 @@ function renderSidebar(){
   listEl.dataset.week = wk;
   // A carried routine names the day it slipped from — "from Tue" is the whole
   // point of it being here, where an undated task's dot only means "last week".
+  // A real task is also a drop target, so dragging one onto another ranks
+  // them. A carried routine occurrence is not: it has no place in TASKS to
+  // splice to, and it is not hers to reorder — it sits where the day it
+  // slipped from puts it.
   const rowHtml = item => `
-    <div class="sidebar-task ${item.done?'done':''}" data-id="${item.id}" data-kind="${item.virtual?'v':'r'}">
+    <div class="sidebar-task ${item.done?'done':''}${item.carried?'':' reorder-target'}" data-id="${item.id}" data-kind="${item.virtual?'v':'r'}"${item.carried?'':` data-drop="sidebar-row" data-week="${wk}"`}>
       <span class="chk ${item.done?'done':''}" onclick='${item.virtual ? `toggleDoneVirtual(${item.template_id},&quot;${item.date}&quot;)` : `toggleDoneReal(${item.id})`}'>${item.done?ico('check'):''}</span>
       <span class="t-title ${item.done?'done':''}" style="font-size: var(--fs-base)">${esc(item.title)}${
         item.carried ? `<span class="t-rolled-chip">from ${dowShort(item.rolled_from)}</span>`

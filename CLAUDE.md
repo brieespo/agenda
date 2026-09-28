@@ -1199,6 +1199,17 @@ A third surface for the same rows, between **This week** and **This month** in t
 - No new colour variables: `--accent-strong`, `--serious`, `--good`, `--muted`, `--hover`, `--done-op`, all already themed.
 - The `was Sep 22` chip is `display: inline-block`. A strike-through propagates to inline descendants and a descendant **cannot** refuse it with `text-decoration: none`, so inside the Done fold the rule drew straight through the chip's border; an atomic inline box is not decorated by its ancestor.
 
+## Ranking the week's tasks (built 2026-09-28)
+
+Drag a row in **This week** onto another row and it takes that position — Bri's ask, to rank the week by priority. The day list has reordered this way since it shipped; `reorderTaskAt()` is now shared by both instead of each owning the same eight lines.
+
+- **There is no rank field.** Every list renders `TASKS` in array order and filters down from it, so the relative order of whatever a list shows *is* the relative order of `TASKS`, and reordering is one `splice`. Nothing to keep dense, nothing to migrate, and it round-trips for free — agenda's sync is wholesale last-write-wins on the row, so the array's order is preserved as stored.
+  - **Consequence: nothing may sort `TASKS`.** `renderSidebar`'s sort only pushes finished items to the end, and `Array#sort` is stable, so the open rows keep the sequence she dragged them into. A sort added anywhere else silently takes the feature away.
+  - New tasks `push`, so a quick-add lands at the bottom of the ranking, which is the right default for something not yet triaged.
+- **Row target inside list target.** `data-drop="sidebar-row"` on each row sits inside the list's `data-drop="sidebar"`, and `currentDropTarget` takes the nearest, so dropping *on* a row ranks and dropping *around* them just files — exactly how `today-row` sits inside `today-list`. The row branch does the same filing as the list branch first (date cleared, week set), so a task dragged in from a day both moves and lands where it was dropped.
+- **A carried routine occurrence is not a target.** It has no place in `TASKS` to splice against, and its position is not hers to set — it sits where the day it slipped from puts it.
+- **The feedback is a line, not a highlight.** A highlight on the row under the pointer answers "which row" when the question is "which position", and is indistinguishable from the filing target behind it. `.drop-above`/`.drop-below` draw on the edge the drop will insert against, from the same midpoint test `reorderTaskAt` applies — so what is drawn is what happens. A row dragged over itself is not marked, because that drop is a no-op. The day list had reordered with *no* feedback at all since it shipped; sharing the mechanism gave it the line too.
+
 ## Collapsing a card (generalised 2026-09-28)
 
 Today and Coursework each had their own copy of the same four lines under a different name. Making the four sidebar cards fold too — This week, Assignments, This month, Meal plan, at Bri's request — would have made six copies, so there is now one table and one implementation: `COLLAPSIBLE_CARDS`, `applyCardCollapse(key)`, `toggleCardCollapse(key)`, `applyAllCardCollapse()`.
