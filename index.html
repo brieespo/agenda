@@ -390,8 +390,8 @@ h3 { font-size: var(--fs-md); font-weight: 600; margin-bottom: 6px; }
 .task-group-body { padding-left: 2px; }
 .today-card-head { display: flex; align-items: center; justify-content: space-between; margin-bottom: 10px; }
 .today-card-head h2 { margin-bottom: 0; }
-.today-collapse-btn { border: none; background: none; padding: 4px; margin: -4px; cursor: pointer; color: var(--muted); border-radius: 6px; transition: color 120ms ease; }
-.today-collapse-btn:hover { color: var(--ink); }
+.card-collapse-btn { border: none; background: none; padding: 4px; margin: -4px; cursor: pointer; color: var(--muted); border-radius: 6px; transition: color 120ms ease; align-self: center; flex: none; }
+.card-collapse-btn:hover { color: var(--ink); }
 
 /* ---- assignments ----
    Laid out as the checklist she kept by hand: a date, then one line per item,
@@ -762,7 +762,8 @@ textarea.ae-input { resize: vertical; line-height: 1.4; min-height: 2.4em; }
 
 
 /* ---- sidebar ---- */
-.sidebar-head { display: flex; justify-content: space-between; align-items: baseline; margin-bottom: 4px; }
+.sidebar-head { display: flex; justify-content: space-between; align-items: baseline; margin-bottom: 4px; gap: 8px; }
+.sidebar-head h2 { margin-right: auto; }
 .sidebar-sub { font-size: var(--fs-sm); color: var(--muted); margin-bottom: 10px; }
 /* Visible at rest. These were faded to 0.5 and only brightened on card hover,
    on the reasoning that paging months is occasional — but a control nobody
@@ -1492,7 +1493,7 @@ footer button { font: inherit; font-size: var(--fs-sm); border: none; background
         <div class="card" id="today-card" data-drop="today-list">
           <div class="today-card-head">
             <h2>Today</h2>
-            <button class="today-collapse-btn" id="today-collapse-btn" onclick="toggleTodayCollapse()" title="Collapse Today"><span class="tg-chevron open" id="today-chevron" data-ico="chevron-right"></span></button>
+            <button class="card-collapse-btn" id="today-collapse-btn" onclick="toggleCardCollapse('today')" title="Collapse Today"><span class="tg-chevron open" id="today-chevron" data-ico="chevron-right"></span></button>
           </div>
           <div id="today-card-body">
             <div class="list-drop" id="today-list" data-drop="today-list"></div>
@@ -1509,7 +1510,7 @@ footer button { font: inherit; font-size: var(--fs-sm); border: none; background
         <div class="card" id="coursework-card" style="display:none">
           <div class="today-card-head">
             <h2>Coursework</h2>
-            <button class="today-collapse-btn" id="coursework-collapse-btn" onclick="toggleCourseworkCollapse()" title="Collapse coursework"><span class="tg-chevron open" id="coursework-chevron" data-ico="chevron-right"></span></button>
+            <button class="card-collapse-btn" id="coursework-collapse-btn" onclick="toggleCardCollapse('coursework')" title="Collapse coursework"><span class="tg-chevron open" id="coursework-chevron" data-ico="chevron-right"></span></button>
           </div>
           <div id="coursework-card-body"><div id="coursework-list"></div></div>
         </div>
@@ -1632,12 +1633,14 @@ footer button { font: inherit; font-size: var(--fs-sm); border: none; background
     <aside class="sidebar-col" id="sidebar-col">
       <button class="icon-btn sidebar-close" onclick="toggleSidebar(false)" data-ico="x"></button>
       <div class="card" style="margin-bottom:16px">
-        <div class="sidebar-head"><h2 style="margin-bottom:0">This week</h2></div>
-        <div class="sidebar-sub" id="sidebar-week-label"></div>
-        <div class="sidebar-drop" id="sidebar-list" data-drop="sidebar"></div>
-        <div class="quick-add-row">
-          <input type="text" id="sidebar-quick-add" placeholder="Add for this week…" onkeydown="if(event.key==='Enter')quickAddSidebar()">
-          <button onclick="quickAddSidebar()">Add</button>
+        <div class="sidebar-head"><h2 style="margin-bottom:0">This week</h2><button class="card-collapse-btn" id="sidebar-week-collapse-btn" onclick="toggleCardCollapse('sidebar-week')" title="Collapse This week"><span class="tg-chevron open" id="sidebar-week-chevron" data-ico="chevron-right"></span></button></div>
+        <div id="sidebar-week-card-body">
+          <div class="sidebar-sub" id="sidebar-week-label"></div>
+          <div class="sidebar-drop" id="sidebar-list" data-drop="sidebar"></div>
+          <div class="quick-add-row">
+            <input type="text" id="sidebar-quick-add" placeholder="Add for this week…" onkeydown="if(event.key==='Enter')quickAddSidebar()">
+            <button onclick="quickAddSidebar()">Add</button>
+          </div>
         </div>
       </div>
       <!-- Coursework for the same week as the card above it, following the
@@ -1651,9 +1654,12 @@ footer button { font: inherit; font-size: var(--fs-sm); border: none; background
         <div class="sidebar-head">
           <h2 style="margin-bottom:0">Assignments</h2>
           <span class="wasg-sum" id="week-asg-sum"></span>
+          <button class="card-collapse-btn" id="week-asg-collapse-btn" onclick="toggleCardCollapse('week-asg')" title="Collapse assignments"><span class="tg-chevron open" id="week-asg-chevron" data-ico="chevron-right"></span></button>
         </div>
-        <div class="sidebar-sub" id="week-asg-label"></div>
-        <div id="week-asg-list"></div>
+        <div id="week-asg-card-body">
+          <div class="sidebar-sub" id="week-asg-label"></div>
+          <div id="week-asg-list"></div>
+        </div>
       </div>
       <div class="card" style="margin-bottom:16px">
         <!-- The month card pages on its own, so something can be put in
@@ -1664,24 +1670,29 @@ footer button { font: inherit; font-size: var(--fs-sm); border: none; background
             <button class="icon-btn" onclick="stepMonthSidebar(-1)" title="Previous month" data-ico="chevron-left"></button>
             <button class="icon-btn" onclick="stepMonthSidebar(1)" title="Next month" data-ico="chevron-right"></button>
           </span>
+          <button class="card-collapse-btn" id="month-sidebar-collapse-btn" onclick="toggleCardCollapse('month-sidebar')" title="Collapse This month"><span class="tg-chevron open" id="month-sidebar-chevron" data-ico="chevron-right"></span></button>
         </div>
-        <div class="sidebar-sub" id="month-sidebar-label"></div>
-        <div class="sidebar-drop" id="month-sidebar-list" data-drop="month-sidebar"></div>
-        <div class="quick-add-row">
-          <input type="text" id="month-sidebar-quick-add" placeholder="Add for this month…" onkeydown="if(event.key==='Enter')quickAddMonthSidebar()">
-          <button onclick="quickAddMonthSidebar()">Add</button>
+        <div id="month-sidebar-card-body">
+          <div class="sidebar-sub" id="month-sidebar-label"></div>
+          <div class="sidebar-drop" id="month-sidebar-list" data-drop="month-sidebar"></div>
+          <div class="quick-add-row">
+            <input type="text" id="month-sidebar-quick-add" placeholder="Add for this month…" onkeydown="if(event.key==='Enter')quickAddMonthSidebar()">
+            <button onclick="quickAddMonthSidebar()">Add</button>
+          </div>
         </div>
       </div>
       <div class="card" id="meal-plan-card" data-drop="meal-plan">
-        <div class="sidebar-head"><h2 style="margin-bottom:0">Meal plan</h2></div>
-        <div class="sidebar-sub">Unscheduled meals — drag onto a day</div>
-        <div class="sidebar-drop" id="meal-sidebar-list" data-drop="meal-plan"></div>
-        <div class="quick-add-row">
-          <input type="text" id="meal-sidebar-quick-add" placeholder="Add a dish, or search recipes…" autocomplete="off" oninput="renderMealQuickMatches()" onkeydown="if(event.key==='Enter')quickAddMealSidebar()">
-          <button onclick="quickAddMealSidebar()">Add</button>
+        <div class="sidebar-head"><h2 style="margin-bottom:0">Meal plan</h2><button class="card-collapse-btn" id="meal-plan-collapse-btn" onclick="toggleCardCollapse('meal-plan')" title="Collapse meal plan"><span class="tg-chevron open" id="meal-plan-chevron" data-ico="chevron-right"></span></button></div>
+        <div id="meal-plan-card-body">
+          <div class="sidebar-sub">Unscheduled meals — drag onto a day</div>
+          <div class="sidebar-drop" id="meal-sidebar-list" data-drop="meal-plan"></div>
+          <div class="quick-add-row">
+            <input type="text" id="meal-sidebar-quick-add" placeholder="Add a dish, or search recipes…" autocomplete="off" oninput="renderMealQuickMatches()" onkeydown="if(event.key==='Enter')quickAddMealSidebar()">
+            <button onclick="quickAddMealSidebar()">Add</button>
+          </div>
+          <div class="meal-quick-matches" id="meal-quick-matches"></div>
+          <button class="meal-add-btn" style="margin-top:8px" onclick="openMealPicker(null)"><span data-ico="utensils"></span> Browse recipes / import a menu</button>
         </div>
-        <div class="meal-quick-matches" id="meal-quick-matches"></div>
-        <button class="meal-add-btn" style="margin-top:8px" onclick="openMealPicker(null)"><span data-ico="utensils"></span> Browse recipes / import a menu</button>
       </div>
     </aside>
   </div>
@@ -3841,20 +3852,58 @@ function renderDay(){
 
   renderHourGrid(timed, gcalTimed);
   paintIcons(listEl);
-  applyTodayCollapseState();
+  applyCardCollapse('today');
   renderCoursework();
   renderWeather();
 }
-function applyTodayCollapseState(){
-  const collapsed = !!SETTINGS.todayBoxCollapsed;
-  document.getElementById('today-card-body').style.display = collapsed ? 'none' : '';
-  document.getElementById('today-chevron').classList.toggle('open', !collapsed);
-  document.getElementById('today-collapse-btn').title = collapsed ? 'Expand Today' : 'Collapse Today';
+/* =====================================================================
+   COLLAPSING A CARD
+
+   Today and Coursework each grew their own copy of this — same four lines,
+   same three ids, different names — and making the four sidebar cards fold
+   too would have made six copies of it. One table instead.
+
+   `set` is the settings key, and the two that already shipped keep the keys
+   they shipped with (`todayBoxCollapsed`, `courseworkCollapsed`) so nobody's
+   existing preference resets on this refactor. The ids are derived, which is
+   the point: a new collapsible card is one row here plus a head button and a
+   `<key>-card-body` wrapper, with nothing to wire up.
+
+   Collapsed state lives in `settings` rather than in a variable, so it
+   survives a reload and follows her to the phone — a card folded away on the
+   laptop is a card she has decided she isn't using, not a scroll position.
+
+   Note what does *not* collapse: the head. The month arrows and the
+   assignment summary stay reachable with the body shut, which is most of the
+   reason to shut it — "3 to do" without six rows under it is a legitimate way
+   to want the card. */
+const COLLAPSIBLE_CARDS = {
+  'today':          {set: 'todayBoxCollapsed',      label: 'Today'},
+  'coursework':     {set: 'courseworkCollapsed',    label: 'coursework'},
+  'sidebar-week':   {set: 'weekCardCollapsed',      label: 'This week'},
+  'week-asg':       {set: 'asgCardCollapsed',       label: 'assignments'},
+  'month-sidebar':  {set: 'monthCardCollapsed',     label: 'This month'},
+  'meal-plan':      {set: 'mealCardCollapsed',      label: 'meal plan'}
+};
+function applyCardCollapse(key){
+  const spec = COLLAPSIBLE_CARDS[key];
+  if(!spec) return;
+  const body = document.getElementById(key + '-card-body');
+  const chev = document.getElementById(key + '-chevron');
+  const btn = document.getElementById(key + '-collapse-btn');
+  if(!body || !chev || !btn) return;
+  const collapsed = !!SETTINGS[spec.set];
+  body.style.display = collapsed ? 'none' : '';
+  chev.classList.toggle('open', !collapsed);
+  btn.title = (collapsed ? 'Expand ' : 'Collapse ') + spec.label;
 }
-function toggleTodayCollapse(){
-  SETTINGS.todayBoxCollapsed = !SETTINGS.todayBoxCollapsed;
+function applyAllCardCollapse(){ Object.keys(COLLAPSIBLE_CARDS).forEach(applyCardCollapse); }
+function toggleCardCollapse(key){
+  const spec = COLLAPSIBLE_CARDS[key];
+  if(!spec) return;
+  SETTINGS[spec.set] = !SETTINGS[spec.set];
   saveToStorage();
-  applyTodayCollapseState();
+  applyCardCollapse(key);
 }
 function renderHourGrid(timed, gcalTimed){
   gcalTimed = gcalTimed || [];
@@ -8457,6 +8506,7 @@ function renderAll(){
   renderWeekAssignments();
   renderMonthSidebar();
   renderMealSidebar();
+  applyAllCardCollapse();
   if(currentView==='day'){ renderMealStrip(); renderStripGrid(); renderLeave(); }
 }
 
@@ -10097,23 +10147,8 @@ function renderCoursework(){
   bindAssignHandlers('coursework-list');
   box.innerHTML = assignGroupHtml(currentDate, rows.sort((x, y) => (x.courseName || '').localeCompare(y.courseName || '')), '', {bare: true});
   paintIcons(box);
-  applyCourseworkCollapseState();
+  applyCardCollapse('coursework');
   openPendingStepInput();
-}
-function applyCourseworkCollapseState(){
-  const collapsed = !!SETTINGS.courseworkCollapsed;
-  const body = document.getElementById('coursework-card-body');
-  const chev = document.getElementById('coursework-chevron');
-  const btn = document.getElementById('coursework-collapse-btn');
-  if(!body || !chev || !btn) return;
-  body.style.display = collapsed ? 'none' : '';
-  chev.classList.toggle('open', !collapsed);
-  btn.title = collapsed ? 'Expand coursework' : 'Collapse coursework';
-}
-function toggleCourseworkCollapse(){
-  SETTINGS.courseworkCollapsed = !SETTINGS.courseworkCollapsed;
-  saveToStorage();
-  applyCourseworkCollapseState();
 }
 
 /* Delegated once per container, since the list is re-rendered wholesale on

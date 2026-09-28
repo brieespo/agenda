@@ -1199,6 +1199,17 @@ A third surface for the same rows, between **This week** and **This month** in t
 - No new colour variables: `--accent-strong`, `--serious`, `--good`, `--muted`, `--hover`, `--done-op`, all already themed.
 - The `was Sep 22` chip is `display: inline-block`. A strike-through propagates to inline descendants and a descendant **cannot** refuse it with `text-decoration: none`, so inside the Done fold the rule drew straight through the chip's border; an atomic inline box is not decorated by its ancestor.
 
+## Collapsing a card (generalised 2026-09-28)
+
+Today and Coursework each had their own copy of the same four lines under a different name. Making the four sidebar cards fold too — This week, Assignments, This month, Meal plan, at Bri's request — would have made six copies, so there is now one table and one implementation: `COLLAPSIBLE_CARDS`, `applyCardCollapse(key)`, `toggleCardCollapse(key)`, `applyAllCardCollapse()`.
+
+- **A new collapsible card is one row in the table**, a `card-collapse-btn` in the head with ids `<key>-collapse-btn` / `<key>-chevron`, and a `<key>-card-body` wrapper around everything that should fold. The ids are derived from the key; there is nothing else to wire.
+- **The two that already shipped keep their settings keys** (`todayBoxCollapsed`, `courseworkCollapsed`) so the refactor resets nobody's existing preference. The new four are `weekCardCollapsed`, `asgCardCollapsed`, `monthCardCollapsed`, `mealCardCollapsed`.
+- **State lives in `settings`**, not a variable: a card folded away is a decision that it isn't being used, so it should survive a reload and follow her to the phone. `settings` is persisted whole, so the keys ride along with no other change.
+- **The head does not collapse.** The month arrows and the assignment summary stay reachable with the body shut, which is much of the reason to shut it — "3 to do" without six rows under it is a legitimate way to want the card.
+- `.sidebar-head` is `space-between`, which with three children would have stranded the summary or the month arrows mid-row. `.sidebar-head h2 { margin-right: auto }` eats the free space first so everything after the heading packs right in source order, and a two-child head is unchanged.
+- `applyAllCardCollapse()` runs at the end of `renderAll()`. The sidebar renders replace their bodies' *contents*, not the wrapper, so one sweep after them is enough.
+
 ## Time: three ways a block gets logged (2026-08-24)
 
 The timer was originally the only way in, which meant every hour had to be
