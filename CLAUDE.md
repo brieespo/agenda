@@ -1256,34 +1256,51 @@ of its five lines under a name that only described the first card to use it.
   surface, not part of the card, and a sentence typed into it is not a statement
   about what the sidebar happens to be showing.
 
-### A row's own arrows: `moveTaskWeek()`
+### Which week a task is in is a field in its editor
 
-- **Dragging cannot express this.** A drop on the week card files into the week
-  the card is *showing*, and the row being dragged is already in it — so the two
-  weeks are never on screen together and the move needs a control of its own.
-- **Forward is on every open row, back only on rows ahead of the current week.**
-  Forward is the ask: the thing she is not going to get to. Back is for undoing
-  a push, from the week it landed in — and it is the only direction with
-  anywhere to go, because `runRollover` drags whatever is left in a past week
-  into the current one. Filing into the past is a move the next load would
-  silently undo, so it is refused in `moveTaskWeek` and not only undrawn: a
-  stale render is one tick of the calendar away.
-- **Not on a carried routine occurrence** — it has no week of its own to move,
-  only the day it slipped from, the same reason it is not draggable out of here
-  or a reorder target — **and not on a finished row**, which has nowhere it
-  needs to be.
-- **No rank is disturbed.** TASKS order is the only order, and the task keeps its
-  index, so it arrives in the new week ranked where it already stood against
-  whatever is there.
-- **`rolled_from` is cleared.** The dot means "this was forgotten, and carried".
-  Deciding to do it next week instead is not that, and leaving the mark on would
-  keep claiming a rollover that is no longer what moved it.
-- **A notice, because the row leaves the card it was tapped on.** Same trap the
-  assignment card's Done fold exists to avoid — a row vanishing under the finger
-  reads as a tap that failed. Naming the week it landed in also says where to go
-  to undo it.
-- **An arrow, not a chevron.** Throughout this app a chevron pages a view and an
-  arrow moves a thing, and here the two sit on the same row, four pixels apart.
+`tm-week`, a select under the Date field, shown only when the task has no day.
+`populateWeekSelect()` offers the current week and eight after it — *This week ·
+Oct 18*, *Next week · Oct 25*, *In 2 weeks · Nov 1* — and Save files the task
+into whichever is picked.
+
+- **It shipped as a pair of arrows on each sidebar row and came straight back
+  off** (same day). The row is already a drag target and a tap target; adding a
+  one-tap "defer this a week" next to a one-tap "open this" meant a mis-tap
+  silently moved work out of the week she was looking at. Opening the task is
+  one tap and is where every other decision about it is made, so the week
+  belongs there too — and in a form it commits on **Save**, which Cancel undoes
+  for free. The arrows' real argument was only ever that *dragging* cannot
+  express this move: a drop files into the week the card is showing, and the row
+  being dragged is already in it, so the two weeks are never on screen together.
+  That argument is for having a control at all, not for putting it on the row.
+- **No past week is offered.** `runRollover` drags whatever is left in a past
+  week into the current one, so filing backwards is a choice the next load would
+  silently undo. The list starting at the current week is the whole guard —
+  there is no separate check to keep in step with it.
+- **A task already filed outside the window keeps its own option**, sorted into
+  place. Otherwise opening something parked in February and pressing Save would
+  quietly refile it into a week she never chose. This is also the only way a
+  past week can appear in the list.
+- **Hidden for a dated task and for a monthly-recurring one.** Save clears or
+  ignores the week in both cases, so showing the field would offer a choice
+  about to be thrown away. `syncTaskModalWeekRow()` runs on open and on both
+  inputs that can change the answer.
+- **It replaced a blind recompute.** Save used to reassign `task.week` from the
+  calendar for every undated task — invisible while the card always showed the
+  calendar's week, but with paging it would drag a task opened from next week
+  back into this one just for being saved. The select is initialised to exactly
+  what that line used to compute (the task's own week if it had one, else
+  `sidebarWeekKey()`), so the default is unchanged and now visible.
+- **`rolled_from` is cleared when the week actually changes.** The dot means
+  "this was forgotten, and carried"; choosing a later week is a decision, not a
+  rollover. Compared against the week captured on open, so re-saving a task
+  without touching the field does not quietly clear its mark.
+- **A notice on a week that changed**, for the reason the assignment card keeps
+  ticked carries in its Done fold: the row leaves the card it was opened from,
+  and a row vanishing reads as an edit that failed.
+- **The Date label moved with it** — "blank = this week, no day" was true only
+  while the week was never a choice; it now reads "blank = no day, filed by
+  week".
 
 ## Collapsing a card (generalised 2026-09-28)
 

@@ -782,17 +782,6 @@ textarea.ae-input { resize: vertical; line-height: 1.4; min-height: 2.4em; }
 .sidebar-task.dragging { opacity: 0.35; }
 .sidebar-task.done { opacity: var(--done-op); }
 .sidebar-task.done .t-title { font-style: italic; color: var(--muted); }
-/* The title takes the slack so the row's arrows sit hard right, and a long one
-   wraps inside its own box instead of shoving them off the card. No-op for the
-   month card, whose rows end at the title. */
-.sidebar-task .t-title { flex: 1; min-width: 0; overflow-wrap: anywhere; }
-/* The card's arrows move the view; a row's arrows move the task. Same idiom one
-   level down, and visible at rest for the reason written above .card-step —
-   this is the only way to defer a weekly task, so it cannot hide on hover. */
-.row-step { display: flex; gap: 2px; flex: none; }
-.row-step button { border: 1px solid var(--border); background: var(--surface); color: var(--ink-2); border-radius: 6px; padding: 0 3px; height: 20px; display: inline-flex; align-items: center; justify-content: center; cursor: pointer; transition: color 120ms ease, border-color 120ms ease; }
-.row-step button:hover { color: var(--accent); border-color: var(--accent); }
-.row-step .icon { width: 13px; height: 13px; }
 .sidebar-drop { min-height: 40px; border-radius: 8px; }
 .sidebar-drop.dragover { background: var(--accent-light); outline: 2px dashed var(--accent); }
 /* Dropping a row onto another row reorders; dropping it on the space around
@@ -1748,13 +1737,17 @@ footer button { font: inherit; font-size: var(--fs-sm); border: none; background
     <div class="modal-body">
       <div class="field" style="position:relative"><label>Title</label><input type="text" id="tm-name" autocomplete="off" oninput="onTitleInput(event)" onkeydown="onTitleKey(event)"><div id="at-menu"></div><div id="tm-routine-row" style="margin-top:5px"></div></div>
       <div class="field-row">
-        <div class="field"><label>Date (blank = this week, no day)</label><input type="date" id="tm-date"></div>
+        <div class="field"><label>Date (blank = no day, filed by week)</label><input type="date" id="tm-date" oninput="syncTaskModalWeekRow()"></div>
         <div class="field"><label>Time (blank = untimed)</label><input type="time" id="tm-time"></div>
       </div>
+      <!-- Only for a task with no day: which week's pile it sits in. Shown
+           here rather than as an arrow on the sidebar row, where it was one
+           mis-tap away from silently deferring something. -->
+      <div class="field" id="tm-week-row"><label>Week</label><select id="tm-week"></select></div>
       <div class="field"><label>Duration (minutes)</label><input type="number" id="tm-duration" min="5" step="5" value="30"></div>
       <div class="field"><label>Category</label><select id="tm-category"></select></div>
       <div class="field"><label>Notes</label><textarea id="tm-notes"></textarea></div>
-      <label id="tm-recur-row" style="display:flex;align-items:center;gap:7px;font-size: var(--fs-base);color:var(--ink-2)"><input type="checkbox" id="tm-recur-monthly"> Repeat every month — a fresh copy appears in “This month”, and forgotten ones carry over flagged</label>
+      <label id="tm-recur-row" style="display:flex;align-items:center;gap:7px;font-size: var(--fs-base);color:var(--ink-2)"><input type="checkbox" id="tm-recur-monthly" onchange="syncTaskModalWeekRow()"> Repeat every month — a fresh copy appears in “This month”, and forgotten ones carry over flagged</label>
     </div>
     <div class="modal-foot">
       <button class="danger-ghost" id="tm-delete" onclick="deleteTaskFromModal()">Delete</button>
@@ -2140,10 +2133,6 @@ footer button { font: inherit; font-size: var(--fs-sm); border: none; background
 const ICONS = {
   "chevron-left": '<polyline points="15 18 9 12 15 6"/>',
   "chevron-right": '<polyline points="9 18 15 12 9 6"/>',
-  // Deliberately not the chevrons above: in this app a chevron pages a view and
-  // an arrow moves a thing, and the two sit side by side on a week card row.
-  "arrow-left": '<line x1="20" y1="12" x2="4" y2="12"/><polyline points="10 6 4 12 10 18"/>',
-  "arrow-right": '<line x1="4" y1="12" x2="20" y2="12"/><polyline points="14 6 20 12 14 18"/>',
   "plus": '<line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/>',
   "x": '<line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/>',
   "grid": '<rect x="3" y="3" width="7" height="7" rx="1.5"/><rect x="14" y="3" width="7" height="7" rx="1.5"/><rect x="3" y="14" width="7" height="7" rx="1.5"/><rect x="14" y="14" width="7" height="7" rx="1.5"/>',
@@ -2612,6 +2601,44 @@ function quickAddMonthSidebar(){
 /* =====================================================================
    TASK EDIT MODAL
    ===================================================================== */
+/* Which week an undated task is filed in, as a field in the editor rather than
+   a control on the row. It started as a pair of arrows on each sidebar row,
+   which put a one-tap "defer this a week" next to a one-tap "open this" — too
+   easy to hit by accident, on a card whose rows are already a drag target and
+   a tap target. Opening the task is one tap and is where every other decision
+   about it is made, so this one lives there too, and commits on Save like the
+   rest of the form rather than the moment it is touched.
+
+   The list starts at the current week and runs eight out. There is deliberately
+   no way to pick a past week: runRollover drags anything left in one into the
+   current week, so filing backwards is a choice the next load would silently
+   undo. */
+function weekOptionLabel(wk, cur){
+  const n = Math.round((parseLocalDate(wk) - parseLocalDate(cur)) / 604800000);
+  const name = n === 0 ? 'This week' : n === 1 ? 'Next week'
+    : n > 0 ? `In ${n} weeks` : `${-n} week${n === -1 ? '' : 's'} ago`;
+  return `${name} · ${fmtShort(wk)}`;
+}
+function populateWeekSelect(selectEl, selected){
+  const cur = weekKeyForDate(todayStr());
+  const weeks = [];
+  for(let i = 0; i < 8; i++) weeks.push(addDays(cur, i * 7));
+  // A task already filed outside that window keeps its own option, so opening
+  // it and pressing Save cannot quietly refile it into a week she never chose.
+  if(selected && weeks.indexOf(selected) < 0) weeks.push(selected);
+  weeks.sort();
+  selectEl.innerHTML = weeks.map(w =>
+    `<option value="${w}" ${w === selected ? 'selected' : ''}>${esc(weekOptionLabel(w, cur))}</option>`).join('');
+}
+// A week only means anything to a task with no day. A dated one is on that day,
+// and a monthly-recurring one lives in the month bucket by definition — Save
+// clears its week either way, so offering the field would be offering a choice
+// that is about to be thrown away.
+function syncTaskModalWeekRow(){
+  const hide = !!document.getElementById('tm-date').value
+            || document.getElementById('tm-recur-monthly').checked;
+  document.getElementById('tm-week-row').style.display = hide ? 'none' : '';
+}
 function populateCategorySelect(selectEl, selected){
   const cats = SETTINGS.taskCategories || [];
   selectEl.innerHTML = '<option value="">No category</option>' + cats.map(c => `<option value="${esc(c)}" ${c===selected?'selected':''}>${esc(c)}</option>`).join('');
@@ -2625,9 +2652,13 @@ function openTaskModal(item){
   document.getElementById('tm-date').value = item.date || '';
   document.getElementById('tm-time').value = item.time || '';
   document.getElementById('tm-duration').value = item.duration_min || 30;
+  // Same expression Save used to apply blindly: an already-undated task offers
+  // the week it is in, anything else offers the week the sidebar is showing.
+  populateWeekSelect(document.getElementById('tm-week'), (!item.date && item.week) ? item.week : sidebarWeekKey());
   populateCategorySelect(document.getElementById('tm-category'), item.category || '');
   document.getElementById('tm-notes').value = item.notes || '';
   document.getElementById('tm-recur-monthly').checked = !!item.recurMonthly;
+  syncTaskModalWeekRow();
   document.getElementById('tm-delete').style.display = '';
   _pendingRoutineId = item.routine_id || null;
   _atMatches = []; renderAtMenu(); renderRoutineRow();
@@ -2640,9 +2671,11 @@ function openNewTaskModal({date=null, time=null}={}){
   document.getElementById('tm-date').value = date || '';
   document.getElementById('tm-time').value = time || '';
   document.getElementById('tm-duration').value = time ? 60 : 30;
+  populateWeekSelect(document.getElementById('tm-week'), sidebarWeekKey());
   populateCategorySelect(document.getElementById('tm-category'), '');
   document.getElementById('tm-notes').value = '';
   document.getElementById('tm-recur-monthly').checked = false;
+  syncTaskModalWeekRow();
   document.getElementById('tm-delete').style.display = 'none';
   _pendingRoutineId = null;
   _atMatches = []; renderAtMenu(); renderRoutineRow();
@@ -2657,20 +2690,19 @@ function saveTaskFromModal(){
   const category = document.getElementById('tm-category').value || null;
   const notes = document.getElementById('tm-notes').value;
   const recurMonthly = document.getElementById('tm-recur-monthly').checked;
+  const week = document.getElementById('tm-week').value;
   // A monthly-recurring task lives in the "This month" bucket by definition —
   // it isn't pinned to a day or time, so turning it on moves it there.
   if(recurMonthly){ date = null; time = null; }
   const curMonth = monthKeyForDate(currentView==='week'?weekAnchor:currentDate);
-  let task;
+  let task, movedFrom = null;
   if(editingItem){
     task = TASKS.find(t => t.id === editingItem.id);
     if(task){
       const wasRecurring = !!task.recurMonthly;
-      // Captured before `date` is written below. An undated task keeps the week
-      // it is already filed in: the card can be paged away from the calendar's
-      // week, and recomputing from the calendar would drag a task she opened
-      // from next week back into this one just for being saved.
-      const wasWeekly = task.date === null && !!task.week;
+      // Captured before `date` is written below, so the notice at the end can
+      // tell a week she actually changed from one the field merely restated.
+      if(task.date === null && task.week) movedFrom = task.week;
       task.title = title; task.date = date; task.time = time;
       task.duration_min = time ? duration : null; task.notes = notes; task.category = category;
       task.routine_id = _pendingRoutineId || null;
@@ -2680,14 +2712,20 @@ function saveTaskFromModal(){
       } else {
         if(wasRecurring && task.seriesId){ stopMonthlySeries(task.seriesId); }   // unchecking stops the whole series
         task.recurMonthly = false; task.seriesId = null;
-        if(!date) task.week = wasWeekly ? task.week : sidebarWeekKey();
+        if(!date){
+          task.week = week;
+          // The dot means "this was forgotten, and carried". Choosing a later
+          // week is a decision, not a rollover, and leaving the mark on would
+          // keep claiming something that is no longer what moved it.
+          if(task.week !== movedFrom) task.rolled_from = null;
+        }
       }
     }
   } else if(recurMonthly){
     task = addTask({title, month: curMonth, category, routine_id: _pendingRoutineId || null});
     task.notes = notes; task.recurMonthly = true; task.seriesId = task.id;
   } else {
-    addTask({title, date, time, category, routine_id: _pendingRoutineId || null, week: date ? null : sidebarWeekKey()});
+    addTask({title, date, time, category, routine_id: _pendingRoutineId || null, week: date ? null : week});
     task = TASKS[TASKS.length-1];
     if(time) task.duration_min = duration;
     task.notes = notes;
@@ -2697,6 +2735,14 @@ function saveTaskFromModal(){
   closeModal('task-modal');
   renderAll();
   if(task) syncTaskToGCal(task);
+  // Moving a task to another week takes its row off the card it was opened
+  // from, so without a word the edit reads as one that failed — the same trap
+  // the assignment card's Done fold exists to avoid. Naming the week it landed
+  // in also says where to go to change it back.
+  if(task && movedFrom && !task.date && task.week && task.week !== movedFrom){
+    showNotice(`"${task.title}" moved to the week of ${fmtShort(task.week)}.`, 'info');
+    setTimeout(hideNotice, 3500);
+  }
 }
 // Unchecking "repeat monthly" clears the flag across every instance of the
 // series, so no new monthly copies get generated going forward.
@@ -5406,30 +5452,12 @@ function renderSidebar(){
   // them. A carried routine occurrence is not: it has no place in TASKS to
   // splice to, and it is not hers to reorder — it sits where the day it
   // slipped from puts it.
-  /* Deferring a task to next week. Dragging cannot do this — a drag files into
-     the week the card is *showing*, and the row being dragged is already in it
-     — so the move needs a control of its own.
-
-     Forward is on every open row, because that is the ask: the thing she is
-     not going to get to this week. Back appears only once the row is ahead of
-     the current week, which is both where it is useful (undoing a push, from
-     the week it landed in) and the only case where there is anywhere to go:
-     runRollover drags whatever is left in a past week into the current one, so
-     filing into the past is a move the next load would silently undo.
-
-     Not on a carried routine occurrence — it has no week of its own to move,
-     only the day it slipped from — and not on a finished row, which has
-     nowhere it needs to be. */
-  const curWeek = weekKeyForDate(todayStr());
-  const moveHtml = item => (item.carried || item.done) ? '' : `<span class="row-step">${
-      wk > curWeek ? `<button onclick="moveTaskWeek(${item.id},-1)" title="Move back a week">${ico('arrow-left')}</button>` : ''
-    }<button onclick="moveTaskWeek(${item.id},1)" title="Move to next week">${ico('arrow-right')}</button></span>`;
   const rowHtml = item => `
     <div class="sidebar-task ${item.done?'done':''}${item.carried?'':' reorder-target'}" data-id="${item.id}" data-kind="${item.virtual?'v':'r'}"${item.carried?'':` data-drop="sidebar-row" data-week="${wk}"`}>
       <span class="chk ${item.done?'done':''}" onclick='${item.virtual ? `toggleDoneVirtual(${item.template_id},&quot;${item.date}&quot;)` : `toggleDoneReal(${item.id})`}'>${item.done?ico('check'):''}</span>
       <span class="t-title ${item.done?'done':''}" style="font-size: var(--fs-base)">${esc(item.title)}${
         item.carried ? `<span class="t-rolled-chip">from ${dowShort(item.rolled_from)}</span>`
-        : item.rolled_from ? `<span class="rolled-dot" title="Rolled over from last week"></span>` : ''}</span>${moveHtml(item)}
+        : item.rolled_from ? `<span class="rolled-dot" title="Rolled over from last week"></span>` : ''}</span>
     </div>`;
   const open = items.filter(it => !it.done);
   const done = items.filter(it => it.done);
@@ -5448,42 +5476,10 @@ function renderSidebar(){
       row.addEventListener('click', e => { if(!e.target.closest('.chk')) openTaskModal(item); });
       return;
     }
-    // startItemDrag preventDefaults the pointerdown, so anything inside the row
-    // that wants a click of its own has to be excluded here — the checkbox
-    // always was, and the arrows are the second case.
-    row.addEventListener('pointerdown', e => { if(!e.target.closest('.chk, .row-step')) startItemDrag(e, item, row, () => openTaskModal(item)); });
+    row.addEventListener('pointerdown', e => { if(!e.target.closest('.chk')) startItemDrag(e, item, row, () => openTaskModal(item)); });
   });
   attachDoneCollapseHandlers(listEl);
 }
-/* Moving an undated task between weeks, one week at a time. No rank is
-   disturbed: TASKS order is the only order, and the task keeps its place in
-   the array, so it arrives in the new week ranked where it already was
-   relative to whatever else is there.
-
-   Guarded rather than trusted: the buttons are only drawn where the move is
-   legal, but a stale render is one tick of the calendar away, and silently
-   filing a task into a week rollover will yank it back out of is worse than
-   doing nothing. */
-function moveTaskWeek(id, n){
-  const task = TASKS.find(t => t.id === id);
-  if(!task || task.date || !task.week) return;
-  const target = addDays(task.week, n * 7);
-  if(target < weekKeyForDate(todayStr())) return;
-  task.week = target;
-  // The dot means "this was forgotten, and carried". Deciding to do it next
-  // week instead is not that, and leaving the mark on would keep claiming a
-  // rollover that is no longer what moved it.
-  task.rolled_from = null;
-  touch(task);
-  saveToStorage();
-  renderAll();
-  // The row leaves the card it was tapped on, so without a word the tap reads
-  // as one that failed — the same trap the assignment card's Done fold exists
-  // to avoid. Naming the week it landed in also says where to go to undo it.
-  showNotice(`"${task.title}" moved to the week of ${fmtShort(target)}.`, 'info');
-  setTimeout(hideNotice, 3500);
-}
-
 /* The week's coursework, beside the week's tasks. Same rows as the Assignments
    tab — they live in the law school tracker, not in TASKS — so ticking here
    goes through commitLawEdit like every other surface, and every surface
