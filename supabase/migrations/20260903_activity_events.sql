@@ -84,6 +84,12 @@ create index if not exists activity_events_user_date
 
 alter table public.activity_events enable row level security;
 
+-- Stated rather than inherited — see the note in 20260825_cycle_events.sql.
+-- `anon` is left out for the reason given there: the policy below is
+-- `to authenticated`, so a signed-out request has nothing to reach.
+grant select, insert, update, delete on public.activity_events to authenticated;
+grant select, insert, update, delete on public.activity_events to service_role;
+
 -- New tables do not inherit policies from anywhere; without this the table is
 -- unreachable through the anon key, and with a permissive policy it would be
 -- readable by every signed-in account in the shared project. Scoped to the row

@@ -126,12 +126,36 @@ In `supabase/migrations/`, all applied as of 2026-09-07:
 | `20260903c_routine_kind` | `routines.kind` |
 | `20260907_journal` | `journal_entries` |
 
+**Every table states its own grants (added 2026-10-21).** From **2026-10-30**
+Supabase stops granting Data API access automatically to new tables in `public`.
+Existing tables keep what they have — nothing live is affected, and no change
+was needed on the project as it stands — but a table created after that date is
+unreachable through PostgREST until it is granted, *however correct its policies
+are*. **A policy is not a grant.** Every migration here now ends its table's
+setup with the two lines, and a new one must do the same or it will rebuild a
+schema the whole suite gets "permission denied" from:
+
+```sql
+grant select, insert, update, delete on public.<table> to authenticated;
+grant select, insert, update, delete on public.<table> to service_role;
+```
+
+`anon` is deliberately omitted, though Supabase's template includes it. Every
+policy in this project is `to authenticated` (or, in the time-tracker's case,
+checks `auth.uid()`), no app reads these tables without a session, and a grant
+that only takes effect if RLS is ever switched off is one worth not having. The
+same two lines went into the time-tracker's `0001_time_data.sql`, the only
+migration outside this repo.
+
 **Verify before building on one.** She applies these by hand in the Supabase SQL
 editor, and on 2026-09-03 two turns of work were built on a column that had not
 been created yet — which is what turned an ordinary render bug into a total
 outage. An unauthenticated `curl` against PostgREST answers it in seconds and
 needs no credentials: a missing table 404s, a missing column 400s, and a table
-that exists returns 200 with an empty array because RLS is doing its job.
+that exists returns 200 with an empty array because RLS is doing its job. After
+2026-10-30 that check answers a second question for free — a table that exists
+but was never granted returns **401 with `permission denied`**, not an empty
+200, which is exactly the failure a forgotten grant produces.
 
 ```
 curl -s -o /dev/null -w '%{http_code}\n' \

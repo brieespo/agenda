@@ -43,6 +43,26 @@ create index if not exists cycle_events_user_date
 
 alter table public.cycle_events enable row level security;
 
+-- Table privileges, stated rather than inherited. Until 2026-10-30 Supabase
+-- granted these to every new table in `public` automatically, and these files
+-- leaned on it: they enable RLS and write policies, but a policy is not a
+-- grant. From that date a table created without one is unreachable through
+-- PostgREST however correct its policies are — so this file, replayed on a
+-- `db reset`, a preview branch or a new project, would rebuild a table every
+-- app in the suite gets "permission denied" from, while reading as correct.
+--
+-- The live table already holds these and keeps them, and re-granting what is
+-- already granted is a no-op, so this is safe to replay against the project
+-- as it stands.
+--
+-- `anon` is deliberately not granted, though the migration guide's template
+-- includes it. Every policy here is `to authenticated`, the app never touches
+-- this table without a session (guest mode skips the server entirely), and a
+-- grant that only takes effect if RLS is ever switched off is a grant worth
+-- not having — least of all on the most sensitive table in the suite.
+grant select, insert, update, delete on public.cycle_events to authenticated;
+grant select, insert, update, delete on public.cycle_events to service_role;
+
 -- New tables do not inherit policies from anywhere; without this the table is
 -- unreachable through the anon key, and with a permissive policy it would be
 -- readable by every signed-in account in the shared project. Scoped to the row

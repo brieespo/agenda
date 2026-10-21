@@ -31,6 +31,12 @@ create index if not exists class_absences_user_course
 
 alter table public.class_absences enable row level security;
 
+-- Stated rather than inherited — see the note in 20260825_cycle_events.sql.
+-- `anon` is left out for the reason given there: the policy below is
+-- `to authenticated`, so a signed-out request has nothing to reach.
+grant select, insert, update, delete on public.class_absences to authenticated;
+grant select, insert, update, delete on public.class_absences to service_role;
+
 drop policy if exists class_absences_own_rows on public.class_absences;
 create policy class_absences_own_rows
   on public.class_absences

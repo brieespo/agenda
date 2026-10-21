@@ -49,6 +49,14 @@ create unique index if not exists routine_progress_user_routine_date
 alter table public.routines enable row level security;
 alter table public.routine_progress enable row level security;
 
+-- Stated rather than inherited — see the note in 20260825_cycle_events.sql.
+-- `anon` is left out for the reason given there: the policies below are
+-- `to authenticated`, so a signed-out request has nothing to reach.
+grant select, insert, update, delete on public.routines to authenticated;
+grant select, insert, update, delete on public.routines to service_role;
+grant select, insert, update, delete on public.routine_progress to authenticated;
+grant select, insert, update, delete on public.routine_progress to service_role;
+
 drop policy if exists routines_own_rows on public.routines;
 create policy routines_own_rows on public.routines
   for all to authenticated

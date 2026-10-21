@@ -28,6 +28,12 @@ create unique index if not exists cycle_spans_user_kind_start
 
 alter table public.cycle_spans enable row level security;
 
+-- Stated rather than inherited — see the note in 20260825_cycle_events.sql.
+-- `anon` is left out for the reason given there: the policy below is
+-- `to authenticated`, so a signed-out request has nothing to reach.
+grant select, insert, update, delete on public.cycle_spans to authenticated;
+grant select, insert, update, delete on public.cycle_spans to service_role;
+
 drop policy if exists cycle_spans_own_rows on public.cycle_spans;
 create policy cycle_spans_own_rows
   on public.cycle_spans

@@ -42,6 +42,12 @@ create index if not exists journal_entries_user_date
 
 alter table public.journal_entries enable row level security;
 
+-- Stated rather than inherited — see the note in 20260825_cycle_events.sql.
+-- `anon` is left out for the reason given there: the policy below is
+-- `to authenticated`, so a signed-out request has nothing to reach.
+grant select, insert, update, delete on public.journal_entries to authenticated;
+grant select, insert, update, delete on public.journal_entries to service_role;
+
 -- Without this the table is unreachable through the anon key, and with a
 -- permissive policy it would be readable by every signed-in account in the
 -- shared project. Scoped to the row owner in both directions.
