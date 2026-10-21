@@ -1211,6 +1211,80 @@ Drag a row in **This week** onto another row and it takes that position — Bri'
 - **This month ranks the same way** (added the same day). `month-sidebar-row` inside `month-sidebar`, same pairing: file first, then take the position. The month comes off the **row**, not the card, so a drop still lands in the month being looked at while the card is paged away from the calendar's. Every row there is a real task — no carried occurrences — so unlike the week card there is none to exclude.
 - **The feedback is a line, not a highlight.** A highlight on the row under the pointer answers "which row" when the question is "which position", and is indistinguishable from the filing target behind it. `.drop-above`/`.drop-below` draw on the edge the drop will insert against, from the same midpoint test `reorderTaskAt` applies — so what is drawn is what happens. A row dragged over itself is not marked, because that drop is a no-op. The day list had reordered with *no* feedback at all since it shipped; sharing the mechanism gave it the line too.
 
+## Paging the week card, and pushing a task to next week (built 2026-10-21)
+
+Two halves of the same ask: look at another week in the sidebar, and move a
+weekly task into one.
+
+### The card pages, on the month card's terms
+
+`‹ ›` in the head of **This week**, the same `.card-step` control the month card
+has had — which is why `.mo-step` is now `.card-step`, rather than a second copy
+of its five lines under a name that only described the first card to use it.
+
+- **Paging is an excursion, not a mode**, copied deliberately from
+  `monthSidebarKey()`: `_weekSidebarKey` null means "whatever the calendar is
+  on", stepping pins a week, and navigating the calendar into a *different* week
+  drops the pin. Otherwise the card and the date above it would quietly disagree
+  about which week "this" means, and a task added from the card would land in a
+  week she was no longer looking at. Stepping back onto the calendar's own week
+  drops the excursion rather than pinning it, so the card resumes following.
+- **Both sidebar cards move together.** `sidebarWeekKey()` was already shared so
+  the assignment card could not drift a week from the task card; the excursion
+  lives *inside* that helper rather than beside it, so paging the tasks pages
+  the coursework too. Paging only one would be exactly the drift the shared
+  helper exists to prevent — and `renderWeekAssignments` already clears
+  `_wasgSeenOwed` on a week change, so its Done fold does the right thing for
+  free.
+- **The heading names the one-step cases** — This week / Next week / Last week /
+  Another week — where the month card only says "Another month". It matters more
+  here because moving a task one week forward is now a button on every row, so
+  "next week" is a place she arrives at deliberately and should see confirmed.
+  Relative to the **calendar's** week, not today's, because "This week" has
+  always meant the calendar's.
+- **The quick-add placeholder names the week** once paged away; "Add for this
+  week" would be a lie about where it lands. `quickAddSidebar()` files into
+  `sidebarWeekKey()`, matching `quickAddMonthSidebar()`.
+- **The task modal must not recompute an existing week.** `saveTaskFromModal`
+  reassigned `task.week` from the calendar for every undated task. That was
+  invisible while the card always showed the calendar's week; with paging it
+  would drag a task she opened from next week back into this one just for being
+  saved. It now keeps the week of a task that was *already* undated (`wasWeekly`,
+  captured before `date` is overwritten) and only files a newly-undated one,
+  into `sidebarWeekKey()`.
+- **The chat's quick-add still uses the calendar's week.** It is a global capture
+  surface, not part of the card, and a sentence typed into it is not a statement
+  about what the sidebar happens to be showing.
+
+### A row's own arrows: `moveTaskWeek()`
+
+- **Dragging cannot express this.** A drop on the week card files into the week
+  the card is *showing*, and the row being dragged is already in it — so the two
+  weeks are never on screen together and the move needs a control of its own.
+- **Forward is on every open row, back only on rows ahead of the current week.**
+  Forward is the ask: the thing she is not going to get to. Back is for undoing
+  a push, from the week it landed in — and it is the only direction with
+  anywhere to go, because `runRollover` drags whatever is left in a past week
+  into the current one. Filing into the past is a move the next load would
+  silently undo, so it is refused in `moveTaskWeek` and not only undrawn: a
+  stale render is one tick of the calendar away.
+- **Not on a carried routine occurrence** — it has no week of its own to move,
+  only the day it slipped from, the same reason it is not draggable out of here
+  or a reorder target — **and not on a finished row**, which has nowhere it
+  needs to be.
+- **No rank is disturbed.** TASKS order is the only order, and the task keeps its
+  index, so it arrives in the new week ranked where it already stood against
+  whatever is there.
+- **`rolled_from` is cleared.** The dot means "this was forgotten, and carried".
+  Deciding to do it next week instead is not that, and leaving the mark on would
+  keep claiming a rollover that is no longer what moved it.
+- **A notice, because the row leaves the card it was tapped on.** Same trap the
+  assignment card's Done fold exists to avoid — a row vanishing under the finger
+  reads as a tap that failed. Naming the week it landed in also says where to go
+  to undo it.
+- **An arrow, not a chevron.** Throughout this app a chevron pages a view and an
+  arrow moves a thing, and here the two sit on the same row, four pixels apart.
+
 ## Collapsing a card (generalised 2026-09-28)
 
 Today and Coursework each had their own copy of the same four lines under a different name. Making the four sidebar cards fold too — This week, Assignments, This month, Meal plan, at Bri's request — would have made six copies, so there is now one table and one implementation: `COLLAPSIBLE_CARDS`, `applyCardCollapse(key)`, `toggleCardCollapse(key)`, `applyAllCardCollapse()`.

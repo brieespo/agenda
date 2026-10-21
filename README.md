@@ -64,6 +64,12 @@ See `CLAUDE.md` for the full plan. Summary: a **task** is a one-time item (`date
 
 **Monthly-recurring tasks** are a separate concept from templates (which never carry over). A task in the "This month" bucket with `recurMonthly:true` and a stable `seriesId` (its own id at creation) recurs like this: `ensureMonthlyRecurring()` (in `afterLoad`, after `runRollover`) adds a fresh "native" copy — `rolled_from:null`, `month` = current — whenever the current month lacks one, while a forgotten copy from a past month has already been carried into the current month by the normal rollover with `rolled_from` set. So a forgotten month and this month both show, the forgotten one flagged (repeat icon + orange dot). Idempotent: it only creates when no native exists. Unchecking "repeat every month" runs `stopMonthlySeries()`, clearing the flag across every instance so nothing regenerates.
 
+## The weekly sidebar
+
+**This week** is the pile of tasks with no day yet. It **pages** — `‹ ›` in the card head step a week at a time, and the Assignments card below it follows, since both read `sidebarWeekKey()`. Paging is an excursion, not a mode: navigating the calendar into a different week ends it and the card goes back to following along, so the card and the date above it can never disagree about which week "this" means. While paged away the heading says *Next week* / *Last week* / *Another week* and the quick-add box names the week it will file into.
+
+Each open row carries a **→** that moves that task to the next week — the way to defer something you aren't going to get to, which dragging can't express (a drop files into the week the card is already showing). Rows sitting in a week *ahead* of the current one also get a **←** to pull them back; there is no arrow into the past, because `runRollover` would drag the task straight back into the current week on the next load. Moving a task doesn't disturb its rank, clears any "carried over" dot (that mark means forgotten, not deferred), and shows a brief note naming the week it landed in, since the row leaves the card you tapped it on. Carried routine occurrences and finished rows get no arrows.
+
 ## Meals (dinner-planner integration)
 
 A per-day **meal strip** on the day view plus a **Meal plan** sidebar (a pool of unscheduled meals you drag onto days), mirroring the This-week / This-month sidebars. Meals have a light "made" toggle (grays + italicizes, no rollover) and are draggable between days and to/from the pool.

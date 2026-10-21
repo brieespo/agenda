@@ -768,16 +768,31 @@ textarea.ae-input { resize: vertical; line-height: 1.4; min-height: 2.4em; }
 /* Visible at rest. These were faded to 0.5 and only brightened on card hover,
    on the reasoning that paging months is occasional — but a control nobody
    knows exists cannot be discovered by hovering the thing that hides it, and it
-   went unfound. An affordance is allowed to be quiet only once it is known. */
-.mo-step { display: flex; gap: 2px; flex: none; align-self: center; }
-.mo-step .icon-btn { padding: 3px 5px; color: var(--ink-2); }
-.mo-step .icon-btn:hover { color: var(--accent); border-color: var(--accent); }
-.mo-step .icon-btn .icon { width: 15px; height: 15px; }
+   went unfound. An affordance is allowed to be quiet only once it is known.
+
+   Named for the job rather than for the month, since the week card pages the
+   same way (2026-10-21) and two cards sharing a control should not mean two
+   copies of its five lines. */
+.card-step { display: flex; gap: 2px; flex: none; align-self: center; }
+.card-step .icon-btn { padding: 3px 5px; color: var(--ink-2); }
+.card-step .icon-btn:hover { color: var(--accent); border-color: var(--accent); }
+.card-step .icon-btn .icon { width: 15px; height: 15px; }
 .sidebar-task { display: flex; align-items: center; gap: 6px; padding: 7px 6px; border-radius: 8px; cursor: grab; transition: background 120ms ease, transform 120ms ease; touch-action: none; user-select: none; }
 .sidebar-task:hover { background: var(--hover); }
 .sidebar-task.dragging { opacity: 0.35; }
 .sidebar-task.done { opacity: var(--done-op); }
 .sidebar-task.done .t-title { font-style: italic; color: var(--muted); }
+/* The title takes the slack so the row's arrows sit hard right, and a long one
+   wraps inside its own box instead of shoving them off the card. No-op for the
+   month card, whose rows end at the title. */
+.sidebar-task .t-title { flex: 1; min-width: 0; overflow-wrap: anywhere; }
+/* The card's arrows move the view; a row's arrows move the task. Same idiom one
+   level down, and visible at rest for the reason written above .card-step —
+   this is the only way to defer a weekly task, so it cannot hide on hover. */
+.row-step { display: flex; gap: 2px; flex: none; }
+.row-step button { border: 1px solid var(--border); background: var(--surface); color: var(--ink-2); border-radius: 6px; padding: 0 3px; height: 20px; display: inline-flex; align-items: center; justify-content: center; cursor: pointer; transition: color 120ms ease, border-color 120ms ease; }
+.row-step button:hover { color: var(--accent); border-color: var(--accent); }
+.row-step .icon { width: 13px; height: 13px; }
 .sidebar-drop { min-height: 40px; border-radius: 8px; }
 .sidebar-drop.dragover { background: var(--accent-light); outline: 2px dashed var(--accent); }
 /* Dropping a row onto another row reorders; dropping it on the space around
@@ -1647,7 +1662,16 @@ footer button { font: inherit; font-size: var(--fs-sm); border: none; background
     <aside class="sidebar-col" id="sidebar-col">
       <button class="icon-btn sidebar-close" onclick="toggleSidebar(false)" data-ico="x"></button>
       <div class="card" style="margin-bottom:16px">
-        <div class="sidebar-head"><h2 style="margin-bottom:0">This week</h2><button class="card-collapse-btn" id="sidebar-week-collapse-btn" onclick="toggleCardCollapse('sidebar-week')" title="Collapse This week"><span class="tg-chevron open" id="sidebar-week-chevron" data-ico="chevron-right"></span></button></div>
+        <!-- Pages on its own, like the month card below: next week can be
+             looked at and added to without moving the calendar off today. -->
+        <div class="sidebar-head">
+          <h2 style="margin-bottom:0" id="sidebar-week-head">This week</h2>
+          <span class="card-step">
+            <button class="icon-btn" onclick="stepWeekSidebar(-1)" title="Previous week" data-ico="chevron-left"></button>
+            <button class="icon-btn" onclick="stepWeekSidebar(1)" title="Next week" data-ico="chevron-right"></button>
+          </span>
+          <button class="card-collapse-btn" id="sidebar-week-collapse-btn" onclick="toggleCardCollapse('sidebar-week')" title="Collapse This week"><span class="tg-chevron open" id="sidebar-week-chevron" data-ico="chevron-right"></span></button>
+        </div>
         <div id="sidebar-week-card-body">
           <div class="sidebar-sub" id="sidebar-week-label"></div>
           <div class="sidebar-drop" id="sidebar-list" data-drop="sidebar"></div>
@@ -1680,7 +1704,7 @@ footer button { font: inherit; font-size: var(--fs-sm); border: none; background
              October without leaving September. -->
         <div class="sidebar-head">
           <h2 style="margin-bottom:0" id="month-sidebar-head">This month</h2>
-          <span class="mo-step">
+          <span class="card-step">
             <button class="icon-btn" onclick="stepMonthSidebar(-1)" title="Previous month" data-ico="chevron-left"></button>
             <button class="icon-btn" onclick="stepMonthSidebar(1)" title="Next month" data-ico="chevron-right"></button>
           </span>
@@ -2116,6 +2140,10 @@ footer button { font: inherit; font-size: var(--fs-sm); border: none; background
 const ICONS = {
   "chevron-left": '<polyline points="15 18 9 12 15 6"/>',
   "chevron-right": '<polyline points="9 18 15 12 9 6"/>',
+  // Deliberately not the chevrons above: in this app a chevron pages a view and
+  // an arrow moves a thing, and the two sit side by side on a week card row.
+  "arrow-left": '<line x1="20" y1="12" x2="4" y2="12"/><polyline points="10 6 4 12 10 18"/>',
+  "arrow-right": '<line x1="4" y1="12" x2="20" y2="12"/><polyline points="14 6 20 12 14 18"/>',
   "plus": '<line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/>',
   "x": '<line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/>',
   "grid": '<rect x="3" y="3" width="7" height="7" rx="1.5"/><rect x="14" y="3" width="7" height="7" rx="1.5"/><rect x="3" y="14" width="7" height="7" rx="1.5"/><rect x="14" y="14" width="7" height="7" rx="1.5"/>',
@@ -2568,7 +2596,7 @@ function quickAddSidebar(){
   const el = document.getElementById('sidebar-quick-add');
   const title = el.value.trim();
   if(!title) return;
-  addTask({title, week: weekKeyForDate(currentView==='week'?weekAnchor:currentDate)});
+  addTask({title, week: sidebarWeekKey()});
   el.value = '';
   renderAll();
 }
@@ -2638,6 +2666,11 @@ function saveTaskFromModal(){
     task = TASKS.find(t => t.id === editingItem.id);
     if(task){
       const wasRecurring = !!task.recurMonthly;
+      // Captured before `date` is written below. An undated task keeps the week
+      // it is already filed in: the card can be paged away from the calendar's
+      // week, and recomputing from the calendar would drag a task she opened
+      // from next week back into this one just for being saved.
+      const wasWeekly = task.date === null && !!task.week;
       task.title = title; task.date = date; task.time = time;
       task.duration_min = time ? duration : null; task.notes = notes; task.category = category;
       task.routine_id = _pendingRoutineId || null;
@@ -2647,14 +2680,14 @@ function saveTaskFromModal(){
       } else {
         if(wasRecurring && task.seriesId){ stopMonthlySeries(task.seriesId); }   // unchecking stops the whole series
         task.recurMonthly = false; task.seriesId = null;
-        if(!date) task.week = weekKeyForDate(currentView==='week'?weekAnchor:currentDate);
+        if(!date) task.week = wasWeekly ? task.week : sidebarWeekKey();
       }
     }
   } else if(recurMonthly){
     task = addTask({title, month: curMonth, category, routine_id: _pendingRoutineId || null});
     task.notes = notes; task.recurMonthly = true; task.seriesId = task.id;
   } else {
-    addTask({title, date, time, category, routine_id: _pendingRoutineId || null, week: date ? null : weekKeyForDate(currentView==='week'?weekAnchor:currentDate)});
+    addTask({title, date, time, category, routine_id: _pendingRoutineId || null, week: date ? null : sidebarWeekKey()});
     task = TASKS[TASKS.length-1];
     if(time) task.duration_min = duration;
     task.notes = notes;
@@ -5310,10 +5343,54 @@ function attachDoneCollapseHandlers(container){
 // Which week both sidebar cards are showing. Shared, rather than the same
 // expression written twice, so the assignment card cannot drift a week away
 // from the task card it sits under.
-function sidebarWeekKey(){ return weekKeyForDate(currentView==='week' ? weekAnchor : currentDate); }
+/* `_weekSidebarKey` null means "whatever the calendar is on", which is what it
+   always did; stepping sets an explicit week.
+
+   Paging is an excursion, not a mode — the same rule, and the same three
+   lines, as the month card further down. Navigating the calendar into a
+   different week ends it, because otherwise the card and the date above it
+   would silently disagree about which week "this" means and a task added from
+   here would land in a week she was no longer looking at. */
+let _weekSidebarKey = null, _weekSidebarFrom = null;
+function calendarWeekKey(){ return weekKeyForDate(currentView==='week' ? weekAnchor : currentDate); }
+function sidebarWeekKey(){
+  const cal = calendarWeekKey();
+  if(_weekSidebarKey && _weekSidebarFrom !== cal){ _weekSidebarKey = null; _weekSidebarFrom = null; }
+  return _weekSidebarKey || cal;
+}
+// Week keys are the week's start date, so a week is seven days, not a unit the
+// calendar has to be asked about.
+function stepWeekSidebar(n){
+  const key = addDays(sidebarWeekKey(), n * 7);
+  const cal = calendarWeekKey();
+  // Stepping back onto the calendar's own week drops the excursion rather than
+  // pinning it, so the card resumes following as it did before.
+  _weekSidebarKey = key === cal ? null : key;
+  _weekSidebarFrom = _weekSidebarKey ? cal : null;
+  // Both cards read sidebarWeekKey(), so both move. They are one week between
+  // them by design; paging only the tasks would be exactly the drift that
+  // sharing the helper exists to prevent.
+  renderSidebar();
+  renderWeekAssignments();
+}
+// How far the card has been paged, in words. "This week" already means the
+// calendar's week rather than today's, so these are relative to the calendar
+// too — and naming the one-step cases matters more here than it does on the
+// month card, because moving a task one week forward is a button on every row.
+function weekAwayLabel(wk, cal){
+  if(wk === cal) return 'This week';
+  if(wk === addDays(cal, 7)) return 'Next week';
+  if(wk === addDays(cal, -7)) return 'Last week';
+  return 'Another week';
+}
 function renderSidebar(){
-  const wk = sidebarWeekKey();
+  const wk = sidebarWeekKey(), cal = calendarWeekKey();
+  document.getElementById('sidebar-week-head').textContent = weekAwayLabel(wk, cal);
   document.getElementById('sidebar-week-label').textContent = `Week of ${fmtShort(wk)}`;
+  const qa = document.getElementById('sidebar-quick-add');
+  // The placeholder names the week once she has paged away, because "Add for
+  // this week" would then be a lie about where it lands.
+  if(qa) qa.placeholder = wk === cal ? 'Add for this week…' : `Add for week of ${fmtShort(wk)}…`;
   // TASKS order is the order, which is what makes the card rankable: the sort
   // below only pushes finished items to the end, and Array#sort is stable, so
   // everything still waiting keeps the sequence she dragged it into. Nothing
@@ -5329,12 +5406,30 @@ function renderSidebar(){
   // them. A carried routine occurrence is not: it has no place in TASKS to
   // splice to, and it is not hers to reorder — it sits where the day it
   // slipped from puts it.
+  /* Deferring a task to next week. Dragging cannot do this — a drag files into
+     the week the card is *showing*, and the row being dragged is already in it
+     — so the move needs a control of its own.
+
+     Forward is on every open row, because that is the ask: the thing she is
+     not going to get to this week. Back appears only once the row is ahead of
+     the current week, which is both where it is useful (undoing a push, from
+     the week it landed in) and the only case where there is anywhere to go:
+     runRollover drags whatever is left in a past week into the current one, so
+     filing into the past is a move the next load would silently undo.
+
+     Not on a carried routine occurrence — it has no week of its own to move,
+     only the day it slipped from — and not on a finished row, which has
+     nowhere it needs to be. */
+  const curWeek = weekKeyForDate(todayStr());
+  const moveHtml = item => (item.carried || item.done) ? '' : `<span class="row-step">${
+      wk > curWeek ? `<button onclick="moveTaskWeek(${item.id},-1)" title="Move back a week">${ico('arrow-left')}</button>` : ''
+    }<button onclick="moveTaskWeek(${item.id},1)" title="Move to next week">${ico('arrow-right')}</button></span>`;
   const rowHtml = item => `
     <div class="sidebar-task ${item.done?'done':''}${item.carried?'':' reorder-target'}" data-id="${item.id}" data-kind="${item.virtual?'v':'r'}"${item.carried?'':` data-drop="sidebar-row" data-week="${wk}"`}>
       <span class="chk ${item.done?'done':''}" onclick='${item.virtual ? `toggleDoneVirtual(${item.template_id},&quot;${item.date}&quot;)` : `toggleDoneReal(${item.id})`}'>${item.done?ico('check'):''}</span>
       <span class="t-title ${item.done?'done':''}" style="font-size: var(--fs-base)">${esc(item.title)}${
         item.carried ? `<span class="t-rolled-chip">from ${dowShort(item.rolled_from)}</span>`
-        : item.rolled_from ? `<span class="rolled-dot" title="Rolled over from last week"></span>` : ''}</span>
+        : item.rolled_from ? `<span class="rolled-dot" title="Rolled over from last week"></span>` : ''}</span>${moveHtml(item)}
     </div>`;
   const open = items.filter(it => !it.done);
   const done = items.filter(it => it.done);
@@ -5353,9 +5448,40 @@ function renderSidebar(){
       row.addEventListener('click', e => { if(!e.target.closest('.chk')) openTaskModal(item); });
       return;
     }
-    row.addEventListener('pointerdown', e => { if(!e.target.closest('.chk')) startItemDrag(e, item, row, () => openTaskModal(item)); });
+    // startItemDrag preventDefaults the pointerdown, so anything inside the row
+    // that wants a click of its own has to be excluded here — the checkbox
+    // always was, and the arrows are the second case.
+    row.addEventListener('pointerdown', e => { if(!e.target.closest('.chk, .row-step')) startItemDrag(e, item, row, () => openTaskModal(item)); });
   });
   attachDoneCollapseHandlers(listEl);
+}
+/* Moving an undated task between weeks, one week at a time. No rank is
+   disturbed: TASKS order is the only order, and the task keeps its place in
+   the array, so it arrives in the new week ranked where it already was
+   relative to whatever else is there.
+
+   Guarded rather than trusted: the buttons are only drawn where the move is
+   legal, but a stale render is one tick of the calendar away, and silently
+   filing a task into a week rollover will yank it back out of is worse than
+   doing nothing. */
+function moveTaskWeek(id, n){
+  const task = TASKS.find(t => t.id === id);
+  if(!task || task.date || !task.week) return;
+  const target = addDays(task.week, n * 7);
+  if(target < weekKeyForDate(todayStr())) return;
+  task.week = target;
+  // The dot means "this was forgotten, and carried". Deciding to do it next
+  // week instead is not that, and leaving the mark on would keep claiming a
+  // rollover that is no longer what moved it.
+  task.rolled_from = null;
+  touch(task);
+  saveToStorage();
+  renderAll();
+  // The row leaves the card it was tapped on, so without a word the tap reads
+  // as one that failed — the same trap the assignment card's Done fold exists
+  // to avoid. Naming the week it landed in also says where to go to undo it.
+  showNotice(`"${task.title}" moved to the week of ${fmtShort(target)}.`, 'info');
+  setTimeout(hideNotice, 3500);
 }
 
 /* The week's coursework, beside the week's tasks. Same rows as the Assignments
