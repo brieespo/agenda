@@ -52,6 +52,11 @@ alter table agenda_data enable row level security;
 
 create policy "Users manage own agenda data" on agenda_data
   for all using (auth.uid() = user_id) with check (auth.uid() = user_id);
+
+-- Required from 2026-10-30: Supabase no longer grants Data API access to new
+-- tables in `public` automatically, and a policy is not a grant.
+grant select, insert, update, delete on public.agenda_data to authenticated;
+grant select, insert, update, delete on public.agenda_data to service_role;
 ```
 
 One row per user; tasks/templates/completions/settings each sync as a jsonb blob. Guest mode works without an account and stores data in localStorage only. Signed-in saves write a local cache on every attempt (same sync-safety-net pattern as the other apps): a failed save shows a sticky banner and retries with backoff, and on load a richer local cache wins over a leaner or unreachable remote copy.
@@ -196,6 +201,12 @@ create table if not exists gcal_tokens (
   updated_at timestamptz default now()
 );
 alter table gcal_tokens enable row level security;
+
+-- Required from 2026-10-30 (a policy is not a grant). service_role and nothing
+-- else: only the gcal Edge Function touches this table, and the absence of any
+-- client policy above is deliberate — granting `authenticated` would hand the
+-- browser the path to the refresh token that this design withholds.
+grant select, insert, update, delete on public.gcal_tokens to service_role;
 ```
 
 ## Push notifications (morning brief)
@@ -216,6 +227,11 @@ create table if not exists push_subscriptions (
 alter table push_subscriptions enable row level security;
 create policy "Users manage own push subscriptions" on push_subscriptions
   for all using (auth.uid() = user_id) with check (auth.uid() = user_id);
+
+-- Required from 2026-10-30: Supabase no longer grants Data API access to new
+-- tables in `public` automatically, and a policy is not a grant.
+grant select, insert, update, delete on public.push_subscriptions to authenticated;
+grant select, insert, update, delete on public.push_subscriptions to service_role;
 ```
 
 `supabase/functions/morning-brief/index.ts` composes the brief (today's task count, first timed event, rolled-over count — reimplementing the client's recurrence/rollover logic in Deno, since this runs without the app open) and sends it via `npm:web-push`. It's triggered by pg_cron, not the client, so it authenticates via a shared `x-cron-secret` header instead of a user JWT — there's no per-request user when a scheduler calls it.

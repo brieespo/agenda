@@ -143,9 +143,24 @@ grant select, insert, update, delete on public.<table> to service_role;
 `anon` is deliberately omitted, though Supabase's template includes it. Every
 policy in this project is `to authenticated` (or, in the time-tracker's case,
 checks `auth.uid()`), no app reads these tables without a session, and a grant
-that only takes effect if RLS is ever switched off is one worth not having. The
-same two lines went into the time-tracker's `0001_time_data.sql`, the only
-migration outside this repo.
+that only takes effect if RLS is ever switched off is one worth not having.
+
+**Not every table is in `migrations/`.** Seven more are defined as SQL snippets
+in READMEs — `agenda_data`, `gcal_tokens`, `push_subscriptions` here, and
+`perfume_data`, `restock_data`, `sewing_data`, `time_data` in the sibling repos
+— and those snippets are what gets pasted into the SQL editor when a table is
+rebuilt, so they carry the grants too. The first pass on 2026-10-21 looked only
+in `migrations/` and missed all seven; a sweep for `create table` across every
+`*.md` and `*.sql` in the suite is the check that catches them.
+
+**`gcal_tokens` is the one exception, and it is `service_role` only.** It holds
+Google refresh tokens, it has no client policies by design, and only the `gcal`
+Edge Function ever touches it. Granting `authenticated` there would hand the
+browser the path to the refresh token that the whole design withholds.
+
+`law_school_data` and `user_data` (the dinner planner's) have no DDL in any
+repo — they were made in the dashboard and cannot be rebuilt from source either
+way. Safe, since existing tables keep their grants, but worth knowing.
 
 **Verify before building on one.** She applies these by hand in the Supabase SQL
 editor, and on 2026-09-03 two turns of work were built on a column that had not
@@ -353,12 +368,48 @@ Drag & drop: pointer-events–based (works for mouse and touch), with drop-targe
 - The function receives today's date + the visible week's task titles as context so "move the bank thing to Friday" resolves.
 - Also wire the same parser to a **quick-add input** at the top of the day view (single line → one action, no conversation) — chat for streams, quick-add for one-liners.
 
-## Google Calendar (read-only in this app)
+## Google Calendar (two-way sync)
 
-- GIS token client, `calendar.readonly`, silent refresh (`prompt: ''` after first consent) — Bri signs in rarely, not per visit.
-- Settings: choose which calendars render (her Law School Schedule, Online Classes, Law Review, Bri, Appointments, Sloane, Bills — color-coded to match Google's or the suite palette).
-- Events render on the grid, read-only and visually distinct (softer fill, no checkbox — though allow gray-out marking an event "done/attended" locally if trivial to add).
-- **Do not write to Google Calendar from this app** (the law school app owns that pattern); revisit later if wanted.
+**Corrected 2026-10-22.** Every bullet here described the plan rather than what
+shipped — read-only, `calendar.readonly`, GIS, and a rule against writing, none
+of which has been true since two-way sync was built. The README's Google
+Calendar section was right the whole time and remains the full account; this is
+the short version, kept honest.
+
+- **Auth is an authorization-code redirect with a server-side refresh token, not
+  the GIS token client.** GIS has no documented way to ask for a refresh token
+  and its model needs a real gesture per renewal, so silent refresh is not
+  reachable through it — checked against Google's docs before building, not
+  assumed. The connect flow is built by hand against `accounts.google.com/o/oauth2`
+  (`access_type=offline&prompt=consent`, which `initCodeClient` will not expose);
+  `supabase/functions/gcal/index.ts` trades the code once, keeps **only** the
+  refresh token in `gcal_tokens`, and mints access tokens from then on. This is
+  why Calendar needs a real account and is unavailable in guest mode.
+- **The scope is the full `https://www.googleapis.com/auth/calendar`** — neither
+  `calendar.readonly` (as this said) nor `calendar.events` (the original ask).
+  Creating the app's own calendar needs calendar-management access and the
+  delete flow needs broad event write access; the full scope is the one value
+  that covers both without stacking scopes.
+- **The "do not write from this app" rule is reversed, not forgotten.** The app
+  finds-or-creates a calendar named **Agenda** (`SETTINGS.agendaCalendarId`) and
+  pushes every one-time task carrying both a date and a time — never routines,
+  templates or exceptions, which are not calendar events. The reasoning that
+  produced the old rule still stands and is what keeps the writing confined:
+  the app owns one calendar and writes there, exactly as the law school app
+  does with its own.
+- **Her own calendars are written to in exactly one place**: moving or resizing
+  an imported event on the day grid, and only where `accessRole` is not `reader`
+  or `freeBusyReader`. A deliberate exception, gated by the same check the
+  delete flow uses. Imported events are otherwise read-only — softer fill, no
+  checkbox — and deleting one is click-through-to-detail with an explicit
+  confirmation, never a swipe or a hover affordance on the grid.
+- Settings: choose which calendars render (her Law School Schedule, Online
+  Classes, Law Review, Bri, Appointments, Sloane, Bills — color-coded to match
+  Google's or the suite palette). The **Agenda** calendar is excluded from that
+  picker and from the rendered feed, since its events already show as tasks.
+- No client ID is hardcoded; it is pasted into Settings. The OAuth project is
+  shared with the law school tracker — see the note below on why its client
+  stays non-agentic.
 
 ### The OAuth client is deliberately *not* "agentic" (decided 2026-10-22)
 
