@@ -360,6 +360,39 @@ Drag & drop: pointer-events–based (works for mouse and touch), with drop-targe
 - Events render on the grid, read-only and visually distinct (softer fill, no checkbox — though allow gray-out marking an event "done/attended" locally if trivial to add).
 - **Do not write to Google Calendar from this app** (the law school app owns that pattern); revisit later if wanted.
 
+### The OAuth client is deliberately *not* "agentic" (decided 2026-10-22)
+
+Google is adding an `is_agentic` flag to OAuth clients: from **2026-11-11** only
+clients carrying it may call the new Workspace **MCP** servers, and from
+**2026-11-12** the flag can no longer be changed on an existing client — only
+set at creation on a new one. The notice named the shared `law-school-app`
+project, which is this app's OAuth project too.
+
+**It does not apply, and the flag must not be set.** Checked rather than
+assumed:
+
+- Both apps ask for one scope, `https://www.googleapis.com/auth/calendar`, and
+  call `googleapis.com/calendar/v3` — the ordinary Calendar REST API. Neither
+  touches a Workspace MCP server; the string "mcp" does not appear in either
+  repo. Google's own carve-out covers exactly this case.
+- **Having an AI feature is not the same as being an AI agent here.** The
+  `assistant` Edge Function contains no Google reference of any kind — the LLM
+  path and the Google path never meet, and the model has never been able to
+  reach the calendar. What Google is classifying is which clients may call MCP
+  servers, not which apps contain a model.
+- **Setting it would be a live risk for no gain.** Agentic clients get extra
+  security controls applied ("agent access controls"). This client is what two
+  deployed apps use for calendar sync, so turning it on could break sync for
+  both — to buy a capability neither one uses.
+
+**Nothing is lost by letting the deadline pass.** The freeze on 11-12 applies to
+*existing* clients; a new client can still be created agentic afterwards at any
+time. And if an MCP use ever does appear it would need its own client regardless
+— Google's guidance is that an app with both kinds of traffic separates them.
+
+The project is shared, so this decision is one decision for both repos: a change
+made for the law school tracker lands on the agenda's calendar sync too.
+
 ### Ghosting an event (decided)
 
 Right-click any imported Google event — hour-grid block, all-day bar, or week
